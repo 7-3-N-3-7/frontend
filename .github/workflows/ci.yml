@@ -1,0 +1,12 @@
+name: Frontend CI Pipeline
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+jobs:
+  security-governance:
+    name: Run Central Security & Governance Gate
+    uses: 7-3-N-3-7/api/.github/workflows/security-scan.yml@main
