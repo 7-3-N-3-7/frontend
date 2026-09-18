@@ -10,7 +10,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: 7-3-n-3-7/frontend
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   build-and-push-image:
