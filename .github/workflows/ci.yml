@@ -9,4 +9,9 @@ on:
 jobs:
   security-governance:
     name: Run Central Security & Governance Gate
-    uses: 7-3-N-3-7/api/.github/workflows/security-scan.yml@main
+    uses: 7-3-N-3-7/api/.github/workflows/trufflehog-scan.yml@main
+
+  build-and-lint:
+    name: Run Standard Frontend CI
+    uses: 7-3-N-3-7/api/.github/workflows/standard-frontend-ci.yml@main
+    needs: security-governance
