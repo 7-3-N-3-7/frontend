@@ -4,8 +4,40 @@ on:
   pull_request:
     branches: [ main, dev ]
 
+concurrency:
+  group: pr-e2e-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
+  trufflehog:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.pull_request.base.sha }}
+          head: ${{ github.event.pull_request.head.sha }}
+
+  install-playwright-browser:
+    runs-on: ubuntu-latest
+    needs: trufflehog
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+
   build-pr-image:
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    needs: install-playwright-browser
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -21,10 +53,11 @@ jobs:
         with:
           context: .
           push: true
-          tags: ghcr.io/7-3-n-3-7/frontend:pr-${{ github.event.number }}
+          tags: ghcr.io/7-3-n-3-7/frontend:pr-${{ github.event.number }}-${{ github.sha }}
 
   call-central-e2e:
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
     needs: build-pr-image
     uses: 7-3-N-3-7/api/.github/workflows/e2e-dast-pipeline.yml@main
     with:
-      frontend_tag: pr-${{ github.event.number }}
+      frontend_tag: pr-${{ github.event.number }}-${{ github.sha }}

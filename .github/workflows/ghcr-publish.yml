@@ -7,14 +7,10 @@ on:
       - dev
     tags:
       - 'v*'
-  pull_request:
-    branches:
-      - main
-      - dev
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  IMAGE_NAME: 7-3-n-3-7/frontend
 
 jobs:
   build-and-push-image:
