@@ -2,9 +2,6 @@ name: Build and Publish Frontend Docker Image
 
 on:
   push:
-    branches:
-      - main
-      - dev
     tags:
       - 'v*'
 
