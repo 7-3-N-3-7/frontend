@@ -1,0 +1,55 @@
+name: Central E2E PR Validation
+
+on:
+  pull_request:
+    branches: [ main, dev ]
+
+concurrency:
+  group: pr-e2e-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  trufflehog:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: trufflesecurity/trufflehog@288a8a8643a2c5a36b81d231c550dccfa0beeb64
+        with:
+          path: ./
+          base: ${{ github.event.pull_request.base.sha }}
+          head: ${{ github.event.pull_request.head.sha }}
+
+  build-pr-image:
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    needs: trufflehog
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ghcr.io/7-3-n-3-7/frontend:pr-${{ github.event.number }}-${{ github.sha }}
+
+  call-central-e2e:
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    needs: build-pr-image
+    permissions:
+      contents: read
+      packages: read
+    uses: 7-3-N-3-7/api/.github/workflows/e2e-dast-pipeline.yml@main
+    secrets: inherit
+    with:
+      frontend_tag: pr-${{ github.event.number }}-${{ github.sha }}
