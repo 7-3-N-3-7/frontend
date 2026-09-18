@@ -3,9 +3,7 @@ import { test, expect } from '@playwright/test';
 const TEST_PASSWORD = process.env.ZITADEL_TEST_PASSWORD;
 const BASE_URL = (process.env.BASE_URL || 'http://localhost').replace(/\/$/, '');
 
-// Helper to generate the test users based on the requirements
-// The user mentioned ~15 users, we'll generate a representative list 
-// covering the combinations they requested.
+// Representative 3x3 matrix subset: each role appears in each organization once.
 const testUsers = [
   { username: 'admin_acme_billing', role: 'Admin', organization: 'Acme Corp', service: 'Billing' },
   { username: 'editor_acme_analytics', role: 'Editor', organization: 'Acme Corp', service: 'Analytics' },
@@ -21,6 +19,7 @@ const testUsers = [
 
 test.describe('Frontend RBAC Display Verification', () => {
   test.skip(process.env.ENABLE_ZITADEL_RBAC_E2E !== 'true', 'Enable with ENABLE_ZITADEL_RBAC_E2E=true once login flow is available.');
+  test.skip(!TEST_PASSWORD, 'Set ZITADEL_TEST_PASSWORD to run Zitadel authentication tests.');
   
   // Data-driven tests: Playwright will create an individual test case for every user in the array
   for (const user of testUsers) {
