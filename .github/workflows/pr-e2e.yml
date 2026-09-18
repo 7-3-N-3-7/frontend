@@ -26,6 +26,8 @@ jobs:
   install-playwright-browser:
     runs-on: ubuntu-latest
     needs: trufflehog
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -58,6 +60,10 @@ jobs:
   call-central-e2e:
     if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
     needs: build-pr-image
+    permissions:
+      contents: read
+      packages: read
     uses: 7-3-N-3-7/api/.github/workflows/e2e-dast-pipeline.yml@main
+    secrets: inherit
     with:
       frontend_tag: pr-${{ github.event.number }}-${{ github.sha }}

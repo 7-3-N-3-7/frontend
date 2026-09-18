@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 const TEST_PASSWORD = process.env.ZITADEL_TEST_PASSWORD;
+const BASE_URL = (process.env.BASE_URL || 'http://localhost').replace(/\/$/, '');
 
 // Helper to generate the test users based on the requirements
 // The user mentioned ~15 users, we'll generate a representative list 
@@ -18,7 +19,8 @@ const testUsers = [
   // ... (You can expand this list up to the 15 or 27 combinations you need)
 ];
 
-test.describe.skip('Frontend RBAC Display Verification', () => {
+test.describe('Frontend RBAC Display Verification', () => {
+  test.skip(process.env.ENABLE_ZITADEL_RBAC_E2E !== 'true', 'Enable with ENABLE_ZITADEL_RBAC_E2E=true once login flow is available.');
   
   // Data-driven tests: Playwright will create an individual test case for every user in the array
   for (const user of testUsers) {
@@ -39,7 +41,7 @@ test.describe.skip('Frontend RBAC Display Verification', () => {
       await page.click('button[type="submit"]:has-text("next")');
       
       // 4. Wait for redirect back to the Frontend application
-      await page.waitForURL('/');
+      await page.waitForURL((url) => url.toString().startsWith(BASE_URL));
       
       // 5. Construct the expected welcome message
       const expectedMessage = `welcome ${user.username}, you have attributes, role: ${user.role}, organization: ${user.organization}, service: ${user.service}`;
