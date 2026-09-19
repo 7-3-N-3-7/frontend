@@ -46,13 +46,44 @@ jobs:
           push: true
           tags: ${{ env.IMAGE_NAME }}:pr-${{ github.event.number }}-${{ github.sha }}
 
+  determine-backend-tag:
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    outputs:
+      backend_tag: ${{ steps.resolve-tag.outputs.tag }}
+    steps:
+      - id: resolve-tag
+        name: Resolve Backend Tag
+        env:
+          BRANCH_NAME: ${{ github.head_ref }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Check if the backend image exists with the current branch name tag
+          # If not, fallback to 'main'
+          
+          IMAGE="ghcr.io/7-3-n-3-7/backend"
+          TAG="$BRANCH_NAME"
+          
+          # A simple check using docker manifest (requires experimental flag)
+          export DOCKER_CLI_EXPERIMENTAL=enabled
+          echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          
+          if docker manifest inspect $IMAGE:$TAG > /dev/null 2>&1; then
+            echo "Found matching backend branch tag: $TAG"
+            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          else
+            echo "Matching backend tag not found, falling back to 'main'"
+            echo "tag=main" >> "$GITHUB_OUTPUT"
+          fi
+
   call-central-e2e:
     if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
-    needs: build-pr-image
+    needs: [build-pr-image, determine-backend-tag]
     permissions:
       contents: read
       packages: read
-    uses: 7-3-N-3-7/api/.github/workflows/e2e-dast-pipeline.yml@main
+    uses: 7-3-N-3-7/api/.github/workflows/e2e-pipeline.yml@main
     secrets: inherit
     with:
+      backend_tag: ${{ needs.determine-backend-tag.outputs.backend_tag }}
       frontend_tag: pr-${{ github.event.number }}-${{ github.sha }}
