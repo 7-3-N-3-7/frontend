@@ -1,0 +1,8 @@
+{
+  "default": {
+    "paths": ["e2e/features/**/*.feature"],
+    "requireModule": ["ts-node/register"],
+    "require": ["e2e/steps/**/*.ts"],
+    "format": ["progress", "json:e2e/reports/cucumber-report.json"]
+  }
+}
