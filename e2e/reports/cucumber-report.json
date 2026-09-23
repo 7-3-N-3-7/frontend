@@ -1,0 +1,51 @@
+[
+  {
+    "description": "",
+    "elements": [
+      {
+        "description": "",
+        "id": "app-load;load-the-main-page",
+        "keyword": "Scenario",
+        "line": 2,
+        "name": "Load the main page",
+        "steps": [
+          {
+            "result": {
+              "status": "passed",
+              "duration": 1241660799
+            },
+            "arguments": [],
+            "keyword": "Given ",
+            "line": 3,
+            "name": "the application is loaded",
+            "match": {
+              "location": "e2e\\steps\\app.steps.ts:20"
+            }
+          },
+          {
+            "result": {
+              "status": "failed",
+              "duration": 66909599,
+              "error_message": "AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n+ actual - expected\n\n+ ''\n- 'integrate-frontend'\n\n    + expected - actual\n\n    +integrate-frontend\n\n    at World.<anonymous> (file:///Z:/home/work/projects/api/frontend/e2e/steps/app.steps.ts:27:10)\n    at async wrapPromiseWithTimeout (Z:\\home\\work\\projects\\api\\frontend\\node_modules\\@cucumber\\cucumber\\lib\\time.js:34:12)\n    at async Object.run (Z:\\home\\work\\projects\\api\\frontend\\node_modules\\@cucumber\\cucumber\\lib\\user_code_runner.js:64:22)\n    at async Object.run (Z:\\home\\work\\projects\\api\\frontend\\node_modules\\@cucumber\\cucumber\\lib\\runtime\\step_runner.js:31:26)\n    at async TestCaseRunner.invokeStep (Z:\\home\\work\\projects\\api\\frontend\\node_modules\\@cucumber\\cucumber\\lib\\runtime\\test_case_runner.js:91:16)\n    at async TestCaseRunner.runStep (Z:\\home\\work\\projects\\api\\frontend\\node_modules\\@cucumber\\cucumber\\lib\\runtime\\test_case_runner.js:271:26)\n    at async Z:\\home\\work\\projects\\api\\frontend\\node_modules\\@cucumber\\cucumber\\lib\\runtime\\test_case_runner.js:179:44\n    at async TestCaseRunner.aroundTestStep (Z:\\home\\work\\projects\\api\\frontend\\node_modules\\@cucumber\\cucumber\\lib\\runtime\\test_case_runner.js:119:32)\n    at async TestCaseRunner.runAttempt (Z:\\home\\work\\projects\\api\\frontend\\node_modules\\@cucumber\\cucumber\\lib\\runtime\\test_case_runner.js:161:13)\n    at async TestCaseRunner.run (Z:\\home\\work\\projects\\api\\frontend\\node_modules\\@cucumber\\cucumber\\lib\\runtime\\test_case_runner.js:135:35)"
+            },
+            "arguments": [],
+            "keyword": "Then ",
+            "line": 4,
+            "name": "the title should be \"hello world\"",
+            "match": {
+              "location": "e2e\\steps\\app.steps.ts:25"
+            }
+          }
+        ],
+        "tags": [],
+        "type": "scenario"
+      }
+    ],
+    "id": "app-load",
+    "line": 1,
+    "keyword": "Feature",
+    "name": "App Load",
+    "tags": [],
+    "uri": "e2e\\features\\app.feature"
+  }
+]
