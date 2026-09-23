@@ -1,5 +1,5 @@
 import { Given, Then, BeforeAll, AfterAll, setDefaultTimeout } from '@cucumber/cucumber';
-import { chromium, Browser, Page } from 'playwright';
+import { chromium, type Browser, type Page } from 'playwright';
 import assert from 'assert';
 
 setDefaultTimeout(60000);
