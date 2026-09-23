@@ -82,7 +82,7 @@ jobs:
     permissions:
       contents: read
       packages: read
-    uses: 7-3-N-3-7/api/.github/workflows/e2e-pipeline.yml@main
+    uses: 7-3-N-3-7/infrastructure/.github/workflows/e2e-pipeline.yml@main
     secrets: inherit
     with:
       backend_tag: ${{ needs.determine-backend-tag.outputs.backend_tag }}
