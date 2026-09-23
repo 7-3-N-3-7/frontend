@@ -1,0 +1,51 @@
+[
+  {
+    "description": "",
+    "elements": [
+      {
+        "description": "",
+        "id": "app-load;load-the-main-page",
+        "keyword": "Scenario",
+        "line": 2,
+        "name": "Load the main page",
+        "steps": [
+          {
+            "result": {
+              "status": "failed",
+              "duration": 837558900,
+              "error_message": "page.goto: net::ERR_CERT_AUTHORITY_INVALID at http://localhost/\nCall log:\n\u001b[2m  - navigating to \"http://localhost/\", waiting until \"load\"\u001b[22m\n\n    at World.<anonymous> (Z:\\home\\work\\projects\\api\\frontend\\e2e\\steps\\app.steps.ts:22:14)"
+            },
+            "arguments": [],
+            "keyword": "Given ",
+            "line": 3,
+            "name": "the application is loaded",
+            "match": {
+              "location": "e2e\\steps\\app.steps.ts:20"
+            }
+          },
+          {
+            "result": {
+              "status": "skipped",
+              "duration": 0
+            },
+            "arguments": [],
+            "keyword": "Then ",
+            "line": 4,
+            "name": "the title should be \"integrate-frontend\"",
+            "match": {
+              "location": "e2e\\steps\\app.steps.ts:25"
+            }
+          }
+        ],
+        "tags": [],
+        "type": "scenario"
+      }
+    ],
+    "id": "app-load",
+    "line": 1,
+    "keyword": "Feature",
+    "name": "App Load",
+    "tags": [],
+    "uri": "e2e\\features\\app.feature"
+  }
+]

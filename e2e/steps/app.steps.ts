@@ -9,7 +9,7 @@ let page: Page;
 
 BeforeAll(async function () {
   browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext();
+  const context = await browser.newContext({ ignoreHTTPSErrors: true });
   page = await context.newPage();
 });
 
