@@ -11,7 +11,6 @@ export function Home() {
   // or by redirecting the user to Keycloak's registration page.
   
   // Configure your Realm and Client ID here
-  // Configure your Realm and Client ID here
   const REALM = "api-backend" // Replace with your actual realm name if different
   const CLIENT_ID = "platform-frontend"
 
