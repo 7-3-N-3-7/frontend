@@ -1,102 +1,63 @@
-import { useState } from 'react'
+import { Link } from '@tanstack/react-router'
 import { Button } from "@/components/ui/button"
+import { BookOpen, PenTool, Lock, Brain } from "lucide-react"
 
 export function Home() {
-  const [username, setUsername] = useState('')
-  const [password, setPassword] = useState('')
-  const [loading, setLoading] = useState(false)
-
-  // NOTE: Keycloak ROPC does NOT support user registration via this endpoint.
-  // Registration must be done via the Keycloak Admin REST API from a secure backend, 
-  // or by redirecting the user to Keycloak's registration page.
-  
-  // Configure your Realm and Client ID here
-  const REALM = "api-backend" // Replace with your actual realm name if different
-  const CLIENT_ID = "platform-frontend"
-
-  const domain = import.meta.env.VITE_DOMAIN || 'localhost:5173'
-  const protocol = domain.includes('localhost') ? 'http' : 'https'
-  
-  // The base URL for your IAM API
-  const iamApiUrl = import.meta.env.VITE_IAM_URL || 'https://login.157.180.43.151.nip.io'
-
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setLoading(true)
-
-    try {
-      // 1. URL Encoded body is required for Keycloak's token endpoint
-      const body = new URLSearchParams()
-      body.append('grant_type', 'password')
-      body.append('client_id', CLIENT_ID)
-      body.append('username', username)
-      body.append('password', password)
-
-      // 2. Make the Direct Access Grant (ROPC) call
-      const response = await fetch(`${iamApiUrl}/realms/${REALM}/protocol/openid-connect/token`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: body.toString()
-      })
-
-      if (!response.ok) {
-        throw new Error('Authentication failed. Check credentials.')
-      }
-
-      const data = await response.json()
-      
-      // 3. Store the token. To share it with platform.localhost, we set a cookie on the root domain!
-      // We extract just the base domain (e.g. 'localhost' or '157.180.43.151.nip.io') without the port.
-      const baseDomain = domain.split(':')[0]
-      
-      // Set a cookie valid for the entire domain and subdomains
-      document.cookie = `access_token=${data.access_token}; domain=.${baseDomain}; path=/; max-age=${data.expires_in}; SameSite=Lax; ${protocol === 'https' ? 'Secure' : ''}`
-
-      // Optional: store the refresh_token similarly if you need to refresh sessions
-      // document.cookie = `refresh_token=${data.refresh_token}; domain=.${baseDomain}; path=/; SameSite=Lax; ${protocol === 'https' ? 'Secure' : ''}`
-
-      // 4. Redirect to the platform app
-      window.location.href = `${protocol}://platform.${domain}`
-    } catch (error) {
-      console.error(error)
-      alert("Failed to authenticate. Have you configured 'Direct Access Grants' for your client in Keycloak?")
-    } finally {
-      setLoading(false)
-    }
-  }
-
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-4">
-      <div className="max-w-md w-full bg-white p-8 rounded shadow text-center space-y-6">
-        <h1 className="text-2xl font-extrabold tracking-tight text-slate-900">
-          Therapist Booking
+    <div className="min-h-screen bg-slate-50 flex flex-col">
+      {/* Navbar */}
+      <header className="px-6 py-4 flex items-center justify-between bg-white border-b">
+        <div className="flex items-center gap-2">
+          <BookOpen className="w-6 h-6 text-blue-600" />
+          <span className="text-xl font-bold tracking-tight text-slate-900">EduJournal</span>
+        </div>
+        <Link to="/login">
+          <Button>Register / Login</Button>
+        </Link>
+      </header>
+
+      {/* Hero Section */}
+      <main className="flex-1 flex flex-col items-center justify-center text-center px-4 py-20">
+        <div className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 border-transparent bg-blue-100 text-blue-800 mb-6">
+          For Educational Purposes
+        </div>
+        <h1 className="text-5xl md:text-6xl font-extrabold tracking-tight text-slate-900 mb-6 max-w-3xl">
+          Reflect, Learn, and Grow with <span className="text-blue-600">EduJournal</span>
         </h1>
-        <p className="text-sm text-slate-500">Sign in to your account</p>
-        
-        <form onSubmit={handleLogin} className="flex flex-col space-y-4">
-          <input 
-            type="text" 
-            placeholder="Username" 
-            className="border p-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-            value={username}
-            onChange={e => setUsername(e.target.value)}
-            required
-          />
-          <input 
-            type="password" 
-            placeholder="Password" 
-            className="border p-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            required
-          />
-          <Button type="submit" size="lg" className="w-full" disabled={loading}>
-            {loading ? 'Authenticating...' : 'Login'}
-          </Button>
-        </form>
-      </div>
+        <p className="text-lg md:text-xl text-slate-600 max-w-2xl mb-10">
+          A dedicated platform for secure journal tracking and seamless appointment booking designed specifically for therapists and their clients.
+        </p>
+
+        {/* Feature Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mt-24 max-w-5xl w-full text-left">
+          <div className="bg-white p-6 rounded-xl shadow-sm border">
+            <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center mb-4">
+              <PenTool className="w-6 h-6" />
+            </div>
+            <h3 className="text-xl font-bold mb-2">Daily Entries</h3>
+            <p className="text-slate-600">Write down your daily learnings and reflections with an intuitive, distraction-free editor.</p>
+          </div>
+          <div className="bg-white p-6 rounded-xl shadow-sm border">
+            <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center mb-4">
+              <Lock className="w-6 h-6" />
+            </div>
+            <h3 className="text-xl font-bold mb-2">Private & Secure</h3>
+            <p className="text-slate-600">Your journals are encrypted and private, ensuring a safe space for personal educational reflection.</p>
+          </div>
+          <div className="bg-white p-6 rounded-xl shadow-sm border">
+            <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center mb-4">
+              <Brain className="w-6 h-6" />
+            </div>
+            <h3 className="text-xl font-bold mb-2">Cognitive Growth</h3>
+            <p className="text-slate-600">Look back at past entries to see how your understanding has evolved over time.</p>
+          </div>
+        </div>
+      </main>
+
+      {/* Footer */}
+      <footer className="py-6 text-center text-slate-500 text-sm bg-white border-t mt-auto">
+        &copy; {new Date().getFullYear()} EduJournal. This is an educational project.
+      </footer>
     </div>
   )
 }
