@@ -16,5 +16,12 @@ export default defineConfig({
       usePolling: true,
       ignored: ['**/node_modules/**', 'C:/**', 'c:/**'],
     },
+    proxy: {
+      '/realms': {
+        target: 'https://login.157.180.43.151.nip.io',
+        changeOrigin: true,
+        secure: false,
+      }
+    }
   },
 })
