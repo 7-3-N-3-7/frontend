@@ -25,14 +25,8 @@ export function Home() {
           Reflect, Learn, and Grow with <span className="text-blue-600">EduJournal</span>
         </h1>
         <p className="text-lg md:text-xl text-slate-600 max-w-2xl mb-10">
-          A dedicated journaling system designed specifically for educational environments. 
-          Capture your thoughts, document your learning journey, and build a habit of daily reflection.
+          A dedicated platform for secure journal tracking and seamless appointment booking designed specifically for therapists and their clients.
         </p>
-        <Link to="/login">
-          <Button size="lg" className="text-lg px-8 py-6 rounded-full shadow-lg hover:shadow-xl transition-all">
-            Start Journaling Today
-          </Button>
-        </Link>
 
         {/* Feature Grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mt-24 max-w-5xl w-full text-left">
