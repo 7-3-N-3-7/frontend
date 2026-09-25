@@ -15,10 +15,10 @@ export function Login() {
   const CLIENT_ID = "platform-frontend"
 
   const domain = import.meta.env.VITE_DOMAIN || 'localhost:5173'
-  const protocol = domain.includes('localhost') ? 'http' : 'https'
+  const protocol = window.location.protocol.replace(':', '')
   
   // The base URL for your IAM API
-  const iamApiUrl = import.meta.env.VITE_IAM_URL || 'https://login.157.180.43.151.nip.io'
+  const iamApiUrl = import.meta.env.VITE_IAM_URL !== undefined ? import.meta.env.VITE_IAM_URL : 'https://login.157.180.43.151.nip.io'
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()

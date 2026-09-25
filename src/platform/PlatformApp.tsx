@@ -10,7 +10,7 @@ const rootRoute = createRootRoute({
     const hasToken = document.cookie.includes('access_token=')
     if (!hasToken) {
       const domain = import.meta.env.VITE_DOMAIN || 'localhost:5173'
-      const protocol = domain.includes('localhost') ? 'http' : 'https'
+      const protocol = window.location.protocol.replace(':', '')
       // Hard redirect to the main domain's login page
       window.location.href = `${protocol}://${domain}/login`
     }
