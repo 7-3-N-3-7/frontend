@@ -12,9 +12,23 @@ export default defineConfig({
   },
   server: {
     host: true,
+    allowedHosts: ['127.0.0.1.nip.io', 'platform.127.0.0.1.nip.io'],
     watch: {
       usePolling: true,
       ignored: ['**/node_modules/**', 'C:/**', 'c:/**'],
     },
+    proxy: {
+      '/realms': {
+        target: 'https://login.157.180.43.151.nip.io',
+        changeOrigin: true,
+        secure: false,
+        configure: (proxy, options) => {
+          proxy.on('proxyReq', (proxyReq, req, res) => {
+            // Spoof the origin so Keycloak doesn't reject it
+            proxyReq.setHeader('Origin', 'https://platform.157.180.43.151.nip.io')
+          })
+        }
+      }
+    }
   },
 })

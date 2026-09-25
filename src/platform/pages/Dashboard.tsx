@@ -2,10 +2,14 @@ import { Button } from "@/components/ui/button"
 
 export function Dashboard() {
   const domain = import.meta.env.VITE_DOMAIN || 'localhost:5173'
-  const protocol = domain.includes('localhost') ? 'http' : 'https'
+  const protocol = window.location.protocol.replace(':', '')
 
   const handleLogout = () => {
-    // Basic logout logic to show IAM redirect
+    // Clear the access_token cookie by expiring it
+    const baseDomain = domain.split(':')[0]
+    document.cookie = `access_token=; domain=.${baseDomain}; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT;`
+    
+    // Redirect to the landing page
     window.location.href = `${protocol}://${domain}`
   }
 
