@@ -4,6 +4,12 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
+
+ARG VITE_DOMAIN
+ARG VITE_IAM_URL
+ENV VITE_DOMAIN=$VITE_DOMAIN
+ENV VITE_IAM_URL=$VITE_IAM_URL
+
 RUN npm run build
 
 # 2. Serve Stage
