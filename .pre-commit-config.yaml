@@ -1,9 +1,5 @@
 repos:
-  - repo: local
+  - repo: https://github.com/trufflesecurity/trufflehog
+    rev: v3.97.4
     hooks:
       - id: trufflehog
-        name: TruffleHog
-        description: Detect secrets in your data with TruffleHog.
-        entry: trufflesecurity/trufflehog:latest --no-update filesystem --fail
-        language: docker_image
-        pass_filenames: true
