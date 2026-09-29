@@ -11,8 +11,9 @@
         "steps": [
           {
             "result": {
-              "status": "passed",
-              "duration": 1241660799
+              "status": "failed",
+              "duration": 14943699,
+              "error_message": "page.goto: net::ERR_CONNECTION_REFUSED at http://localhost/\nCall log:\n\u001b[2m  - navigating to \"http://localhost/\", waiting until \"load\"\u001b[22m\n\n    at World.<anonymous> (Z:\\home\\work\\projects\\api\\frontend\\e2e\\steps\\app.steps.ts:22:14)"
             },
             "arguments": [],
             "keyword": "Given ",
@@ -24,14 +25,13 @@
           },
           {
             "result": {
-              "status": "failed",
-              "duration": 66909599,
-              "error_message": "AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n+ actual - expected\n\n+ ''\n- 'integrate-frontend'\n\n    + expected - actual\n\n    +integrate-frontend\n\n    at World.<anonymous> (file:///Z:/home/work/projects/api/frontend/e2e/steps/app.steps.ts:27:10)\n    at async wrapPromiseWithTimeout (Z:\\home\\work\\projects\\api\\frontend\\node_modules\\@cucumber\\cucumber\\lib\\time.js:34:12)\n    at async Object.run (Z:\\home\\work\\projects\\api\\frontend\\node_modules\\@cucumber\\cucumber\\lib\\user_code_runner.js:64:22)\n    at async Object.run (Z:\\home\\work\\projects\\api\\frontend\\node_modules\\@cucumber\\cucumber\\lib\\runtime\\step_runner.js:31:26)\n    at async TestCaseRunner.invokeStep (Z:\\home\\work\\projects\\api\\frontend\\node_modules\\@cucumber\\cucumber\\lib\\runtime\\test_case_runner.js:91:16)\n    at async TestCaseRunner.runStep (Z:\\home\\work\\projects\\api\\frontend\\node_modules\\@cucumber\\cucumber\\lib\\runtime\\test_case_runner.js:271:26)\n    at async Z:\\home\\work\\projects\\api\\frontend\\node_modules\\@cucumber\\cucumber\\lib\\runtime\\test_case_runner.js:179:44\n    at async TestCaseRunner.aroundTestStep (Z:\\home\\work\\projects\\api\\frontend\\node_modules\\@cucumber\\cucumber\\lib\\runtime\\test_case_runner.js:119:32)\n    at async TestCaseRunner.runAttempt (Z:\\home\\work\\projects\\api\\frontend\\node_modules\\@cucumber\\cucumber\\lib\\runtime\\test_case_runner.js:161:13)\n    at async TestCaseRunner.run (Z:\\home\\work\\projects\\api\\frontend\\node_modules\\@cucumber\\cucumber\\lib\\runtime\\test_case_runner.js:135:35)"
+              "status": "skipped",
+              "duration": 0
             },
             "arguments": [],
             "keyword": "Then ",
             "line": 4,
-            "name": "the title should be \"hello world\"",
+            "name": "the title should be \"integrate-frontend\"",
             "match": {
               "location": "e2e\\steps\\app.steps.ts:25"
             }
@@ -47,5 +47,93 @@
     "name": "App Load",
     "tags": [],
     "uri": "e2e\\features\\app.feature"
+  },
+  {
+    "description": "  As a user\n  I want to switch the application language\n  So that I can view the interface in my preferred language (English or Danish)",
+    "elements": [
+      {
+        "description": "",
+        "id": "frontend-localization-ui;toggling-language-between-english-and-danish-updates-the-ui-text",
+        "keyword": "Scenario",
+        "line": 6,
+        "name": "Toggling language between English and Danish updates the UI text",
+        "steps": [
+          {
+            "result": {
+              "status": "failed",
+              "duration": 69458399,
+              "error_message": "page.goto: net::ERR_CONNECTION_REFUSED at http://localhost/\nCall log:\n\u001b[2m  - navigating to \"http://localhost/\", waiting until \"load\"\u001b[22m\n\n    at World.<anonymous> (Z:\\home\\work\\projects\\api\\frontend\\e2e\\steps\\app.steps.ts:22:14)"
+            },
+            "arguments": [],
+            "keyword": "Given ",
+            "line": 7,
+            "name": "the application is loaded",
+            "match": {
+              "location": "e2e\\steps\\app.steps.ts:20"
+            }
+          },
+          {
+            "result": {
+              "status": "skipped",
+              "duration": 0
+            },
+            "arguments": [],
+            "keyword": "When ",
+            "line": 8,
+            "name": "I click the language switcher and select \"Danish\"",
+            "match": {
+              "location": "e2e\\steps\\localization.steps.ts:5"
+            }
+          },
+          {
+            "result": {
+              "status": "skipped",
+              "duration": 0
+            },
+            "arguments": [],
+            "keyword": "Then ",
+            "line": 9,
+            "name": "the navigation menu should display \"Overblik\"",
+            "match": {
+              "location": "e2e\\steps\\localization.steps.ts:11"
+            }
+          },
+          {
+            "result": {
+              "status": "skipped",
+              "duration": 0
+            },
+            "arguments": [],
+            "keyword": "When ",
+            "line": 10,
+            "name": "I click the language switcher and select \"English\"",
+            "match": {
+              "location": "e2e\\steps\\localization.steps.ts:5"
+            }
+          },
+          {
+            "result": {
+              "status": "skipped",
+              "duration": 0
+            },
+            "arguments": [],
+            "keyword": "Then ",
+            "line": 11,
+            "name": "the navigation menu should display \"Overview\"",
+            "match": {
+              "location": "e2e\\steps\\localization.steps.ts:11"
+            }
+          }
+        ],
+        "tags": [],
+        "type": "scenario"
+      }
+    ],
+    "id": "frontend-localization-ui",
+    "line": 1,
+    "keyword": "Feature",
+    "name": "Frontend Localization UI",
+    "tags": [],
+    "uri": "e2e\\features\\localization.feature"
   }
 ]

@@ -4,8 +4,8 @@ import assert from 'assert';
 
 setDefaultTimeout(60000);
 
-let browser: Browser;
-let page: Page;
+export let browser: Browser;
+export let page: Page;
 
 BeforeAll(async function () {
   browser = await chromium.launch({ headless: true });
@@ -19,7 +19,7 @@ AfterAll(async function () {
 
 Given('the application is loaded', async function () {
   // Use localhost:80, which is where Traefik routes the frontend in e2e-pipeline
-  await page.goto('http://localhost');
+  await page.goto('http://localhost:5173');
 });
 
 Then('the title should be {string}', async function (expectedTitle: string) {
