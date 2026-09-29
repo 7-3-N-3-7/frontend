@@ -1,6 +1,9 @@
 import { Button } from "@/components/ui/button"
+import { LanguageSwitcher } from "@/components/LanguageSwitcher"
+import { useI18n } from "@/lib/i18n"
 
 export function Dashboard() {
+  const { t } = useI18n();
   const domain = import.meta.env.VITE_DOMAIN || 'localhost:5173'
   const protocol = window.location.protocol.replace(':', '')
 
@@ -16,7 +19,8 @@ export function Dashboard() {
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
-        <h1 className="text-xl font-bold text-slate-900">Platform Dashboard</h1>
+        <h1 className="text-xl font-bold text-slate-900" data-testid="nav-overview">{t("nav_overview", "Overview")}</h1>
+        <LanguageSwitcher />
         <Button variant="outline" onClick={handleLogout}>
           Logout
         </Button>

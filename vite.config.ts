@@ -18,6 +18,11 @@ export default defineConfig({
       ignored: ['**/node_modules/**', 'C:/**', 'c:/**'],
     },
     proxy: {
+      
+      '/api': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
       '/realms': {
         target: 'https://login.157.180.43.151.nip.io',
         changeOrigin: true,

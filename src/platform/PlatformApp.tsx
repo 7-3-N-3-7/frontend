@@ -1,6 +1,7 @@
 import { RouterProvider, createRouter, createRoute, createRootRoute, Outlet } from '@tanstack/react-router'
 import { Dashboard } from './pages/Dashboard'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { I18nProvider } from '../lib/i18n'
 
 const queryClient = new QueryClient()
 
@@ -17,7 +18,9 @@ const rootRoute = createRootRoute({
   },
   component: () => (
     <QueryClientProvider client={queryClient}>
-      <Outlet />
+      <I18nProvider>
+        <Outlet />
+      </I18nProvider>
     </QueryClientProvider>
   ),
 })
