@@ -23,7 +23,8 @@ export default function UserDropdown() {
         </Dropdown.Item>
         <Dropdown.Divider />
         <Dropdown.Item 
-          onClick={() => {
+          onClick={(e) => {
+            e.preventDefault();
             const baseDomain = window.location.hostname.replace('platform.', '');
             const targetUrl = window.location.protocol + "//" + baseDomain + "/";
             signOut({ callbackUrl: targetUrl });
