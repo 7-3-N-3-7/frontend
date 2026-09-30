@@ -46,14 +46,11 @@ export default async function RootLayout({
 
   return (
     <html lang={locale} className={`${geistSans.variable} ${geistMono.variable}`}>
+      <head>
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" />
+      </head>
       <body>
         <I18nProvider initialLocale={locale} initialDictionary={dictionary}>
-          <nav className="navbar navbar-expand-lg navbar-light bg-light mb-4 px-4 shadow-sm">
-            <a className="navbar-brand" href="#">Platform</a>
-            <div className="ms-auto">
-              <LanguageSwitcher />
-            </div>
-          </nav>
           {children}
         </I18nProvider>
       </body>

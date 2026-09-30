@@ -35,8 +35,8 @@ export default function RegisterPage() {
       });
 
       if (response.ok) {
-        // Redirect to dashboard (platform.localhost.nip.io)
-        window.location.href = 'http://platform.localhost.nip.io';
+        // Redirect to dashboard (platform.127.0.0.1.nip.io)
+        window.location.href = window.location.protocol + '//platform.' + window.location.host;
       } else {
         alert('Registration failed. Please try again.');
       }
@@ -106,3 +106,4 @@ export default function RegisterPage() {
     </div>
   );
 }
+
