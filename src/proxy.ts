@@ -11,14 +11,10 @@ export default async function proxy(request: NextRequest) {
     // We can fetch the JWT token
     const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
     
-    // Protect the platform domain - if not logged in and not accessing auth routes, redirect to login
-    if (!token && !url.pathname.startsWith('/auth') && !url.pathname.startsWith('/api')) {
-      return NextResponse.redirect(new URL('/api/auth/signin', request.url));
-    }
-
     // Root path routing
     if (url.pathname === '/') {
       if (token) {
+        // If logged in, route them to their dashboard!
         const roles = (token.roles as string[]) || [];
         if (roles.includes('therapist')) {
           return NextResponse.rewrite(new URL('/dashboard/therapist', request.url));
@@ -26,9 +22,14 @@ export default async function proxy(request: NextRequest) {
           return NextResponse.rewrite(new URL('/dashboard/personal', request.url));
         }
       } else {
-        // Fallback (should be caught by the redirect above)
-        return NextResponse.redirect(new URL('/api/auth/signin', request.url));
+        // If NOT logged in, let them see the landing page (do nothing)
+        return NextResponse.next();
       }
+    }
+
+    // Protect all other routes (like /dashboard which shouldn't be accessed directly anyway, but just in case)
+    if (!token && !url.pathname.startsWith('/auth') && !url.pathname.startsWith('/api')) {
+      return NextResponse.redirect(new URL('/', request.url));
     }
   }
 

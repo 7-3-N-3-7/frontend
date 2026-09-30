@@ -2,51 +2,69 @@ import { NextResponse } from 'next/server';
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const { email, username, password, homeAddress, phoneNumber, ssn } = body;
+    const data = await request.json();
+    const { username, password, email, firstName, lastName } = data;
 
-    // ---------------------------------------------------------
-    // 1. Authenticate with Keycloak Admin API (Service Account)
-    // ---------------------------------------------------------
-    const keycloakUrl = process.env.KEYCLOAK_URL || 'http://login.157.180.43.151.nip.io';
-    const realm = process.env.KEYCLOAK_REALM || 'edujournal';
-    
-    console.log(`[Next.js Backend] Orchestrating registration for user: ${username}`);
-    
-    // In a real implementation, you would:
-    // A. Fetch an Admin Access Token using client_credentials
-    // const adminTokenRes = await fetch(`${keycloakUrl}/realms/master/protocol/openid-connect/token`, ...);
-    
-    // B. Create the User in Keycloak
-    // await fetch(`${keycloakUrl}/admin/realms/${realm}/users`, {
-    //   method: 'POST',
-    //   headers: { Authorization: `Bearer ${adminToken}` },
-    //   body: JSON.stringify({ username, email, enabled: true, credentials: [{ type: 'password', value: password, temporary: false }] })
-    // });
-    
-    // ---------------------------------------------------------
-    // 2. Fetch User's JWT (Log them in automatically)
-    // ---------------------------------------------------------
-    // const userTokenRes = await fetch(`${keycloakUrl}/realms/${realm}/protocol/openid-connect/token`, ...);
-    // const userJwt = userTokenRes.access_token;
-    
-    // ---------------------------------------------------------
-    // 3. Send Extended Profile Data to Spring Boot Resource Server
-    // ---------------------------------------------------------
-    // await fetch(`http://backend:8081/api/v1/therapists/profile`, {
-    //   method: 'POST',
-    //   headers: {
-    //     'Content-Type': 'application/json',
-    //     'Authorization': `Bearer ${userJwt}` // Spring Boot validates this token against remote Keycloak
-    //   },
-    //   body: JSON.stringify({ homeAddress, phoneNumber, ssn })
-    // });
+    const issuerUrl = process.env.KEYCLOAK_ISSUER || ""; // e.g. https://login.../realms/EduJournal
+    // Extract base URL from issuer
+    const baseUrl = issuerUrl.split('/realms/')[0];
+    const realm = issuerUrl.split('/realms/')[1];
 
-    // For now, simulate success so the user can test the routing flow!
-    return NextResponse.json({ success: true, message: 'User registered in Keycloak and Spring Boot.' });
+    // 1. Get Admin Token
+    const tokenEndpoint = `${issuerUrl}/protocol/openid-connect/token`;
+    const params = new URLSearchParams();
+    params.append("grant_type", "client_credentials");
+    params.append("client_id", process.env.KEYCLOAK_ADMIN_CLIENT_ID || "");
+    params.append("client_secret", process.env.KEYCLOAK_ADMIN_CLIENT_SECRET || "");
 
+    const tokenRes = await fetch(tokenEndpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
+    });
+
+    const tokenData = await tokenRes.json();
+    if (!tokenRes.ok) {
+      console.error("Admin Token Error:", tokenData);
+      return NextResponse.json({ error: "Failed to authenticate admin client" }, { status: 500 });
+    }
+
+    const adminToken = tokenData.access_token;
+
+    // 2. Create User
+    const usersEndpoint = `${baseUrl}/admin/realms/${realm}/users`;
+    const newUser = {
+      username: username,
+      email: email,
+      firstName: firstName,
+      lastName: lastName,
+      enabled: true,
+      emailVerified: true,
+      credentials: [{
+        type: "password",
+        value: password,
+        temporary: false
+      }]
+    };
+
+    const createRes = await fetch(usersEndpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${adminToken}`
+      },
+      body: JSON.stringify(newUser)
+    });
+
+    if (!createRes.ok) {
+      const errorText = await createRes.text();
+      console.error("Create User Error:", errorText);
+      return NextResponse.json({ error: "Failed to create user in Keycloak" }, { status: 400 });
+    }
+
+    return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('Registration Orchestration Failed:', error);
-    return NextResponse.json({ error: 'Failed to process registration' }, { status: 500 });
+    console.error("Registration endpoint error:", error);
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }
