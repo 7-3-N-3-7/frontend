@@ -4,6 +4,7 @@ import 'bootstrap/dist/css/bootstrap.min.css';
 import './globals.css';
 import { cookies } from 'next/headers';
 import { I18nProvider } from '@/components/I18nProvider';
+import LanguageSwitcher from '@/components/LanguageSwitcher';
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -22,13 +23,12 @@ export const metadata: Metadata = {
 
 async function getDictionary(locale: string) {
   try {
-    const res = await fetch(\http://localhost:8081/api/v1/i18n/\\, {
-      cache: 'no-store' // Ensure we get fresh translations when switching
+    const res = await fetch(`http://localhost:8081/api/v1/i18n/${locale}`, {
+      cache: 'no-store'
     });
     if (!res.ok) return {};
     return await res.json();
   } catch (error) {
-    console.error('Failed to fetch dictionary', error);
     return {};
   }
 }
@@ -45,9 +45,15 @@ export default async function RootLayout({
   const dictionary = await getDictionary(locale);
 
   return (
-    <html lang={locale} className={\\ \\}>
+    <html lang={locale} className={`${geistSans.variable} ${geistMono.variable}`}>
       <body>
         <I18nProvider initialLocale={locale} initialDictionary={dictionary}>
+          <nav className="navbar navbar-expand-lg navbar-light bg-light mb-4 px-4 shadow-sm">
+            <a className="navbar-brand" href="#">Platform</a>
+            <div className="ms-auto">
+              <LanguageSwitcher />
+            </div>
+          </nav>
           {children}
         </I18nProvider>
       </body>

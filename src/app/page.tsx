@@ -1,9 +1,8 @@
-import LanguageSwitcher from '@/components/LanguageSwitcher';
 import { cookies } from 'next/headers';
 
 async function getDictionary(locale: string) {
   try {
-    const res = await fetch(\http://localhost:8081/api/v1/i18n/\\, {
+    const res = await fetch(`http://localhost:8081/api/v1/i18n/${locale}`, {
       cache: 'no-store'
     });
     if (!res.ok) return {};
@@ -22,19 +21,11 @@ export default async function Home() {
 
   return (
     <div className="container mt-5">
-      <div className="d-flex justify-content-between align-items-center mb-4">
-        <h1>{dict['nav_overview'] || 'Overview'}</h1>
-        <LanguageSwitcher />
-      </div>
-      
-      <div className="card">
-        <div className="card-body">
-          <h5 className="card-title">Next.js + Turbopack + React Bootstrap</h5>
-          <p className="card-text">
-            This dashboard is fully server-side rendered. The translation string above is securely fetched 
-            from the Spring Boot API during the SSR phase!
-          </p>
-        </div>
+      <div className="card shadow p-4">
+        <h1 className="display-4 text-center">{dict.nav_overview || 'Overview'}</h1>
+        <p className="lead text-center mt-3">
+          {dict.content_rendered_msg || 'This content is rendered on the server side using the Spring Boot dictionary!'}
+        </p>
       </div>
     </div>
   );
