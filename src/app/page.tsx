@@ -2,11 +2,13 @@
 
 import { useState } from "react";
 import { signIn } from "next-auth/react";
+import { useRouter } from "next/navigation";
 
 export default function LandingPage() {
   const [isLogin, setIsLogin] = useState(true);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const router = useRouter();
 
   // Form states
   const [username, setUsername] = useState("");
@@ -34,7 +36,7 @@ export default function LandingPage() {
       if (!window.location.hostname.startsWith('platform.')) {
         window.location.href = window.location.protocol + "//platform." + window.location.host + "/";
       } else {
-        window.location.href = "/";
+        router.push('/'); router.refresh();
       }
     }
   };
@@ -71,7 +73,7 @@ export default function LandingPage() {
         if (!window.location.hostname.startsWith('platform.')) {
           window.location.href = window.location.protocol + "//platform." + window.location.host + "/";
         } else {
-          window.location.href = "/";
+          router.push('/'); router.refresh();
         }
       }
 
@@ -185,3 +187,5 @@ export default function LandingPage() {
     </div>
   );
 }
+
+

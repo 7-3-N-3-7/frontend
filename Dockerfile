@@ -17,5 +17,9 @@ RUN npm run build
 # Set the port to 3000
 EXPOSE 3000
 
+COPY entrypoint-secrets.sh /entrypoint-secrets.sh
+RUN chmod +x /entrypoint-secrets.sh
+
 # Start the application
+ENTRYPOINT ["/entrypoint-secrets.sh"]
 CMD ["npm", "start"]
