@@ -2,8 +2,11 @@
 
 import { Dropdown } from 'react-bootstrap';
 import { signOut } from 'next-auth/react';
+import { useTranslations } from 'next-intl';
 
 export default function UserDropdown() {
+  const t = useTranslations("dashboard.dropdown");
+
   return (
     <Dropdown>
       <Dropdown.Toggle 
@@ -13,13 +16,13 @@ export default function UserDropdown() {
       >
         <i className="bi bi-person-circle fs-4 text-muted me-2"></i>
         <div className="d-flex flex-column line-height-sm text-start" style={{lineHeight: '1.2'}}>
-          <span className="fw-semibold" style={{fontSize: '0.9rem'}}>Account</span>
+          <span className="fw-semibold" style={{fontSize: '0.9rem'}}>{t("account")}</span>
         </div>
       </Dropdown.Toggle>
 
       <Dropdown.Menu align="end" className="shadow-sm border-0 mt-2">
         <Dropdown.Item href="/dashboard/settings">
-          <i className="bi bi-gear me-2"></i> Account Settings
+          <i className="bi bi-gear me-2"></i> {t("settings")}
         </Dropdown.Item>
         <Dropdown.Divider />
         <Dropdown.Item 
@@ -31,7 +34,7 @@ export default function UserDropdown() {
           }} 
           className="text-danger"
         >
-          <i className="bi bi-box-arrow-right me-2"></i> Sign Out
+          <i className="bi bi-box-arrow-right me-2"></i> {t("signOut")}
         </Dropdown.Item>
       </Dropdown.Menu>
     </Dropdown>

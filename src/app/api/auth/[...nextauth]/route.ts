@@ -1,6 +1,58 @@
 import NextAuth, { AuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 
+async function refreshAccessToken(token: any) {
+  try {
+    const issuerUrl = process.env.KEYCLOAK_ISSUER || "";
+    const tokenEndpoint = `${issuerUrl}/protocol/openid-connect/token`;
+
+    const params = new URLSearchParams();
+    params.append("grant_type", "refresh_token");
+    params.append("client_id", process.env.KEYCLOAK_CLIENT_ID || "");
+    params.append("client_secret", process.env.KEYCLOAK_CLIENT_SECRET || "");
+    params.append("refresh_token", token.refreshToken);
+
+    const response = await fetch(tokenEndpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: params.toString(),
+    });
+
+    const refreshedTokens = await response.json();
+
+    if (!response.ok) {
+      throw refreshedTokens;
+    }
+
+    const base64Url = refreshedTokens.access_token.split('.')[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(
+      atob(base64)
+        .split('')
+        .map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    );
+    const decoded = JSON.parse(jsonPayload);
+
+    return {
+      ...token,
+      accessToken: refreshedTokens.access_token,
+      refreshToken: refreshedTokens.refresh_token ?? token.refreshToken, // Fall back to old refresh token
+      accessTokenExpires: decoded.exp * 1000,
+      roles: decoded.realm_access?.roles || [],
+      username: decoded.preferred_username
+    };
+  } catch (error) {
+    console.error("RefreshAccessTokenError", error);
+    return {
+      ...token,
+      error: "RefreshAccessTokenError",
+    };
+  }
+}
+
 export const authOptions: AuthOptions = {
   providers: [
     CredentialsProvider({
@@ -24,7 +76,7 @@ export const authOptions: AuthOptions = {
           params.append("client_secret", process.env.KEYCLOAK_CLIENT_SECRET || "");
           params.append("username", credentials.username);
           params.append("password", credentials.password);
-          params.append("scope", "openid profile email roles");
+          params.append("scope", "openid profile email roles offline_access"); // added offline_access for refresh tokens
 
           const response = await fetch(tokenEndpoint, {
             method: "POST",
@@ -41,7 +93,6 @@ export const authOptions: AuthOptions = {
             return null;
           }
 
-          // Return an object that NextAuth will pass to the jwt callback
           return {
             id: credentials.username,
             name: credentials.username,
@@ -57,7 +108,7 @@ export const authOptions: AuthOptions = {
     })
   ],
   pages: {
-    signIn: '/', // Set our custom login page to the root landing page!
+    signIn: '/', 
   },
   cookies: {
     sessionToken: {
@@ -66,19 +117,17 @@ export const authOptions: AuthOptions = {
         httpOnly: true,
         sameSite: 'lax',
         path: '/',
-        secure: false, // Force false because the project runs on HTTP via nip.io
+        secure: false, 
         domain: '.127.0.0.1.nip.io'
       }
     }
   },
   callbacks: {
     async jwt({ token, user, account }) {
-      // Initial sign in
       if (user) {
         token.accessToken = (user as any).access_token;
         token.refreshToken = (user as any).refresh_token;
         
-        // Decode token to get roles
         try {
           const base64Url = ((user as any).access_token as string).split('.')[1];
           const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
@@ -91,18 +140,28 @@ export const authOptions: AuthOptions = {
           const decoded = JSON.parse(jsonPayload);
           token.roles = decoded.realm_access?.roles || [];
           token.username = decoded.preferred_username;
+          token.accessTokenExpires = decoded.exp * 1000;
         } catch (e) {
           console.error("Failed to decode token in JWT callback", e);
           token.roles = [];
         }
+        return token;
       }
-      return token;
+
+      // Return previous token if the access token has not expired yet
+      if (Date.now() < (token.accessTokenExpires as number) - 10 * 1000) { // Check 10 seconds before expiry
+        return token;
+      }
+
+      // Access token has expired, try to update it
+      return refreshAccessToken(token);
     },
     async session({ session, token }: any) {
       session.accessToken = token.accessToken;
       session.roles = token.roles || [];
       session.user = session.user || {};
       session.user.name = token.username;
+      session.error = token.error;
       return session;
     },
   },
