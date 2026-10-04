@@ -12,8 +12,7 @@ export default getRequestConfig(async ({ requestLocale }) => {
     locale = routing.defaultLocale;
   }
  
-  try {
-    const res = await fetch(`${backendUrl}/api/v1/i18n/${locale}`, {
+  const res = await fetch(`${backendUrl}/api/v1/i18n/${locale}`, {
       // Use Next.js fetch cache to avoid hitting the backend on every SSR request
       next: { revalidate: 3600 } 
     });
@@ -29,12 +28,4 @@ export default getRequestConfig(async ({ requestLocale }) => {
       locale,
       messages
     };
-  } catch (error) {
-    console.error("i18n fetch error:", error);
-    // Return empty messages as fallback so the app doesn't crash completely
-    return {
-      locale,
-      messages: {}
-    };
-  }
 });

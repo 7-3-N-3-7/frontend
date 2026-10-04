@@ -8,6 +8,8 @@ import LanguageSwitcher from '@/components/LanguageSwitcher';
 import { notFound } from 'next/navigation';
 import { routing } from '@/i18n/routing';
 
+export const dynamic = 'force-dynamic';
+
 const geistSans = Geist({
   variable: '--font-geist-sans',
   subsets: ['latin'],
