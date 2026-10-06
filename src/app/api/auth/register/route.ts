@@ -39,7 +39,7 @@ export async function POST(request: Request) {
       firstName: firstName,
       lastName: lastName,
       enabled: true,
-      emailVerified: true,
+      emailVerified: false,
       credentials: [{
         type: "password",
         value: password,
@@ -60,6 +60,23 @@ export async function POST(request: Request) {
       const errorText = await createRes.text();
       console.error("Create User Error:", errorText);
       return NextResponse.json({ error: "Failed to create user in Keycloak" }, { status: 400 });
+    }
+
+    const userId = createRes.headers.get('location')?.split('/').pop();
+    if (!userId) {
+      return NextResponse.json({ error: "Failed to send verification email" }, { status: 500 });
+    }
+
+    const verificationRes = await fetch(`${usersEndpoint}/${userId}/send-verify-email`, {
+      method: "PUT",
+      headers: {
+        "Authorization": "Bearer " + adminToken,
+      },
+    });
+
+    if (!verificationRes.ok) {
+      console.error("Keycloak Verification Email Error:", await verificationRes.text());
+      return NextResponse.json({ error: "Failed to send verification email" }, { status: 500 });
     }
 
     return NextResponse.json({ success: true });

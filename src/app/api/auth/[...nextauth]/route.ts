@@ -1,5 +1,6 @@
 import NextAuth, { AuthOptions } from "next-auth";
-import CredentialsProvider from "next-auth/providers/credentials";
+import KeycloakProvider from "next-auth/providers/keycloak";
+import { sessionCookieName, sessionCookieOptions } from "@/lib/auth-cookies";
 
 async function refreshAccessToken(token: any) {
   try {
@@ -55,81 +56,32 @@ async function refreshAccessToken(token: any) {
 
 export const authOptions: AuthOptions = {
   providers: [
-    CredentialsProvider({
-      name: "Keycloak",
-      credentials: {
-        username: { label: "Username", type: "text" },
-        password: { label: "Password", type: "password" }
+    KeycloakProvider({
+      clientId: process.env.KEYCLOAK_CLIENT_ID || "",
+      clientSecret: process.env.KEYCLOAK_CLIENT_SECRET || "",
+      issuer: process.env.KEYCLOAK_ISSUER || "",
+      authorization: {
+        params: { scope: "openid profile email roles offline_access" },
       },
-      async authorize(credentials, req) {
-        if (!credentials?.username || !credentials?.password) {
-          return null;
-        }
-        
-        try {
-          const issuerUrl = process.env.KEYCLOAK_ISSUER || "";
-          const tokenEndpoint = `${issuerUrl}/protocol/openid-connect/token`;
-
-          const params = new URLSearchParams();
-          params.append("grant_type", "password");
-          params.append("client_id", process.env.KEYCLOAK_CLIENT_ID || "");
-          params.append("client_secret", process.env.KEYCLOAK_CLIENT_SECRET || "");
-          params.append("username", credentials.username);
-          params.append("password", credentials.password);
-          params.append("scope", "openid profile email roles offline_access"); // added offline_access for refresh tokens
-
-          const response = await fetch(tokenEndpoint, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/x-www-form-urlencoded",
-            },
-            body: params.toString(),
-          });
-
-          const data = await response.json();
-
-          if (!response.ok) {
-            console.error("Keycloak Login Failed:", data);
-            return null;
-          }
-
-          return {
-            id: credentials.username,
-            name: credentials.username,
-            access_token: data.access_token,
-            refresh_token: data.refresh_token,
-            expires_in: data.expires_in
-          };
-        } catch (e) {
-          console.error("Authorize error", e);
-          return null;
-        }
-      }
-    })
+    }),
   ],
   pages: {
     signIn: '/', 
   },
   cookies: {
     sessionToken: {
-      name: `next-auth.session-token`,
-      options: {
-        httpOnly: true,
-        sameSite: 'lax',
-        path: '/',
-        secure: false, 
-        domain: '.127.0.0.1.nip.io'
-      }
-    }
+      name: sessionCookieName,
+      options: sessionCookieOptions,
+    },
   },
   callbacks: {
     async jwt({ token, user, account }) {
-      if (user) {
-        token.accessToken = (user as any).access_token;
-        token.refreshToken = (user as any).refresh_token;
+      if (account?.access_token) {
+        token.accessToken = account.access_token;
+        token.refreshToken = account.refresh_token;
         
         try {
-          const base64Url = ((user as any).access_token as string).split('.')[1];
+          const base64Url = account.access_token.split('.')[1];
           const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
           const jsonPayload = decodeURIComponent(
             atob(base64)
@@ -139,11 +91,14 @@ export const authOptions: AuthOptions = {
           );
           const decoded = JSON.parse(jsonPayload);
           token.roles = decoded.realm_access?.roles || [];
-          token.username = decoded.preferred_username;
+          token.username = decoded.preferred_username || user?.name || user?.email;
           token.accessTokenExpires = decoded.exp * 1000;
         } catch (e) {
           console.error("Failed to decode token in JWT callback", e);
           token.roles = [];
+        }
+        if (!token.accessTokenExpires && account.expires_at) {
+          token.accessTokenExpires = account.expires_at * 1000;
         }
         return token;
       }

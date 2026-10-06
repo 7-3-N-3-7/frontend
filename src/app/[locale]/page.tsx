@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { signIn } from "next-auth/react";
-import { useRouter } from "next/navigation";
 import { Modal } from 'react-bootstrap';
 import { useTranslations } from 'next-intl';
 
@@ -11,9 +10,8 @@ export default function LandingPage() {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [isLogin, setIsLogin] = useState(true);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
-
   // Form states
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -26,28 +24,18 @@ export default function LandingPage() {
     setLoading(true);
     setError("");
 
-    const res = await signIn("credentials", {
-      username,
-      password,
-      redirect: false,
-    });
-
-    if (res?.error) {
-      setError(t("auth.invalidLogin"));
-      setLoading(false);
-    } else {
-      if (!window.location.hostname.startsWith('platform.')) {
-        window.location.href = window.location.protocol + "//platform." + window.location.host + "/";
-      } else {
-        router.push('/'); router.refresh();
-      }
-    }
+    const locale = window.location.pathname.match(/^\/(en|da|fr|es|de)(?:\/|$)/)?.[1] || 'en';
+    const callbackUrl = window.location.hostname.startsWith('platform.')
+      ? `/${locale}`
+      : `/${locale}/dashboard/personal`;
+    await signIn("keycloak", { callbackUrl });
   };
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError("");
+    setNotice("");
 
     try {
       const res = await fetch("/api/auth/register", {
@@ -61,23 +49,9 @@ export default function LandingPage() {
         throw new Error(data.error || "Failed to register");
       }
 
-      const loginRes = await signIn("credentials", {
-        username,
-        password,
-        redirect: false,
-      });
-
-      if (loginRes?.error) {
-        setError(t("auth.autoLoginFailed"));
-        setIsLogin(true);
-        setLoading(false);
-      } else {
-        if (!window.location.hostname.startsWith('platform.')) {
-          window.location.href = window.location.protocol + "//platform." + window.location.host + "/";
-        } else {
-          router.push('/'); router.refresh();
-        }
-      }
+      setIsLogin(true);
+      setNotice("Your account was created. Check your email to verify it before signing in.");
+      setLoading(false);
 
     } catch (err: any) {
       setError(err.message);
@@ -88,6 +62,7 @@ export default function LandingPage() {
   const openModal = () => {
     setIsLogin(true);
     setError("");
+    setNotice("");
     setShowAuthModal(true);
   };
 
@@ -195,17 +170,10 @@ export default function LandingPage() {
 
           <div className="card-body p-5">
             {error && <div className="alert alert-danger">{error}</div>}
+            {notice && <div className="alert alert-info" role="status">{notice}</div>}
 
             {isLogin ? (
               <form onSubmit={handleLogin}>
-                <div className="form-floating mb-3">
-                  <input type="text" className="form-control" id="loginUser" placeholder={t("auth.username")} value={username} onChange={e => setUsername(e.target.value)} required />
-                  <label htmlFor="loginUser">{t("auth.username")}</label>
-                </div>
-                <div className="form-floating mb-4">
-                  <input type="password" className="form-control" id="loginPass" placeholder={t("auth.password")} value={password} onChange={e => setPassword(e.target.value)} required />
-                  <label htmlFor="loginPass">{t("auth.password")}</label>
-                </div>
                 <button className="btn btn-primary w-100 py-3 fw-bold" type="submit" disabled={loading}>
                   {loading ? t("auth.signingIn") : t("auth.signInButton")}
                 </button>

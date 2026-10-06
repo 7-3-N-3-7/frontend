@@ -1,4 +1,5 @@
 import UserDropdown from './UserDropdown';
+import LanguageSwitcher from '@/components/LanguageSwitcher';
 import { getTranslations } from "next-intl/server";
 import { Link } from "@/i18n/routing";
 
@@ -42,6 +43,7 @@ export default async function DashboardLayout({
           </div>
 
           <div className="d-flex align-items-center pe-3">
+            <LanguageSwitcher />
             <div className="d-flex align-items-center ms-2 border-start ps-4">
               <UserDropdown />
             </div>
