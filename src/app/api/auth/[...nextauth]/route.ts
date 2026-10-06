@@ -1,10 +1,7 @@
 import NextAuth, { AuthOptions } from "next-auth";
-<<<<<<< HEAD
-import CredentialsProvider from "next-auth/providers/credentials";
-=======
 import KeycloakProvider from "next-auth/providers/keycloak";
 import { sessionCookieName, sessionCookieOptions } from "@/lib/auth-cookies";
->>>>>>> origin/dev
+import CredentialsProvider from "next-auth/providers/credentials";
 
 async function refreshAccessToken(token: any) {
   try {
@@ -60,7 +57,14 @@ async function refreshAccessToken(token: any) {
 
 export const authOptions: AuthOptions = {
   providers: [
-<<<<<<< HEAD
+    KeycloakProvider({
+      clientId: process.env.KEYCLOAK_CLIENT_ID || "",
+      clientSecret: process.env.KEYCLOAK_CLIENT_SECRET || "",
+      issuer: process.env.KEYCLOAK_ISSUER || "",
+      authorization: {
+        params: { scope: "openid profile email roles offline_access" },
+      },
+    }),
     CredentialsProvider({
       name: "Keycloak",
       credentials: {
@@ -112,23 +116,15 @@ export const authOptions: AuthOptions = {
         }
       }
     })
-=======
-    KeycloakProvider({
-      clientId: process.env.KEYCLOAK_CLIENT_ID || "",
-      clientSecret: process.env.KEYCLOAK_CLIENT_SECRET || "",
-      issuer: process.env.KEYCLOAK_ISSUER || "",
-      authorization: {
-        params: { scope: "openid profile email roles offline_access" },
-      },
-    }),
->>>>>>> origin/dev
   ],
   pages: {
     signIn: '/', 
   },
   cookies: {
     sessionToken: {
-<<<<<<< HEAD
+      name: sessionCookieName,
+      options: sessionCookieOptions,
+    },
       name: `next-auth.session-token`,
       options: {
         httpOnly: true,
@@ -141,26 +137,12 @@ export const authOptions: AuthOptions = {
   },
   callbacks: {
     async jwt({ token, user, account }) {
-      if (user) {
-        token.accessToken = (user as any).access_token;
-        token.refreshToken = (user as any).refresh_token;
-        
-        try {
-          const base64Url = ((user as any).access_token as string).split('.')[1];
-=======
-      name: sessionCookieName,
-      options: sessionCookieOptions,
-    },
-  },
-  callbacks: {
-    async jwt({ token, user, account }) {
       if (account?.access_token) {
         token.accessToken = account.access_token;
         token.refreshToken = account.refresh_token;
         
         try {
           const base64Url = account.access_token.split('.')[1];
->>>>>>> origin/dev
           const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
           const jsonPayload = decodeURIComponent(
             atob(base64)
@@ -170,22 +152,16 @@ export const authOptions: AuthOptions = {
           );
           const decoded = JSON.parse(jsonPayload);
           token.roles = decoded.realm_access?.roles || [];
-<<<<<<< HEAD
-          token.username = decoded.preferred_username;
-=======
           token.username = decoded.preferred_username || user?.name || user?.email;
->>>>>>> origin/dev
+          token.username = decoded.preferred_username;
           token.accessTokenExpires = decoded.exp * 1000;
         } catch (e) {
           console.error("Failed to decode token in JWT callback", e);
           token.roles = [];
         }
-<<<<<<< HEAD
-=======
         if (!token.accessTokenExpires && account.expires_at) {
           token.accessTokenExpires = account.expires_at * 1000;
         }
->>>>>>> origin/dev
         return token;
       }
 

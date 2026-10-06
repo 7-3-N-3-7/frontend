@@ -2,10 +2,7 @@
 
 import { useState } from "react";
 import { signIn } from "next-auth/react";
-<<<<<<< HEAD
 import { useRouter } from "next/navigation";
-=======
->>>>>>> origin/dev
 import { Modal } from 'react-bootstrap';
 import { useTranslations } from 'next-intl';
 
@@ -14,14 +11,11 @@ export default function LandingPage() {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [isLogin, setIsLogin] = useState(true);
   const [error, setError] = useState("");
-<<<<<<< HEAD
+  const [notice, setNotice] = useState("");
+  const [loading, setLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
-=======
-  const [notice, setNotice] = useState("");
-  const [loading, setLoading] = useState(false);
->>>>>>> origin/dev
   // Form states
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -34,7 +28,6 @@ export default function LandingPage() {
     setLoading(true);
     setError("");
 
-<<<<<<< HEAD
     const res = await signIn("credentials", {
       username,
       password,
@@ -51,23 +44,18 @@ export default function LandingPage() {
         router.push('/'); router.refresh();
       }
     }
-=======
     const locale = window.location.pathname.match(/^\/(en|da|fr|es|de)(?:\/|$)/)?.[1] || 'en';
     const callbackUrl = window.location.hostname.startsWith('platform.')
       ? `/${locale}`
       : `/${locale}/dashboard/personal`;
     await signIn("keycloak", { callbackUrl });
->>>>>>> origin/dev
   };
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError("");
-<<<<<<< HEAD
-=======
     setNotice("");
->>>>>>> origin/dev
 
     try {
       const res = await fetch("/api/auth/register", {
@@ -81,7 +69,9 @@ export default function LandingPage() {
         throw new Error(data.error || "Failed to register");
       }
 
-<<<<<<< HEAD
+      setIsLogin(true);
+      setNotice("Your account was created. Check your email to verify it before signing in.");
+      setLoading(false);
       const loginRes = await signIn("credentials", {
         username,
         password,
@@ -99,11 +89,6 @@ export default function LandingPage() {
           router.push('/'); router.refresh();
         }
       }
-=======
-      setIsLogin(true);
-      setNotice("Your account was created. Check your email to verify it before signing in.");
-      setLoading(false);
->>>>>>> origin/dev
 
     } catch (err: any) {
       setError(err.message);
@@ -114,10 +99,7 @@ export default function LandingPage() {
   const openModal = () => {
     setIsLogin(true);
     setError("");
-<<<<<<< HEAD
-=======
     setNotice("");
->>>>>>> origin/dev
     setShowAuthModal(true);
   };
 
@@ -225,7 +207,10 @@ export default function LandingPage() {
 
           <div className="card-body p-5">
             {error && <div className="alert alert-danger">{error}</div>}
-<<<<<<< HEAD
+            {notice && <div className="alert alert-info" role="status">{notice}</div>}
+
+            {isLogin ? (
+              <form onSubmit={handleLogin}>
 
             {isLogin ? (
               <form onSubmit={handleLogin}>
@@ -237,12 +222,6 @@ export default function LandingPage() {
                   <input type="password" className="form-control" id="loginPass" placeholder={t("auth.password")} value={password} onChange={e => setPassword(e.target.value)} required />
                   <label htmlFor="loginPass">{t("auth.password")}</label>
                 </div>
-=======
-            {notice && <div className="alert alert-info" role="status">{notice}</div>}
-
-            {isLogin ? (
-              <form onSubmit={handleLogin}>
->>>>>>> origin/dev
                 <button className="btn btn-primary w-100 py-3 fw-bold" type="submit" disabled={loading}>
                   {loading ? t("auth.signingIn") : t("auth.signInButton")}
                 </button>
