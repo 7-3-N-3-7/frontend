@@ -9,10 +9,14 @@ RUN npm ci
 COPY . .
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> origin/dev
 # Next.js telemetry is disabled
 ENV NEXT_TELEMETRY_DISABLED 1
 
 # Build the Next.js app
+<<<<<<< HEAD
 RUN npm run build
 
 # Set the port to 3000
@@ -39,3 +43,16 @@ COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]
 >>>>>>> 3ac533c6a7611a331e0e37762f29688ddcb217aa
+=======
+RUN npm run build
+
+# Set the port to 3000
+EXPOSE 3000
+
+COPY entrypoint-secrets.sh /entrypoint-secrets.sh
+RUN chmod +x /entrypoint-secrets.sh
+
+# Start the application
+ENTRYPOINT ["/entrypoint-secrets.sh"]
+CMD ["npm", "start"]
+>>>>>>> origin/dev

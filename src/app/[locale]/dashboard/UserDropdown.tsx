@@ -21,10 +21,13 @@ export default function UserDropdown() {
       </Dropdown.Toggle>
 
       <Dropdown.Menu align="end" className="shadow-sm border-0 mt-2">
+<<<<<<< HEAD
         <Dropdown.Item href="/dashboard/settings">
           <i className="bi bi-gear me-2"></i> {t("settings")}
         </Dropdown.Item>
         <Dropdown.Divider />
+=======
+>>>>>>> origin/dev
         <Dropdown.Item 
           onClick={(e) => {
             e.preventDefault();

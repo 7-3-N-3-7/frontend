@@ -17,7 +17,11 @@ export default async function TherapistDashboard() {
         <div className="col-md-12">
           <div className="alert alert-info shadow-sm">
             <h5><i className="bi bi-shield-check"></i> {t("accessGrantedTitle")}</h5>
+<<<<<<< HEAD
             <p className="mb-0" dangerouslySetInnerHTML={{ __html: t("accessGrantedDesc") }}></p>
+=======
+            <p className="mb-0">{t("accessGrantedDesc")}</p>
+>>>>>>> origin/dev
           </div>
         </div>
       </div>

@@ -4,7 +4,10 @@ import 'bootstrap/dist/css/bootstrap.min.css';
 import './globals.css';
 import { NextIntlClientProvider } from 'next-intl';
 import { getMessages } from 'next-intl/server';
+<<<<<<< HEAD
 import LanguageSwitcher from '@/components/LanguageSwitcher';
+=======
+>>>>>>> origin/dev
 import { notFound } from 'next/navigation';
 import { routing } from '@/i18n/routing';
 
@@ -55,4 +58,7 @@ export default async function RootLayout({
     </html>
   );
 }
+<<<<<<< HEAD
 
+=======
+>>>>>>> origin/dev
