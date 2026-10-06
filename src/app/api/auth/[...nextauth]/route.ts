@@ -2,7 +2,6 @@ import NextAuth, { AuthOptions } from "next-auth";
 import KeycloakProvider from "next-auth/providers/keycloak";
 import { sessionCookieName, sessionCookieOptions } from "@/lib/auth-cookies";
 import CredentialsProvider from "next-auth/providers/credentials";
-import CredentialsProvider from "next-auth/providers/credentials";
 
 async function refreshAccessToken(token: any) {
   try {
@@ -125,15 +124,6 @@ export const authOptions: AuthOptions = {
     sessionToken: {
       name: sessionCookieName,
       options: sessionCookieOptions,
-    },
-      name: `next-auth.session-token`,
-      options: {
-        httpOnly: true,
-        sameSite: 'lax',
-        path: '/',
-        secure: false, 
-        domain: '.127.0.0.1.nip.io'
-      }
     }
   },
   callbacks: {

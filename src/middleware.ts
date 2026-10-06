@@ -19,40 +19,6 @@ export default async function proxy(request: NextRequest) {
     return response;
   }
 
-  // 2. Perform authentication logic
-  if (hostname.startsWith('platform.')) {
-    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
-    
-    // We need to account for the locale in the pathname.
-    // next-intl might have rewritten the request internally, but `request.nextUrl.pathname` 
-    // is what we look at. Let's extract the locale prefix if it exists.
-    const pathWithoutLocale = url.pathname.replace(/^\/(en|da|fr|es|de)/, '') || '/';
-
-    // Root path routing
-    if (pathWithoutLocale === '/') {
-      if (token) {
-        const roles = (token.roles as string[]) || [];
-        const locale = url.pathname.match(/^\/(en|da|fr|es|de)/)?.[1] || 'en';
-        let rewriteResp;
-        if (roles.includes('therapist')) {
-          rewriteResp = NextResponse.rewrite(new URL(`/${locale}/dashboard/therapist`, request.url));
-        } else {
-          rewriteResp = NextResponse.rewrite(new URL(`/${locale}/dashboard/personal`, request.url));
-        }
-        
-        // Preserve next-intl headers so the rewritten route knows its locale!
-        response.headers.forEach((value, key) => {
-          rewriteResp.headers.set(key, value);
-        });
-        
-        return rewriteResp;
-      }
-    }
-
-    if (!token && !pathWithoutLocale.startsWith('/auth') && !pathWithoutLocale.startsWith('/api') && pathWithoutLocale !== '/') {
-      const locale = url.pathname.match(/^\/(en|da|fr|es|de)/)?.[1] || 'en';
-      return NextResponse.redirect(new URL(`/${locale}`, request.url));
-    }
   const pathWithoutLocale = url.pathname.replace(/^\/(en|da|fr|es|de)/, '') || '/';
   const isPlatformHost = hostname.startsWith('platform.');
   const isPublicPath =
@@ -65,6 +31,7 @@ export default async function proxy(request: NextRequest) {
     isDashboardPath || (isPlatformHost && !isPublicPath && pathWithoutLocale !== '/');
   const shouldReadToken =
     requiresAuthentication || (isPlatformHost && pathWithoutLocale === '/');
+  
   const token = shouldReadToken
     ? await getToken({
         req: request,
@@ -72,14 +39,8 @@ export default async function proxy(request: NextRequest) {
         cookieName: sessionCookieName,
       })
     : null;
-  const locale = url.pathname.match(/^\/(en|da|fr|es|de)/)?.[1] || 'en';
-  if (hostname.startsWith('platform.')) {
-    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
     
-    // We need to account for the locale in the pathname.
-    // next-intl might have rewritten the request internally, but `request.nextUrl.pathname` 
-    // is what we look at. Let's extract the locale prefix if it exists.
-    const pathWithoutLocale = url.pathname.replace(/^\/(en|da|fr|es|de)/, '') || '/';
+  const locale = url.pathname.match(/^\/(en|da|fr|es|de)/)?.[1] || 'en';
 
   if (!token && requiresAuthentication) {
     return NextResponse.redirect(new URL(`/${locale}`, request.url));

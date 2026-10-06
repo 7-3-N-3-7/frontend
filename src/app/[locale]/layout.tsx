@@ -5,7 +5,6 @@ import './globals.css';
 import { NextIntlClientProvider } from 'next-intl';
 import { getMessages } from 'next-intl/server';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
-import LanguageSwitcher from '@/components/LanguageSwitcher';
 import { notFound } from 'next/navigation';
 import { routing } from '@/i18n/routing';
 

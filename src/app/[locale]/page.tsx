@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { useRouter } from "next/navigation";
 import { Modal } from 'react-bootstrap';
 import { useTranslations } from 'next-intl';
 
@@ -13,10 +12,6 @@ export default function LandingPage() {
   const [isLogin, setIsLogin] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const router = useRouter();
-
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
@@ -212,9 +207,6 @@ export default function LandingPage() {
           <div className="card-body p-5">
             {error && <div className="alert alert-danger">{error}</div>}
             {notice && <div className="alert alert-info" role="status">{notice}</div>}
-
-            {isLogin ? (
-              <form onSubmit={handleLogin}>
 
             {isLogin ? (
               <form onSubmit={handleLogin}>
