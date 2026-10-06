@@ -1,14 +1,25 @@
-# 1. Build Stage
-FROM node:20-alpine AS build
+FROM node:22-alpine
+
 WORKDIR /app
-COPY package*.json ./
+
+# Install dependencies based on the preferred package manager
+COPY package.json package-lock.json ./
 RUN npm ci
+
 COPY . .
+
+# Next.js telemetry is disabled
+ENV NEXT_TELEMETRY_DISABLED 1
+
+# Build the Next.js app
 RUN npm run build
 
-# 2. Serve Stage
-FROM nginx:alpine
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-COPY --from=build /app/dist /usr/share/nginx/html
-EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
+# Set the port to 3000
+EXPOSE 3000
+
+COPY entrypoint-secrets.sh /entrypoint-secrets.sh
+RUN chmod +x /entrypoint-secrets.sh
+
+# Start the application
+ENTRYPOINT ["/entrypoint-secrets.sh"]
+CMD ["npm", "start"]

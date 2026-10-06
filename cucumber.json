@@ -1,7 +1,0 @@
-{
-  "default": {
-    "paths": ["e2e/features/**/*.feature"],
-    "import": ["e2e/steps/**/*.ts"],
-    "format": ["progress", "json:e2e/reports/cucumber-report.json"]
-  }
-}
