@@ -40,6 +40,13 @@ export default async function proxy(request: NextRequest) {
       })
     : null;
   const locale = url.pathname.match(/^\/(en|da|fr|es|de)/)?.[1] || 'en';
+  if (hostname.startsWith('platform.')) {
+    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
+    
+    // We need to account for the locale in the pathname.
+    // next-intl might have rewritten the request internally, but `request.nextUrl.pathname` 
+    // is what we look at. Let's extract the locale prefix if it exists.
+    const pathWithoutLocale = url.pathname.replace(/^\/(en|da|fr|es|de)/, '') || '/';
 
   if (!token && requiresAuthentication) {
     return NextResponse.redirect(new URL(`/${locale}`, request.url));

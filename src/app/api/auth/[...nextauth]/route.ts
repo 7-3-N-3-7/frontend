@@ -1,6 +1,7 @@
 import NextAuth, { AuthOptions } from "next-auth";
 import KeycloakProvider from "next-auth/providers/keycloak";
 import { sessionCookieName, sessionCookieOptions } from "@/lib/auth-cookies";
+import CredentialsProvider from "next-auth/providers/credentials";
 
 async function refreshAccessToken(token: any) {
   try {
@@ -64,6 +65,57 @@ export const authOptions: AuthOptions = {
         params: { scope: "openid profile email roles offline_access" },
       },
     }),
+    CredentialsProvider({
+      name: "Keycloak",
+      credentials: {
+        username: { label: "Username", type: "text" },
+        password: { label: "Password", type: "password" }
+      },
+      async authorize(credentials, req) {
+        if (!credentials?.username || !credentials?.password) {
+          return null;
+        }
+        
+        try {
+          const issuerUrl = process.env.KEYCLOAK_ISSUER || "";
+          const tokenEndpoint = `${issuerUrl}/protocol/openid-connect/token`;
+
+          const params = new URLSearchParams();
+          params.append("grant_type", "password");
+          params.append("client_id", process.env.KEYCLOAK_CLIENT_ID || "");
+          params.append("client_secret", process.env.KEYCLOAK_CLIENT_SECRET || "");
+          params.append("username", credentials.username);
+          params.append("password", credentials.password);
+          params.append("scope", "openid profile email roles offline_access"); // added offline_access for refresh tokens
+
+          const response = await fetch(tokenEndpoint, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+            },
+            body: params.toString(),
+          });
+
+          const data = await response.json();
+
+          if (!response.ok) {
+            console.error("Keycloak Login Failed:", data);
+            return null;
+          }
+
+          return {
+            id: credentials.username,
+            name: credentials.username,
+            access_token: data.access_token,
+            refresh_token: data.refresh_token,
+            expires_in: data.expires_in
+          };
+        } catch (e) {
+          console.error("Authorize error", e);
+          return null;
+        }
+      }
+    })
   ],
   pages: {
     signIn: '/', 
@@ -73,6 +125,15 @@ export const authOptions: AuthOptions = {
       name: sessionCookieName,
       options: sessionCookieOptions,
     },
+      name: `next-auth.session-token`,
+      options: {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        secure: false, 
+        domain: '.127.0.0.1.nip.io'
+      }
+    }
   },
   callbacks: {
     async jwt({ token, user, account }) {
@@ -92,6 +153,7 @@ export const authOptions: AuthOptions = {
           const decoded = JSON.parse(jsonPayload);
           token.roles = decoded.realm_access?.roles || [];
           token.username = decoded.preferred_username || user?.name || user?.email;
+          token.username = decoded.preferred_username;
           token.accessTokenExpires = decoded.exp * 1000;
         } catch (e) {
           console.error("Failed to decode token in JWT callback", e);

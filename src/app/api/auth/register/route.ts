@@ -40,6 +40,7 @@ export async function POST(request: Request) {
       lastName: lastName,
       enabled: true,
       emailVerified: false,
+      emailVerified: true,
       credentials: [{
         type: "password",
         value: password,
