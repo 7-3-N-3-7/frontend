@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Modal } from 'react-bootstrap';
 import { useTranslations } from 'next-intl';
 
@@ -13,6 +14,9 @@ export default function LandingPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const router = useRouter();
+
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 

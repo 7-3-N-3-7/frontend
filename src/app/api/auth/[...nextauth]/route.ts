@@ -2,6 +2,7 @@ import NextAuth, { AuthOptions } from "next-auth";
 import KeycloakProvider from "next-auth/providers/keycloak";
 import { sessionCookieName, sessionCookieOptions } from "@/lib/auth-cookies";
 import CredentialsProvider from "next-auth/providers/credentials";
+import CredentialsProvider from "next-auth/providers/credentials";
 
 async function refreshAccessToken(token: any) {
   try {
@@ -153,6 +154,7 @@ export const authOptions: AuthOptions = {
           const decoded = JSON.parse(jsonPayload);
           token.roles = decoded.realm_access?.roles || [];
           token.username = decoded.preferred_username || user?.name || user?.email;
+          token.username = decoded.preferred_username;
           token.username = decoded.preferred_username;
           token.accessTokenExpires = decoded.exp * 1000;
         } catch (e) {
