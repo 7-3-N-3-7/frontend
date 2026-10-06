@@ -17,7 +17,8 @@
     "react": "19.2.8",
     "react-bootstrap": "^2.10.10",
     "react-dom": "19.2.8",
-    "react-error-boundary": "^6.1.6"
+    "react-error-boundary": "^6.1.6",
+    "uncontrollable": "^9.0.0"
   },
   "devDependencies": {
     "@types/node": "^20",

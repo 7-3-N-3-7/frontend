@@ -39,11 +39,7 @@ export async function POST(request: Request) {
       firstName: firstName,
       lastName: lastName,
       enabled: true,
-<<<<<<< HEAD
-      emailVerified: true,
-=======
       emailVerified: false,
->>>>>>> origin/dev
       credentials: [{
         type: "password",
         value: password,
@@ -66,8 +62,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Failed to create user in Keycloak" }, { status: 400 });
     }
 
-<<<<<<< HEAD
-=======
     const userId = createRes.headers.get('location')?.split('/').pop();
     if (!userId) {
       return NextResponse.json({ error: "Failed to send verification email" }, { status: 500 });
@@ -85,7 +79,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Failed to send verification email" }, { status: 500 });
     }
 
->>>>>>> origin/dev
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Registration endpoint error:", error);
