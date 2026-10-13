@@ -128,12 +128,27 @@ export const authOptions: AuthOptions = {
   },
   callbacks: {
     async jwt({ token, user, account }) {
-      if (account?.access_token) {
-        token.accessToken = account.access_token;
-        token.refreshToken = account.refresh_token;
+      console.log("JWT Callback Triggered:", { 
+        hasUser: !!user, 
+        hasAccount: !!account,
+        isInitialSignIn: !!(account || user),
+        currentExp: token.accessTokenExpires 
+      });
+
+      // 1. Initial Sign In
+      if (account?.access_token || (user && 'access_token' in user)) {
+        console.log("Processing Initial Sign In...");
         
+        token.accessToken = account?.access_token || (user as any).access_token;
+        token.refreshToken = account?.refresh_token || (user as any).refresh_token;
+        
+        console.log("Extracted Tokens:", {
+          hasAccessToken: !!token.accessToken,
+          hasRefreshToken: !!token.refreshToken
+        });
+
         try {
-          const base64Url = account.access_token.split('.')[1];
+          const base64Url = (token.accessToken as string).split('.')[1];
           const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
           const jsonPayload = decodeURIComponent(
             atob(base64)
@@ -144,25 +159,40 @@ export const authOptions: AuthOptions = {
           const decoded = JSON.parse(jsonPayload);
           token.roles = decoded.realm_access?.roles || [];
           token.username = decoded.preferred_username || user?.name || user?.email;
-          token.username = decoded.preferred_username;
-          token.username = decoded.preferred_username;
           token.accessTokenExpires = decoded.exp * 1000;
+          console.log("Decoded Token Expiry:", new Date(token.accessTokenExpires as number).toISOString());
         } catch (e) {
           console.error("Failed to decode token in JWT callback", e);
           token.roles = [];
         }
-        if (!token.accessTokenExpires && account.expires_at) {
-          token.accessTokenExpires = account.expires_at * 1000;
+
+        // Fallback for expiration if decoding fails
+        const expires_at = account?.expires_at || (user as any)?.expires_in;
+        if (!token.accessTokenExpires && expires_at) {
+          token.accessTokenExpires = Date.now() + expires_at * 1000;
         }
+        
         return token;
       }
 
-      // Return previous token if the access token has not expired yet
-      if (Date.now() < (token.accessTokenExpires as number) - 10 * 1000) { // Check 10 seconds before expiry
+      // 2. Subsequent requests
+      if (!token.accessTokenExpires) {
+        console.log("Token is completely missing an expiration date! (Likely an old broken cookie). Forcing refresh/re-login.");
+        return refreshAccessToken(token);
+      }
+
+      const timeRemaining = (token.accessTokenExpires as number) - Date.now();
+      console.log("Checking Token Expiration:", {
+        expiresAt: new Date(token.accessTokenExpires as number).toISOString(),
+        timeRemainingMs: timeRemaining
+      });
+
+      if (timeRemaining > 10000) {
         return token;
       }
 
-      // Access token has expired, try to update it
+      // 3. Access token has expired, try to update it
+      console.log("Token expired! Attempting to refresh...", { hasRefreshToken: !!token.refreshToken });
       return refreshAccessToken(token);
     },
     async session({ session, token }: any) {

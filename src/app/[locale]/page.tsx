@@ -37,17 +37,17 @@ export default function LandingPage() {
       setError(t("auth.invalidLogin"));
       setLoading(false);
     } else {
-      if (!window.location.hostname.startsWith('platform.')) {
+      // Don't try to add subdomains to raw IP addresses (browser will crash)
+      const isIP = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}/.test(window.location.hostname);
+      
+      if (!window.location.hostname.startsWith('platform.') && !isIP) {
         window.location.href = window.location.protocol + "//platform." + window.location.host + "/";
       } else {
-        router.push('/'); router.refresh();
+        const locale = window.location.pathname.match(/^\/(en|da|fr|es|de)(?:\/|$)/)?.[1] || 'en';
+        router.push(`/${locale}/dashboard/personal`); 
+        router.refresh();
       }
     }
-    const locale = window.location.pathname.match(/^\/(en|da|fr|es|de)(?:\/|$)/)?.[1] || 'en';
-    const callbackUrl = window.location.hostname.startsWith('platform.')
-      ? `/${locale}`
-      : `/${locale}/dashboard/personal`;
-    await signIn("keycloak", { callbackUrl });
   };
 
   const handleRegister = async (e: React.FormEvent) => {
