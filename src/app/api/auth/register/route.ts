@@ -3,7 +3,37 @@ import { NextResponse } from 'next/server';
 export async function POST(request: Request) {
   try {
     const data = await request.json();
-    const { username, password, email, firstName, lastName } = data;
+    const {
+      username,
+      password,
+      email,
+      firstName,
+      lastName,
+      dateOfBirth,
+      homeAddress,
+      postalCode,
+      phoneNumber,
+    } = data;
+
+    const backendUrl = process.env.BACKEND_INTERNAL_URL || "http://localhost:8081";
+
+    // Also persist the client personal details (Bilag 5.1.1 & Q12) in business-db
+    try {
+      await fetch(`${backendUrl}/api/v1/public/client-profile`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fullName: `${firstName || ""} ${lastName || ""}`.trim() || username,
+          dateOfBirth: dateOfBirth || null,
+          homeAddress: homeAddress || "",
+          postalCode: postalCode || "",
+          phoneNumber: phoneNumber || "",
+          email: email || "",
+        }),
+      });
+    } catch (profileErr) {
+      console.warn("Non-fatal: Could not sync initial client profile to backend:", profileErr);
+    }
 
     const issuerUrl = process.env.KEYCLOAK_ISSUER || ""; // e.g. https://login.../realms/EduJournal
     // Extract base URL from issuer
@@ -40,6 +70,12 @@ export async function POST(request: Request) {
       lastName: lastName,
       enabled: true,
       emailVerified: false,
+      attributes: {
+        dateOfBirth: [dateOfBirth || ""],
+        homeAddress: [homeAddress || ""],
+        postalCode: [postalCode || ""],
+        phoneNumber: [phoneNumber || ""],
+      },
       credentials: [{
         type: "password",
         value: password,
@@ -79,7 +115,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Failed to send verification email" }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({
+      success: true,
+      message: "Your client user was created successfully.",
+    });
   } catch (error) {
     console.error("Registration endpoint error:", error);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });

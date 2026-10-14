@@ -5,6 +5,7 @@ import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { Modal } from 'react-bootstrap';
 import { useTranslations } from 'next-intl';
+import LanguageSwitcher from '@/components/LanguageSwitcher';
 
 export default function LandingPage() {
   const t = useTranslations("landing");
@@ -15,12 +16,16 @@ export default function LandingPage() {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
-  // Form states
+  // Form states (including Bilag 5.1.1 Client personal details - Q12)
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [email, setEmail] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
+  const [dateOfBirth, setDateOfBirth] = useState("");
+  const [homeAddress, setHomeAddress] = useState("");
+  const [postalCode, setPostalCode] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,16 +42,8 @@ export default function LandingPage() {
       setError(t("auth.invalidLogin"));
       setLoading(false);
     } else {
-      // Don't try to add subdomains to raw IP addresses (browser will crash)
-      const isIP = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}/.test(window.location.hostname);
-      
-      if (!window.location.hostname.startsWith('platform.') && !isIP) {
-        window.location.href = window.location.protocol + "//platform." + window.location.host + "/";
-      } else {
-        const locale = window.location.pathname.match(/^\/(en|da|fr|es|de)(?:\/|$)/)?.[1] || 'en';
-        router.push(`/${locale}/dashboard/personal`); 
-        router.refresh();
-      }
+      const locale = window.location.pathname.match(/^\/(en|da|fr|es|de)(?:\/|$)/)?.[1] || 'en';
+      window.location.href = `/${locale}/dashboard/personal`;
     }
   };
 
@@ -60,7 +57,17 @@ export default function LandingPage() {
       const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password, email, firstName, lastName })
+        body: JSON.stringify({
+          username,
+          password,
+          email,
+          firstName,
+          lastName,
+          dateOfBirth,
+          homeAddress,
+          postalCode,
+          phoneNumber,
+        })
       });
 
       if (!res.ok) {
@@ -69,7 +76,7 @@ export default function LandingPage() {
       }
 
       setIsLogin(true);
-      setNotice("Your account was created. Check your email to verify it before signing in.");
+      setNotice("Your user was created successfully! Check your email to verify it before signing in.");
       setLoading(false);
       const loginRes = await signIn("credentials", {
         username,
@@ -82,11 +89,8 @@ export default function LandingPage() {
         setIsLogin(true);
         setLoading(false);
       } else {
-        if (!window.location.hostname.startsWith('platform.')) {
-          window.location.href = window.location.protocol + "//platform." + window.location.host + "/";
-        } else {
-          router.push('/'); router.refresh();
-        }
+        const locale = window.location.pathname.match(/^\/(en|da|fr|es|de)(?:\/|$)/)?.[1] || 'en';
+        window.location.href = `/${locale}/dashboard/personal`;
       }
 
     } catch (err: any) {
@@ -110,9 +114,12 @@ export default function LandingPage() {
             <i className="bi bi-book fs-4 me-2" style={{ color: '#0d6efd' }}></i>
             <span className="fs-5 fw-bold" style={{ color: '#1a1d2e' }}>{t("nav.title")}</span>
           </div>
-          <button className="btn btn-dark fw-semibold px-4" style={{ backgroundColor: '#111827' }} onClick={openModal}>
-            {t("nav.loginButton")}
-          </button>
+          <div className="d-flex align-items-center gap-3">
+            <LanguageSwitcher />
+            <button className="btn btn-dark fw-semibold px-4" style={{ backgroundColor: '#111827' }} onClick={openModal}>
+              {t("nav.loginButton")}
+            </button>
+          </div>
         </div>
       </nav>
 
@@ -179,7 +186,7 @@ export default function LandingPage() {
         </small>
       </footer>
 
-      <Modal show={showAuthModal} onHide={() => setShowAuthModal(false)} centered>
+      <Modal show={showAuthModal} onHide={() => setShowAuthModal(false)} centered size="lg">
         <div className="card shadow-lg border-0 rounded-lg w-100">
           <div className="card-header bg-white pb-0 border-0 pt-4">
             <ul className="nav nav-tabs nav-fill mb-0">
@@ -204,9 +211,9 @@ export default function LandingPage() {
             </ul>
           </div>
 
-          <div className="card-body p-5">
+          <div className="card-body p-4 p-md-5">
             {error && <div className="alert alert-danger">{error}</div>}
-            {notice && <div className="alert alert-info" role="status">{notice}</div>}
+            {notice && <div className="alert alert-success" role="status">{notice}</div>}
 
             {isLogin ? (
               <form onSubmit={handleLogin}>
@@ -224,6 +231,10 @@ export default function LandingPage() {
               </form>
             ) : (
               <form onSubmit={handleRegister}>
+                <p className="text-muted small mb-3">
+                  <i className="bi bi-shield-lock me-1 text-primary"></i>
+                  Client Registration (Bilag 5.1.1): Enter your personal details to create your encrypted client profile.
+                </p>
                 <div className="row g-2 mb-3">
                   <div className="col-md-6 form-floating">
                     <input type="text" className="form-control" id="regFirst" placeholder={t("auth.firstName")} value={firstName} onChange={e => setFirstName(e.target.value)} required />
@@ -234,13 +245,35 @@ export default function LandingPage() {
                     <label htmlFor="regLast">{t("auth.lastName")}</label>
                   </div>
                 </div>
-                <div className="form-floating mb-3">
-                  <input type="email" className="form-control" id="regEmail" placeholder={t("auth.email")} value={email} onChange={e => setEmail(e.target.value)} required />
-                  <label htmlFor="regEmail">{t("auth.email")}</label>
+                <div className="row g-2 mb-3">
+                  <div className="col-md-6 form-floating">
+                    <input type="date" className="form-control" id="regDob" placeholder="Date of Birth" value={dateOfBirth} onChange={e => setDateOfBirth(e.target.value)} required />
+                    <label htmlFor="regDob">Date of Birth (DoB)</label>
+                  </div>
+                  <div className="col-md-6 form-floating">
+                    <input type="tel" className="form-control" id="regPhone" placeholder="+45 12 34 56 78" value={phoneNumber} onChange={e => setPhoneNumber(e.target.value)} required />
+                    <label htmlFor="regPhone">Phone Number</label>
+                  </div>
                 </div>
-                <div className="form-floating mb-3">
-                  <input type="text" className="form-control" id="regUser" placeholder={t("auth.username")} value={username} onChange={e => setUsername(e.target.value)} required />
-                  <label htmlFor="regUser">{t("auth.username")}</label>
+                <div className="row g-2 mb-3">
+                  <div className="col-md-8 form-floating">
+                    <input type="text" className="form-control" id="regAddress" placeholder="Home Address" value={homeAddress} onChange={e => setHomeAddress(e.target.value)} required />
+                    <label htmlFor="regAddress">Home Address</label>
+                  </div>
+                  <div className="col-md-4 form-floating">
+                    <input type="text" className="form-control" id="regPostal" placeholder="Postal Code" value={postalCode} onChange={e => setPostalCode(e.target.value)} required />
+                    <label htmlFor="regPostal">Postal Code</label>
+                  </div>
+                </div>
+                <div className="row g-2 mb-3">
+                  <div className="col-md-6 form-floating">
+                    <input type="email" className="form-control" id="regEmail" placeholder={t("auth.email")} value={email} onChange={e => setEmail(e.target.value)} required />
+                    <label htmlFor="regEmail">{t("auth.email")}</label>
+                  </div>
+                  <div className="col-md-6 form-floating">
+                    <input type="text" className="form-control" id="regUser" placeholder={t("auth.username")} value={username} onChange={e => setUsername(e.target.value)} required />
+                    <label htmlFor="regUser">{t("auth.username")}</label>
+                  </div>
                 </div>
                 <div className="form-floating mb-4">
                   <input type="password" className="form-control" id="regPass" placeholder={t("auth.password")} value={password} onChange={e => setPassword(e.target.value)} required />

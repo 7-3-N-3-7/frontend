@@ -1,49 +1,299 @@
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
-html {
-  height: 100%;
+  --bs-body-bg: #f4f7f9;
+  --bs-body-color: #1e293b;
+  --clinic-teal: #0f766e;
+  --clinic-teal-light: #f0fdfa;
+  --clinic-navy: #1e3a8a;
 }
 
 html,
 body {
-  max-width: 100vw;
-  overflow-x: hidden;
+  min-height: 100vh;
+  background-color: #f4f7f9;
+  color: #1e293b;
+  font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
-body {
-  min-height: 100%;
+/* Smooth Base UI + Bootstrap 5 Transitions */
+.base-tab-btn {
+  border: 1px solid transparent;
+  background: transparent;
+  color: #475569;
+  padding: 0.55rem 1.1rem;
+  border-radius: 0.65rem;
+  font-weight: 500;
+  font-size: 0.9rem;
+  transition: all 0.18s ease-in-out;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.base-tab-btn:hover {
+  background-color: #e2e8f0;
+  color: #0f172a;
+}
+
+.base-tab-btn[data-active],
+.base-tab-btn.active {
+  background-color: #0f766e;
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(15, 118, 110, 0.22);
+}
+
+/* Base UI Switch Styling */
+.base-switch-root {
+  width: 44px;
+  height: 24px;
+  background-color: #cbd5e1;
+  border-radius: 999px;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  position: relative;
+  transition: background-color 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+}
+
+.base-switch-root[data-checked] {
+  background-color: #0f766e;
+}
+
+.base-switch-thumb {
+  width: 20px;
+  height: 20px;
+  background-color: #ffffff;
+  border-radius: 50%;
+  transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+  transform: translateX(0);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.base-switch-thumb[data-checked] {
+  transform: translateX(20px);
+}
+
+/* Base UI Dialog Backdrop & Popup */
+.base-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(15, 23, 42, 0.48);
+  backdrop-filter: blur(3px);
+  z-index: 1050;
+  animation: fadeIn 0.18s ease-out;
+}
+
+.base-dialog-popup {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1055;
+  width: 95%;
+  max-width: 680px;
+  max-height: 90vh;
+  overflow-y: auto;
+  background: #ffffff;
+  border-radius: 1rem;
+  box-shadow: 0 20px 45px rgba(15, 23, 42, 0.2);
+  animation: scaleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.base-drawer-popup {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1055;
+  width: 100%;
+  max-width: 640px;
+  overflow-y: auto;
+  background: #ffffff;
+  box-shadow: -10px 0 35px rgba(15, 23, 42, 0.18);
+  animation: slideInRight 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Therapist Monthly Calendar Grid (Bootstrap 5 Enhanced) */
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.5rem;
+}
+
+.calendar-weekday {
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+  padding: 0.4rem 0;
+}
+
+.calendar-day-cell {
+  min-height: 86px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  padding: 0.5rem 0.6rem;
+  cursor: pointer;
+  transition: all 0.16s ease;
   display: flex;
   flex-direction: column;
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  justify-content: space-between;
+  text-align: left;
 }
 
-* {
-  box-sizing: border-box;
-  padding: 0;
-  margin: 0;
+.calendar-day-cell:hover {
+  border-color: #0f766e;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(15, 118, 110, 0.08);
 }
 
-a {
-  color: inherit;
-  text-decoration: none;
+.calendar-day-cell.selected {
+  border: 2px solid #0f766e;
+  background-color: #f0fdfa;
 }
 
-@media (prefers-color-scheme: dark) {
-  html {
-    color-scheme: dark;
-  }
+.calendar-day-cell.has-appointments {
+  background-color: #f8fafc;
+  border-color: #cbd5e1;
 }
+
+.calendar-day-cell.selected.has-appointments {
+  background-color: #ccfbf1;
+  border-color: #0f766e;
+}
+
+/* Workspace Window Card */
+.workspace-window-card {
+  border: 1px solid #cbd5e1;
+  border-radius: 0.9rem;
+  background: #ffffff;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+  overflow: hidden;
+  transition: box-shadow 0.2s ease;
+}
+
+.workspace-window-header {
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+  color: #ffffff;
+  padding: 0.65rem 1rem;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: translate(-50%, -48%) scale(0.96); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+/* JGit Date-Grouped Vertical Timeline Styling */
+.jgit-timeline-track {
+  position: relative;
+  padding-left: 1.5rem;
+}
+
+.jgit-timeline-track::before {
+  content: "";
+  position: absolute;
+  top: 0.5rem;
+  bottom: 0.5rem;
+  left: 0.45rem;
+  width: 2px;
+  background-color: #cbd5e1;
+}
+
+.jgit-date-group-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 0.6rem;
+  margin-top: 0.75rem;
+}
+
+.jgit-date-group-header::before {
+  content: "";
+  position: absolute;
+  left: -1.32rem;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background-color: #64748b;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 0 1px #cbd5e1;
+}
+
+.jgit-commit-item {
+  position: relative;
+  margin-bottom: 0.65rem;
+}
+
+.jgit-timeline-dot {
+  position: absolute;
+  left: -1.3rem;
+  top: 0.85rem;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background-color: #64748b;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 0 1px #94a3b8;
+}
+
+.jgit-commit-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 0.65rem;
+  background-color: #ffffff;
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+
+.jgit-commit-card:hover {
+  border-color: #94a3b8;
+  background-color: #f8fafc;
+}
+
+.jgit-commit-card.active {
+  border-color: #0f172a;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+}
+
+.jgit-diff-box {
+  background-color: #0f172a;
+  color: #e2e8f0;
+  border-radius: 0.6rem;
+  padding: 0.85rem 1rem;
+  font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.jgit-diff-line-add {
+  background-color: rgba(16, 185, 129, 0.16);
+  color: #6ee7b7;
+  display: block;
+  padding: 0.08rem 0.4rem;
+  border-left: 3px solid #10b981;
+  margin: 0.1rem 0;
+  border-radius: 0 0.25rem 0.25rem 0;
+}
+

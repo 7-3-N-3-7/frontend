@@ -127,13 +127,20 @@ export const authOptions: AuthOptions = {
     }
   },
   callbacks: {
-    async jwt({ token, user, account }) {
+    async jwt({ token, user, account, trigger }) {
       console.log("JWT Callback Triggered:", { 
         hasUser: !!user, 
         hasAccount: !!account,
+        trigger,
         isInitialSignIn: !!(account || user),
         currentExp: token.accessTokenExpires 
       });
+
+      // 0. Explicit session update (e.g. after Keycloak role assignment on CVR onboarding)
+      if (trigger === "update" && token.refreshToken) {
+        console.log("Session update triggered — refreshing Keycloak token for latest roles...");
+        return refreshAccessToken(token);
+      }
 
       // 1. Initial Sign In
       if (account?.access_token || (user && 'access_token' in user)) {
@@ -157,8 +164,11 @@ export const authOptions: AuthOptions = {
               .join('')
           );
           const decoded = JSON.parse(jsonPayload);
+          token.userUuid = decoded.sub;
           token.roles = decoded.realm_access?.roles || [];
           token.username = decoded.preferred_username || user?.name || user?.email;
+          token.fullName = decoded.name || token.username;
+          token.email = decoded.email || user?.email;
           token.accessTokenExpires = decoded.exp * 1000;
           console.log("Decoded Token Expiry:", new Date(token.accessTokenExpires as number).toISOString());
         } catch (e) {
@@ -199,7 +209,10 @@ export const authOptions: AuthOptions = {
       session.accessToken = token.accessToken;
       session.roles = token.roles || [];
       session.user = session.user || {};
-      session.user.name = token.username;
+      session.user.id = token.userUuid || token.sub;
+      session.user.name = token.fullName || token.username;
+      session.user.username = token.username;
+      session.user.email = token.email;
       session.error = token.error;
       return session;
     },

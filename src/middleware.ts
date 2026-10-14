@@ -24,14 +24,11 @@ export default async function proxy(request: NextRequest) {
   const isPublicPath =
     pathWithoutLocale.startsWith('/auth') || pathWithoutLocale.startsWith('/api');
   const isDashboardPath = pathWithoutLocale.startsWith('/dashboard');
-  const isTherapistPath =
-    pathWithoutLocale === '/dashboard/therapist' ||
-    pathWithoutLocale.startsWith('/dashboard/therapist/');
   const requiresAuthentication =
     isDashboardPath || (isPlatformHost && !isPublicPath && pathWithoutLocale !== '/');
   const shouldReadToken =
-    requiresAuthentication || (isPlatformHost && pathWithoutLocale === '/');
-  
+    requiresAuthentication || pathWithoutLocale === '/';
+
   const token = shouldReadToken
     ? await getToken({
         req: request,
@@ -39,7 +36,7 @@ export default async function proxy(request: NextRequest) {
         cookieName: sessionCookieName,
       })
     : null;
-    
+
   const locale = url.pathname.match(/^\/(en|da|fr|es|de)/)?.[1] || 'en';
 
   if (!token && requiresAuthentication) {
@@ -47,23 +44,16 @@ export default async function proxy(request: NextRequest) {
   }
 
   const roles = Array.isArray(token?.roles) ? (token.roles as string[]) : [];
-  if (token && isTherapistPath && !roles.includes('therapist')) {
-    return NextResponse.redirect(new URL(`/${locale}/dashboard/personal`, request.url));
-  }
 
-  if (token && isPlatformHost && pathWithoutLocale === '/') {
+  // Redirect authenticated users on root /{locale} directly to their dashboard
+  // (Avoids intlMiddleware x-middleware-rewrite header collision on platform.localhost)
+  if (token && pathWithoutLocale === '/') {
     const dashboard = roles.includes('therapist')
       ? 'therapist'
       : 'personal';
-    const rewriteResp = NextResponse.rewrite(
+    return NextResponse.redirect(
       new URL(`/${locale}/dashboard/${dashboard}`, request.url),
     );
-
-    response.headers.forEach((value, key) => {
-      rewriteResp.headers.set(key, value);
-    });
-
-    return rewriteResp;
   }
 
   return response;
@@ -71,8 +61,8 @@ export default async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/', 
-    '/(en|da|fr|es|de)/:path*', 
-    '/((?!api|_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|.*\\..*).*)'
-  ]
+    '/',
+    '/(en|da|fr|es|de)/:path*',
+    '/((?!api|_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|.*\\..*).*)',
+  ],
 };

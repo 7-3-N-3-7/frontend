@@ -13,8 +13,7 @@ export default getRequestConfig(async ({ requestLocale }) => {
   }
  
   const res = await fetch(`${backendUrl}/api/v1/i18n/${locale}`, {
-      // Use Next.js fetch cache to avoid hitting the backend on every SSR request
-      next: { revalidate: 3600 } 
+      cache: 'no-store'
     });
     
     if (!res.ok) {
