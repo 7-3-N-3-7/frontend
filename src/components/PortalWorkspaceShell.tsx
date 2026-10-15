@@ -5,6 +5,7 @@ import { usePathname, Link } from "@/i18n/routing";
 import { useTranslations } from "next-intl";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import UserDropdown from "@/app/[locale]/dashboard/UserDropdown";
+import { useI18nCache } from "@/components/CachedI18nProvider";
 
 export default function PortalWorkspaceShell({
   children,
@@ -13,6 +14,7 @@ export default function PortalWorkspaceShell({
 }) {
   const pathname = usePathname();
   const t = useTranslations();
+  const i18nCache = useI18nCache();
   const [me, setMe] = useState<any>(null);
 
   const isTherapistMode = pathname.startsWith("/dashboard/therapist");
@@ -28,13 +30,15 @@ export default function PortalWorkspaceShell({
   };
 
   useEffect(() => {
-    fetch("/api/backend/clinic/me", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
+    const loader = i18nCache?.getCachedMe
+      ? i18nCache.getCachedMe()
+      : fetch("/api/backend/clinic/me").then((r) => (r.ok ? r.json() : null));
+    loader
       .then((data) => {
         if (data) setMe(data);
       })
       .catch(() => {});
-  }, [pathname]);
+  }, [i18nCache]);
 
   return (
     <div className="min-vh-100 d-flex flex-column" style={{ backgroundColor: "#f4f7f9" }}>
@@ -146,8 +150,8 @@ export default function PortalWorkspaceShell({
         </div>
       </header>
 
-      {/* Main Content Container */}
-      <main className="flex-grow-1 container-fluid py-4 px-3 px-lg-4" style={{ maxWidth: "1600px" }}>
+      {/* Main Content Container (Full 8/8 Browser Width for 1/8 Left Sidebar + 7/8 Workspace) */}
+      <main className="flex-grow-1 container-fluid py-3 px-2 px-lg-3">
         {children}
       </main>
     </div>

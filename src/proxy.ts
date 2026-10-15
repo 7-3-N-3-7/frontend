@@ -19,7 +19,8 @@ export default async function proxy(request: NextRequest) {
     return response;
   }
 
-  const pathWithoutLocale = url.pathname.replace(/^\/(en|da|fr|es|de)/, '') || '/';
+  const localeRegex = /^\/(en|da|fr|es|de|sv|no|nl|it|pl|fi|pt|is)(?=\/|$)/;
+  const pathWithoutLocale = url.pathname.replace(localeRegex, '') || '/';
   const isPlatformHost = hostname.startsWith('platform.');
   const isPublicPath =
     pathWithoutLocale.startsWith('/auth') || pathWithoutLocale.startsWith('/api');
@@ -37,7 +38,13 @@ export default async function proxy(request: NextRequest) {
       })
     : null;
 
-  const locale = url.pathname.match(/^\/(en|da|fr|es|de)/)?.[1] || 'en';
+  const urlLocale = url.pathname.match(localeRegex)?.[1];
+  const cookieLocale = request.cookies.get('NEXT_LOCALE')?.value;
+  const preferredLocale =
+    cookieLocale && (routing.locales as readonly string[]).includes(cookieLocale)
+      ? cookieLocale
+      : urlLocale || 'en';
+  const locale = urlLocale || preferredLocale;
 
   if (!token && requiresAuthentication) {
     return NextResponse.redirect(new URL(`/${locale}`, request.url));
@@ -52,7 +59,7 @@ export default async function proxy(request: NextRequest) {
       ? 'therapist'
       : 'personal';
     return NextResponse.redirect(
-      new URL(`/${locale}/dashboard/${dashboard}`, request.url),
+      new URL(`/${preferredLocale}/dashboard/${dashboard}`, request.url),
     );
   }
 
@@ -62,7 +69,8 @@ export default async function proxy(request: NextRequest) {
 export const config = {
   matcher: [
     '/',
-    '/(en|da|fr|es|de)/:path*',
+    '/(en|da|fr|es|de|sv|no|nl|it|pl|fi|pt|is)/:path*',
     '/((?!api|_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|.*\\..*).*)',
   ],
 };
+

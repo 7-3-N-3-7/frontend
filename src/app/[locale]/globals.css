@@ -447,4 +447,851 @@ body {
   transition: all 0.2s ease;
 }
 
+/* 8-Column Portal Layout: 0/8 -> 1/8 Left Sidebar Nav + 1/8 -> 8/8 Workspace Area */
+.portal-8col-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+  align-items: start;
+}
+
+@media (min-width: 992px) {
+  .portal-8col-grid {
+    grid-template-columns: minmax(238px, 14.5%) minmax(0, 85.5%);
+    gap: 1.25rem;
+  }
+
+  .portal-sidebar-1of8 {
+    position: sticky;
+    top: 4.5rem;
+  }
+}
+
+.gap-1\.5 {
+  gap: 0.375rem !important;
+}
+
+.gap-2\.5 {
+  gap: 0.625rem !important;
+}
+
+.px-2\.5 {
+  padding-left: 0.625rem !important;
+  padding-right: 0.625rem !important;
+}
+
+.py-1\.5 {
+  padding-top: 0.375rem !important;
+  padding-bottom: 0.375rem !important;
+}
+
+.mb-1\.5 {
+  margin-bottom: 0.375rem !important;
+}
+
+.p-2\.5 {
+  padding: 0.625rem !important;
+}
+
+.p-3\.5 {
+  padding: 0.875rem !important;
+}
+
+.sidebar-nav-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 1rem;
+  padding: 0.85rem 0.65rem;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05);
+}
+
+.sidebar-tab-btn {
+  width: 100%;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #475569;
+  padding: 0.62rem 0.8rem;
+  border-radius: 0.75rem;
+  font-weight: 600;
+  font-size: 0.82rem;
+  line-height: 1.25;
+  text-align: left;
+  transition: all 0.18s ease-in-out;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.sidebar-tab-btn:hover {
+  background-color: #f1f5f9;
+  color: #0f172a;
+  transform: translateX(2px);
+}
+
+.sidebar-tab-btn[data-active],
+.sidebar-tab-btn.active {
+  background: linear-gradient(135deg, #0f766e 0%, #0d9488 100%);
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(15, 118, 110, 0.25);
+}
+
+/* Single Unified Horizontal JGit Graph & Interactive Timeline Scrollbar/Zoom */
+.jgit-single-graph-shell {
+  background: linear-gradient(135deg, #f8fafc 0%, #ffffff 55%, #f0fdf4 100%);
+  border-color: #cbd5e1 !important;
+}
+
+.jgit-horizontal-track {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 1.5rem;
+  padding-bottom: 1.1rem;
+  border-radius: 1rem;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  scroll-behavior: smooth;
+  overflow-x: auto;
+}
+
+/* Hide standard browser scrollbar — replaced by the Interactive Timeline Scrollbar below */
+.jgit-hide-native-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.jgit-hide-native-scrollbar::-webkit-scrollbar {
+  display: none;
+  height: 0;
+  width: 0;
+}
+
+.jgit-h-date-group {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  min-width: 240px;
+}
+
+.jgit-h-commits-row {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.jgit-h-commit-item {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.4rem;
+  margin-bottom: 0;
+  flex-shrink: 0;
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Single Unified Horizontal Graph Axis */
+.jgit-unified-axis {
+  position: relative;
+  height: 28px;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.jgit-unified-axis-line {
+  position: absolute;
+  left: -0.75rem;
+  right: -0.75rem;
+  top: 50%;
+  height: 3px;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background: linear-gradient(90deg, #10b981 0%, #6366f1 55%, #f59e0b 100%);
+  opacity: 0.45;
+}
+
+.jgit-unified-axis .jgit-swimlane-node {
+  margin-top: 0;
+  z-index: 3;
+}
+
+.jgit-unified-connector {
+  position: absolute;
+  left: 50%;
+  top: 55%;
+  bottom: -0.45rem;
+  width: 2.5px;
+  transform: translateX(-50%);
+  pointer-events: none;
+  z-index: 2;
+  border-radius: 2px;
+}
+
+.jgit-h-commit-card {
+  width: 285px;
+}
+
+.jgit-h-commit-card.active {
+  width: min(590px, 78vw);
+}
+
+.jgit-commit-item.is-highlighted {
+  z-index: 25;
+}
+
+.jgit-commit-card.active {
+  position: relative;
+  z-index: 25;
+  transform: translateY(-6px) scale(1.015);
+}
+
+.jgit-commit-card.cat-client.active {
+  border-color: #059669;
+  border-left-width: 6px;
+  background: linear-gradient(135deg, #ffffff 0%, #ecfdf5 100%);
+  box-shadow: 0 16px 36px rgba(5, 150, 105, 0.24), 0 0 0 2px rgba(16, 185, 129, 0.38);
+}
+
+.jgit-commit-card.cat-therapist.active {
+  border-color: #4f46e5;
+  border-left-width: 6px;
+  background: linear-gradient(135deg, #ffffff 0%, #eef2ff 100%);
+  box-shadow: 0 16px 36px rgba(79, 70, 229, 0.24), 0 0 0 2px rgba(99, 102, 241, 0.38);
+}
+
+.jgit-commit-card.cat-confidential.active {
+  border-color: #d97706;
+  border-left-width: 6px;
+  background: linear-gradient(135deg, #ffffff 0%, #fffbeb 100%);
+  box-shadow: 0 16px 36px rgba(217, 119, 6, 0.26), 0 0 0 2px rgba(245, 158, 11, 0.42);
+}
+
+/* Custom Interactive Dual-Handle Timeline Zoom Window Selector */
+.jgit-timeline-scrollbar {
+  background: linear-gradient(135deg, #f0fdf4 0%, #eef2ff 55%, #fffbeb 100%);
+  border-color: #cbd5e1 !important;
+}
+
+.jgit-zoom-window-container {
+  position: relative;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  padding: 0 0.5rem;
+}
+
+.jgit-zoom-window-rail {
+  position: absolute;
+  left: 0.5rem;
+  right: 0.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 8px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  border: 1px solid #cbd5e1;
+}
+
+.jgit-zoom-window-selection {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 12px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(16, 185, 129, 0.35) 0%, rgba(99, 102, 241, 0.35) 100%);
+  border: 1.5px solid #0f766e;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.jgit-scrubber-tick {
+  position: relative;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2px solid #ffffff;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.25);
+  padding: 0;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease;
+  z-index: 2;
+}
+
+.jgit-scrubber-tick:hover,
+.jgit-scrubber-tick.is-focused {
+  transform: scale(1.42);
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.32), 0 3px 8px rgba(15, 23, 42, 0.3);
+  z-index: 4;
+}
+
+/* Dual overlapping range inputs where only the left & right thumbs capture pointer events */
+.jgit-dual-zoom-input {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 100%;
+  height: 0;
+  margin: 0;
+  background: transparent;
+  pointer-events: none;
+  -webkit-appearance: none;
+  appearance: none;
+  z-index: 5;
+}
+
+.jgit-dual-zoom-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  pointer-events: auto;
+  width: 18px;
+  height: 26px;
+  border-radius: 6px;
+  background: #0f766e;
+  border: 2px solid #ffffff;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.35);
+  cursor: ew-resize;
+  transition: transform 0.15s ease, background-color 0.15s ease;
+}
+
+.jgit-dual-zoom-input::-webkit-slider-thumb:hover {
+  background: #0d9488;
+  transform: scale(1.08);
+}
+
+.jgit-dual-zoom-input::-moz-range-thumb {
+  pointer-events: auto;
+  width: 18px;
+  height: 26px;
+  border-radius: 6px;
+  background: #0f766e;
+  border: 2px solid #ffffff;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.35);
+  cursor: ew-resize;
+  transition: transform 0.15s ease, background-color 0.15s ease;
+}
+
+.jgit-dual-zoom-input::-moz-range-thumb:hover {
+  background: #0d9488;
+  transform: scale(1.08);
+}
+
+@keyframes jgitPopOpen {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.jgit-popup-inspector,
+.jgit-floating-popup-window {
+  animation: jgitPopOpen 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* =========================================================================
+   REDESIGNED JGIT TIMELINE UI/UX (Sage Canvas, Curved Branch Graph,
+   Pastel Commit Cards, Revisionshistorik Sidebar & Før/Nu Diff Studio)
+   ========================================================================= */
+
+.jgit-sage-canvas-shell {
+  background: radial-gradient(
+      circle at 48% 22%,
+      rgba(245, 224, 200, 0.52) 0%,
+      rgba(225, 218, 246, 0.32) 38%,
+      transparent 72%
+    ),
+    linear-gradient(160deg, #b8cbbd 0%, #c8d7cb 48%, #bccbc0 100%);
+  padding: 1.25rem 1.35rem 1.4rem;
+  border: 1px solid #a7bdb0;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    0 10px 28px rgba(15, 23, 42, 0.08);
+}
+
+.jgit-branch-horizontal-scroll {
+  overflow-x: auto;
+  overflow-y: visible;
+  padding: 0.6rem 0.4rem 1.2rem;
+}
+
+.jgit-branch-cards-strip {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 1.15rem;
+  min-width: 100%;
+  position: relative;
+}
+
+.jgit-branch-column {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  flex-shrink: 0;
+  padding-top: 28px;
+  padding-bottom: 22px;
+}
+
+/* Continuous dark-slate horizontal main branch line across the top */
+.jgit-branch-top-rail {
+  position: absolute;
+  top: 6px;
+  left: -0.65rem;
+  right: -0.65rem;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3;
+}
+
+.jgit-branch-main-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 3px;
+  transform: translateY(-50%);
+  background-color: #5b6b73;
+  z-index: 1;
+}
+
+.jgit-pastel-dot {
+  position: relative;
+  z-index: 4;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2.5px solid #ffffff;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.jgit-pastel-dot.is-active {
+  transform: scale(1.28);
+}
+
+/* Smooth SVG curve dipping below the card for lower-branch commits */
+.jgit-branch-curve-svg {
+  position: absolute;
+  top: 13px;
+  left: -14px;
+  width: calc(100% + 28px);
+  height: calc(100% - 14px);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.jgit-lower-branch-dot {
+  position: absolute;
+  bottom: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2.5px solid #ffffff;
+  z-index: 4;
+}
+
+/* Soft Rounded Pastel Commit Cards */
+.jgit-pastel-commit-card {
+  position: relative;
+  z-index: 3;
+  border-radius: 1.05rem;
+  border: 1.5px solid rgba(255, 255, 255, 0.75);
+  padding: 0.78rem 0.9rem;
+  box-shadow: 0 8px 20px rgba(30, 41, 59, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.jgit-pastel-commit-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 24px rgba(30, 41, 59, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.jgit-pastel-commit-card.active {
+  transform: translateY(-3px);
+  border-width: 2px;
+  box-shadow: 0 14px 28px rgba(30, 41, 59, 0.18),
+    0 0 0 3px rgba(255, 255, 255, 0.65);
+}
+
+.jgit-card-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  color: #ffffff;
+  font-size: 0.66rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.14);
+}
+
+.jgit-card-category-pill {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.16rem 0.62rem;
+  border-radius: 999px;
+}
+
+.jgit-card-bottom-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.18rem 0.62rem;
+  border-radius: 999px;
+}
+
+/* Clean Extended Zoom Slider in Middle Right */
+.jgit-clean-zoom-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 240px;
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(71, 95, 84, 0.35);
+  outline: none;
+  cursor: pointer;
+}
+
+.jgit-clean-zoom-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #f8faf9;
+  border: 2px solid #0f766e;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.25);
+  cursor: pointer;
+}
+
+.jgit-clean-zoom-slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #f8faf9;
+  border: 2px solid #0f766e;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.25);
+  cursor: pointer;
+}
+
+.jgit-zoom-control-bar {
+  background: rgba(244, 246, 242, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05);
+}
+
+/* 2D Swimlane Timeline Matrix (Y-Axis = Named Client & Therapist Lanes, X-Axis = Time) */
+.jgit-2d-board-wrapper {
+  background: rgba(244, 247, 243, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.82);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65),
+    0 6px 20px rgba(15, 23, 42, 0.06);
+  overflow: hidden;
+}
+
+.jgit-2d-scroll-viewport {
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 440px;
+  cursor: grab;
+  user-select: none;
+}
+
+.jgit-2d-scroll-viewport:active {
+  cursor: grabbing;
+}
+
+.jgit-2d-matrix {
+  display: inline-flex;
+  flex-direction: column;
+  min-width: 100%;
+}
+
+.jgit-2d-lane-row {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  border-bottom: 1px dashed rgba(100, 116, 139, 0.22);
+  min-height: 118px;
+}
+
+.jgit-2d-lane-row:last-child {
+  border-bottom: none;
+}
+
+.jgit-2d-time-header-row {
+  min-height: 38px;
+  background: rgba(255, 255, 255, 0.86);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.35);
+  position: sticky;
+  top: 0;
+  z-index: 15;
+}
+
+/* Left Sticky Column on Y-axis showing Client / Therapist Name */
+.jgit-2d-sticky-lane-label {
+  position: sticky;
+  left: 0;
+  z-index: 12;
+  width: 215px;
+  min-width: 215px;
+  flex-shrink: 0;
+  background: rgba(249, 251, 249, 0.96);
+  backdrop-filter: blur(6px);
+  border-right: 1px solid rgba(148, 163, 184, 0.35);
+  padding: 0.65rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  box-shadow: 4px 0 12px rgba(15, 23, 42, 0.04);
+}
+
+.jgit-2d-corner-header {
+  z-index: 18;
+  background: rgba(248, 250, 252, 0.98);
+  padding: 0.4rem 0.75rem;
+}
+
+.jgit-2d-columns-track {
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.55rem 0.85rem;
+  flex-grow: 1;
+}
+
+.jgit-2d-lane-axis-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 19px;
+  height: 2.5px;
+  opacity: 0.38;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.jgit-2d-time-col-header {
+  flex-shrink: 0;
+  text-align: center;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.jgit-2d-time-col-header:hover {
+  background-color: rgba(15, 118, 110, 0.08);
+}
+
+.jgit-2d-time-col-header.is-selected {
+  background-color: rgba(16, 185, 129, 0.16);
+  border: 1px solid rgba(16, 185, 129, 0.45);
+}
+
+.jgit-2d-time-col-header.is-compared {
+  background-color: rgba(99, 102, 241, 0.16);
+  border: 1px dashed #6366f1;
+}
+
+.jgit-2d-cell {
+  position: relative;
+  z-index: 2;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  transition: width 0.16s ease;
+}
+
+.jgit-2d-pass-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
+  border: 2px solid #cbd5e1;
+  margin-top: 8px;
+  opacity: 0.65;
+}
+
+/* Full-width bottom inspector panel */
+.jgit-compare-versions-panel {
+  background: rgba(244, 246, 242, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  border-radius: 1.15rem;
+  padding: 1.15rem 1.35rem;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+}
+
+.jgit-nav-pill-btn {
+  border-radius: 0.65rem;
+  padding: 0.35rem 0.9rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+  transition: all 0.15s ease;
+}
+
+.jgit-nav-pill-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.jgit-nav-pill-newer {
+  background: linear-gradient(135deg, #e5ded2 0%, #d2dfd6 100%);
+  color: #2c3531;
+  border-color: #c7d1c9;
+}
+
+.jgit-nav-pill-older {
+  background: linear-gradient(135deg, #e2dbf8 0%, #d2c8f4 100%);
+  color: #34295c;
+  border-color: #c4b7ee;
+}
+
+.jgit-nav-pill-close {
+  background: #23272e;
+  color: #ffffff;
+}
+
+.jgit-nav-pill-close:hover {
+  background: #111317;
+}
+
+/* Inner Før / Nu Version Cards */
+.jgit-version-box {
+  background: #fbfcfa;
+  border: 1px solid #e4e8e3;
+  border-radius: 0.95rem;
+  padding: 1rem 1.15rem;
+  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.03);
+}
+
+.jgit-version-box-title {
+  font-size: 0.94rem;
+  font-weight: 700;
+  color: #1e293b;
+  padding-bottom: 0.65rem;
+  margin-bottom: 0.75rem;
+  border-bottom: 1px solid #ecefe9;
+}
+
+.jgit-version-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: #334155;
+  word-break: break-word;
+}
+
+/* Soft Pastel Diff Highlights matching the screenshot */
+.jgit-version-content .jgit-diff-line-add {
+  background-color: #def3e4;
+  color: #1c4b2e;
+  border-left: 3px solid #68b884;
+  padding: 0.35rem 0.65rem;
+  border-radius: 0.4rem;
+  margin: 0.1rem 0;
+  display: block;
+}
+
+.jgit-version-content .jgit-diff-line-remove {
+  background-color: #f6e3e3;
+  color: #6b2929;
+  border-left: 3px solid #d98282;
+  padding: 0.35rem 0.65rem;
+  border-radius: 0.4rem;
+  margin: 0.1rem 0;
+  display: block;
+}
+
+.jgit-diff-line-neutral {
+  color: #334155;
+  padding: 0.18rem 0.25rem;
+}
+
+/* Color-Coded Structured Journal Entry Cards inside Før / Nu Panels */
+.jgit-structured-entry-card {
+  border-radius: 0.9rem;
+  border: 1.5px solid #e2e8f0;
+  border-left-width: 5px;
+  padding: 0.85rem 1rem;
+  margin-bottom: 0.35rem;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.05);
+  transition: transform 0.16s ease, box-shadow 0.16s ease;
+}
+
+.jgit-structured-entry-card.diff-added {
+  box-shadow: 0 6px 16px rgba(34, 197, 94, 0.12),
+    inset 0 0 0 1px rgba(74, 222, 128, 0.28);
+}
+
+.jgit-structured-entry-card.diff-removed {
+  box-shadow: 0 6px 16px rgba(244, 63, 94, 0.12),
+    inset 0 0 0 1px rgba(251, 113, 133, 0.28);
+}
+
+.jgit-entry-cat-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.2rem 0.65rem;
+  border-radius: 999px;
+}
+
+.jgit-entry-cat-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.jgit-entry-diff-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.16rem 0.58rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+
+.jgit-entry-body-text {
+  background: rgba(255, 255, 255, 0.72);
+  color: #1e293b;
+  padding: 0.45rem 0.7rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+
+
+
+
 

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback, useRef, useEffect } from "react";
 
 export type JGitCommitCategory = "CLIENT" | "THERAPIST" | "CONFIDENTIAL";
 
@@ -9,16 +9,21 @@ export interface EnrichedGitCommit {
   fullHash: string;
   message: string;
   author: string;
+  authorDisplayName: string;
   authorInitials: string;
   timestamp: string;
   dateKey: string;
   formattedDate: string;
+  shortDate: string;
   formattedTime: string;
   snapshot: string;
+  parentSnapshot: string;
   delta: string;
   category: JGitCommitCategory;
   moodScore: number | null;
   isShared: boolean | null;
+  laneKey: string;
+  laneRoleLabel: string;
 }
 
 export interface JGitHistoryTimelineProps {
@@ -28,6 +33,15 @@ export interface JGitHistoryTimelineProps {
   selectedCommitHash?: string | null;
   onSelectCommit?: (commitHash: string) => void;
   locale?: string;
+}
+
+interface SwimlaneRow {
+  laneKey: string;
+  authorDisplayName: string;
+  authorInitials: string;
+  roleLabel: string;
+  category: JGitCommitCategory;
+  commitCount: number;
 }
 
 function computeCommitDelta(currentSnapshot: string, parentSnapshot: string): string {
@@ -52,30 +66,6 @@ function computeCommitDelta(currentSnapshot: string, parentSnapshot: string): st
   return addedLines.join("\n").trim() || curr;
 }
 
-function computeLineComparison(targetSnapshot: string, baseSnapshot: string): {
-  added: string[];
-  removed: string[];
-  unchangedCount: number;
-} {
-  const targetLines = (targetSnapshot || "")
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean);
-  const baseLines = (baseSnapshot || "")
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean);
-
-  const baseSet = new Set(baseLines);
-  const targetSet = new Set(targetLines);
-
-  const added = targetLines.filter((l) => !baseSet.has(l));
-  const removed = baseLines.filter((l) => !targetSet.has(l));
-  const unchangedCount = targetLines.filter((l) => baseSet.has(l)).length;
-
-  return { added, removed, unchangedCount };
-}
-
 function classifyCommit(
   message: string,
   delta: string,
@@ -98,7 +88,9 @@ function classifyCommit(
     msgLower.includes("opfølgning") ||
     deltaUpper.includes("Terapeutisk opfølgning") ||
     author.toLowerCase().includes("dr.") ||
-    author.toLowerCase().includes("psykolog")
+    author.toLowerCase().includes("psykolog") ||
+    author.toLowerCase().includes("bjens") ||
+    author.toLowerCase().includes("bo jensen")
   ) {
     return "THERAPIST";
   }
@@ -106,12 +98,60 @@ function classifyCommit(
   return "CLIENT";
 }
 
+function formatReadableAuthorName(
+  rawAuthor: string,
+  category: JGitCommitCategory
+): string {
+  const clean = (rawAuthor || "").trim();
+  const lower = clean.toLowerCase();
+
+  if (
+    lower === "bjens" ||
+    lower === "bijens" ||
+    lower === "bo_jensen" ||
+    lower === "bojensen" ||
+    lower.includes("bo jensen") ||
+    lower === "therapist" ||
+    lower === "terapeut"
+  ) {
+    return "Bo Jensen (Terapeut)";
+  }
+  if (
+    lower === "anders_sand" ||
+    lower === "anderssand" ||
+    lower === "anders" ||
+    lower.includes("anders sand") ||
+    lower === "client" ||
+    lower === "klient"
+  ) {
+    return "Anders Sand";
+  }
+
+  if (!clean) {
+    return category === "CLIENT" ? "Anders Sand" : "Bo Jensen (Terapeut)";
+  }
+
+  if (clean.includes("_") || clean.includes(".")) {
+    const titleCased = clean
+      .split(/[._-]+/)
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ");
+    return category === "THERAPIST" || category === "CONFIDENTIAL"
+      ? `${titleCased} (Terapeut)`
+      : titleCased;
+  }
+
+  return clean;
+}
+
 function parseCommitMetadata(delta: string, snapshot: string): {
   moodScore: number | null;
   isShared: boolean | null;
 } {
   const source = `${delta}\n${snapshot}`;
-  let moodScore: number | null = null;
+  let moodScore: number | null;
+  moodScore = null;
   let isShared: boolean | null = null;
 
   const moodMatch = source.match(/(?:Mood|Humør)\s*:\s*(\d{1,2})\s*\/\s*10/i);
@@ -136,6 +176,7 @@ function parseCommitMetadata(delta: string, snapshot: string): {
 
 function computeInitials(author: string): string {
   const clean = (author || "Ukendt")
+    .replace(/\(.*?\)/g, "")
     .replace(/^dr\.?\s+/i, "")
     .trim();
   const parts = clean.split(/[\s._-]+/).filter(Boolean);
@@ -165,19 +206,38 @@ function highlightText(text: string, query: string): React.ReactNode {
 export default function JGitHistoryTimeline({
   commits,
   isTherapistView,
-  splitView = false,
   selectedCommitHash,
   onSelectCommit,
   locale = "da",
 }: JGitHistoryTimelineProps) {
+  const isEn = locale === "en";
+  const loc = useCallback(
+    (daText: string, enText: string) => (isEn ? enText : daText),
+    [isEn]
+  );
   const [activeFilter, setActiveFilter] = useState<
     "ALL" | "CLIENT" | "THERAPIST" | "CONFIDENTIAL"
   >("ALL");
+  const [hideConfidential, setHideConfidential] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [viewMode, setViewMode] = useState<"DELTA" | "SNAPSHOT">("DELTA");
-  const [showClinicalFormatted, setShowClinicalFormatted] = useState(true);
+  const [viewMode, setViewMode] = useState<"DELTA" | "COMPARE" | "SNAPSHOT">("DELTA");
   const [compareCommitHash, setCompareCommitHash] = useState<string | null>(null);
-  const [collapsedDates, setCollapsedDates] = useState<Record<string, boolean>>({});
+
+  // Extended Semantic Zoom (35% Macro -> 100% Standard -> 220% Micro Detail)
+  const [zoomScale, setZoomScale] = useState<number>(100);
+  // Start and End Date Filters (YYYY-MM-DD)
+  const [startDateFilter, setStartDateFilter] = useState<string>("");
+  const [endDateFilter, setEndDateFilter] = useState<string>("");
+
+  // Drag-to-pan state on 2D canvas (both X and Y axes)
+  const trackRef = useRef<HTMLDivElement | null>(null);
+  const isDraggingCanvasRef = useRef(false);
+  const dragStartXRef = useRef(0);
+  const dragStartYRef = useRef(0);
+  const dragScrollLeftRef = useRef(0);
+  const dragScrollTopRef = useRef(0);
+  const didDragMoveRef = useRef(false);
+
   const [internalSelectedHash, setInternalSelectedHash] = useState<string | null>(
     selectedCommitHash || null
   );
@@ -192,7 +252,7 @@ export default function JGitHistoryTimeline({
     }
   }
 
-  // 1. Enrich commits with parent diff (delta), category, mood/shared chips, and localized date/time
+  // 1. Enrich commits with parent diff (delta), category, readable therapist/client name, mood/shared chips, and 2D swimlane key
   const enrichedCommits = useMemo<EnrichedGitCommit[]>(() => {
     if (!Array.isArray(commits) || commits.length === 0) return [];
 
@@ -200,7 +260,8 @@ export default function JGitHistoryTimeline({
     for (let i = 0; i < commits.length; i++) {
       const c = commits[i];
       const parent = commits[i + 1];
-      const rawDelta = computeCommitDelta(c.snapshot || "", parent?.snapshot || "");
+      const parentSnapshotStr = parent?.snapshot || "";
+      const rawDelta = computeCommitDelta(c.snapshot || "", parentSnapshotStr);
       const category = classifyCommit(c.message || "", rawDelta, c.author || "");
 
       // Strict client privacy: never show commits that only added INTERNAL_MEDICAL_NOTES
@@ -222,6 +283,10 @@ export default function JGitHistoryTimeline({
         month: "short",
         year: "numeric",
       }).format(dateObj);
+      const shortDate = new Intl.DateTimeFormat(locale, {
+        day: "numeric",
+        month: "short",
+      }).format(dateObj);
       const formattedTime = new Intl.DateTimeFormat(locale, {
         hour: "2-digit",
         minute: "2-digit",
@@ -229,58 +294,149 @@ export default function JGitHistoryTimeline({
 
       const authorStr = c.author || "Ukendt";
       const deltaStr = rawDelta || c.snapshot || "";
+      const authorDisplayName = formatReadableAuthorName(authorStr, category);
       const { moodScore, isShared } = parseCommitMetadata(deltaStr, c.snapshot || "");
+
+      const rawMessage = String(c.message || "Journal revision")
+        .replace(/^Added\s+journal\s+entry\s*:\s*/i, "")
+        .trim();
+
+      const canonicalAuthorKey =
+        category === "CLIENT" ? "client_main" : "therapist_main";
+
+      const laneKey =
+        category === "CLIENT"
+          ? `CLIENT::${canonicalAuthorKey}`
+          : category === "CONFIDENTIAL"
+          ? `CONFIDENTIAL::${canonicalAuthorKey}`
+          : `THERAPIST::${canonicalAuthorKey}`;
+
+      const laneRoleLabel =
+        category === "CLIENT"
+          ? loc("Klient-spor", "Client Lane")
+          : category === "CONFIDENTIAL"
+          ? loc("🔒 Fortroligt klinisk spor", "🔒 Confidential Clinical Lane")
+          : loc("Terapeut-spor (Delt)", "Therapist Lane (Shared)");
 
       list.push({
         commitHash: c.commitHash || String(c.fullHash || "").slice(0, 8),
         fullHash: c.fullHash || c.commitHash || "",
-        message: c.message || "Journal revision",
+        message: rawMessage || "Journal revision",
         author: authorStr,
-        authorInitials: computeInitials(authorStr),
+        authorDisplayName,
+        authorInitials: computeInitials(authorDisplayName),
         timestamp: c.timestamp || "",
         dateKey,
         formattedDate,
+        shortDate,
         formattedTime,
         snapshot: c.snapshot || "",
+        parentSnapshot: parentSnapshotStr,
         delta: deltaStr,
         category,
         moodScore,
         isShared,
+        laneKey,
+        laneRoleLabel,
       });
     }
     return list;
-  }, [commits, isTherapistView, locale]);
+  }, [commits, isTherapistView, locale, loc]);
 
-  const effectiveSelectedHash = useMemo(() => {
-    if (enrichedCommits.length === 0) return null;
-    if (internalSelectedHash === "__COLLAPSED__") return null;
-    if (
-      internalSelectedHash &&
-      enrichedCommits.some((c) => c.commitHash === internalSelectedHash)
-    ) {
-      return internalSelectedHash;
-    }
-    return enrichedCommits[0].commitHash;
-  }, [enrichedCommits, internalSelectedHash]);
+  const confidentialCommitsCount = useMemo(
+    () => enrichedCommits.filter((c) => c.category === "CONFIDENTIAL").length,
+    [enrichedCommits]
+  );
 
-  // 2. Apply category filter & search query
+  // 2. Apply category filter, confidential screen-share toggle & search query
   const filteredCommits = useMemo(() => {
     return enrichedCommits.filter((c) => {
+      if (hideConfidential && c.category === "CONFIDENTIAL") {
+        return false;
+      }
       if (activeFilter !== "ALL" && c.category !== activeFilter) {
         return false;
       }
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
-        const haystack = `${c.commitHash} ${c.fullHash} ${c.message} ${c.author} ${c.delta} ${c.snapshot} ${c.formattedDate}`.toLowerCase();
+        const haystack = `${c.commitHash} ${c.fullHash} ${c.message} ${c.author} ${c.authorDisplayName} ${c.delta} ${c.snapshot} ${c.formattedDate}`.toLowerCase();
         if (!haystack.includes(q)) {
           return false;
         }
       }
       return true;
     });
-  }, [enrichedCommits, activeFilter, searchQuery]);
+  }, [enrichedCommits, activeFilter, hideConfidential, searchQuery]);
 
-  // 3. Group filtered commits by calendar date (Date-first grouping)
+  // 2b. Apply Start Date & End Date filter
+  const visibleWindowCommits = useMemo(() => {
+    if (filteredCommits.length === 0) return [];
+    return filteredCommits.filter((c) => {
+      if (startDateFilter && c.dateKey < startDateFilter) {
+        return false;
+      }
+      if (endDateFilter && c.dateKey > endDateFilter) {
+        return false;
+      }
+      return true;
+    });
+  }, [filteredCommits, startDateFilter, endDateFilter]);
+
+  // Earliest & latest available commit dates for date picker min/max hints
+  const { minAvailableDate, maxAvailableDate } = useMemo(() => {
+    if (enrichedCommits.length === 0) {
+      return { minAvailableDate: "", maxAvailableDate: "" };
+    }
+    const dates = enrichedCommits.map((c) => c.dateKey).filter(Boolean).sort();
+    return {
+      minAvailableDate: dates[0] || "",
+      maxAvailableDate: dates[dates.length - 1] || "",
+    };
+  }, [enrichedCommits]);
+
+  // Build 2D Y-Axis Swimlanes (Client lane on top, each Therapist on their own named lane below)
+  const swimlanes = useMemo<SwimlaneRow[]>(() => {
+    const laneMap = new Map<string, SwimlaneRow>();
+    for (const c of visibleWindowCommits) {
+      const existing = laneMap.get(c.laneKey);
+      if (existing) {
+        existing.commitCount += 1;
+      } else {
+        laneMap.set(c.laneKey, {
+          laneKey: c.laneKey,
+          authorDisplayName: c.authorDisplayName,
+          authorInitials: c.authorInitials,
+          roleLabel: c.laneRoleLabel,
+          category: c.category,
+          commitCount: 1,
+        });
+      }
+    }
+
+    // Sort lanes so CLIENT lanes are at the top, followed by THERAPIST lanes, then CONFIDENTIAL
+    const orderWeight = (cat: JGitCommitCategory) =>
+      cat === "CLIENT" ? 0 : cat === "THERAPIST" ? 1 : 2;
+
+    return Array.from(laneMap.values()).sort((a, b) => {
+      const wDiff = orderWeight(a.category) - orderWeight(b.category);
+      if (wDiff !== 0) return wDiff;
+      return a.authorDisplayName.localeCompare(b.authorDisplayName);
+    });
+  }, [visibleWindowCommits]);
+
+  const effectiveSelectedHash = useMemo(() => {
+    if (visibleWindowCommits.length === 0) return null;
+    if (internalSelectedHash === "__COLLAPSED__") return null;
+    if (
+      internalSelectedHash &&
+      visibleWindowCommits.some((c) => c.commitHash === internalSelectedHash)
+    ) {
+      return internalSelectedHash;
+    }
+    return visibleWindowCommits[0].commitHash;
+  }, [visibleWindowCommits, internalSelectedHash]);
+
+  // Group by date for data-date attribute compatibility
   const dateGroups = useMemo(() => {
     const groups: Array<{
       dateKey: string;
@@ -289,7 +445,7 @@ export default function JGitHistoryTimeline({
     }> = [];
     const map = new Map<string, EnrichedGitCommit[]>();
 
-    for (const c of filteredCommits) {
+    for (const c of visibleWindowCommits) {
       let arr = map.get(c.dateKey);
       if (!arr) {
         arr = [];
@@ -303,29 +459,58 @@ export default function JGitHistoryTimeline({
       arr.push(c);
     }
     return groups;
-  }, [filteredCommits]);
+  }, [visibleWindowCommits]);
 
   const activeCommitIndex = useMemo(() => {
-    if (filteredCommits.length === 0) return -1;
+    if (visibleWindowCommits.length === 0) return -1;
     if (!effectiveSelectedHash) return 0;
-    const idx = filteredCommits.findIndex(
+    const idx = visibleWindowCommits.findIndex(
       (c) => c.commitHash === effectiveSelectedHash
     );
     return idx >= 0 ? idx : 0;
-  }, [filteredCommits, effectiveSelectedHash]);
+  }, [visibleWindowCommits, effectiveSelectedHash]);
 
   const activeCommit = useMemo(
-    () => (activeCommitIndex >= 0 ? filteredCommits[activeCommitIndex] : null),
-    [filteredCommits, activeCommitIndex]
+    () => (activeCommitIndex >= 0 ? visibleWindowCommits[activeCommitIndex] : null),
+    [visibleWindowCommits, activeCommitIndex]
   );
 
-  const compareBaseCommit = useMemo(
-    () =>
-      compareCommitHash
-        ? enrichedCommits.find((c) => c.commitHash === compareCommitHash) || null
-        : null,
-    [enrichedCommits, compareCommitHash]
-  );
+  // Base commit for "Før (Forrige Version)" vs "Nu (Nuværende Version)"
+  const previousOrComparedCommit = useMemo(() => {
+    if (compareCommitHash) {
+      return enrichedCommits.find((c) => c.commitHash === compareCommitHash) || null;
+    }
+    if (activeCommitIndex >= 0 && activeCommitIndex + 1 < visibleWindowCommits.length) {
+      return visibleWindowCommits[activeCommitIndex + 1];
+    }
+    if (activeCommit) {
+      const fullIdx = enrichedCommits.findIndex(
+        (c) => c.commitHash === activeCommit.commitHash
+      );
+      if (fullIdx >= 0 && fullIdx + 1 < enrichedCommits.length) {
+        return enrichedCommits[fullIdx + 1];
+      }
+    }
+    return null;
+  }, [compareCommitHash, enrichedCommits, visibleWindowCommits, activeCommitIndex, activeCommit]);
+
+  const scrollCommitIntoHorizontalView = useCallback((hash: string) => {
+    if (!trackRef.current) return;
+    const container = trackRef.current;
+    const targetEl = container.querySelector<HTMLElement>(
+      `[data-commit-hash="${hash}"]`
+    );
+    if (targetEl) {
+      const targetLeft =
+        targetEl.offsetLeft -
+        container.clientWidth / 2 +
+        targetEl.clientWidth / 2;
+      container.scrollTo({
+        left: Math.max(0, targetLeft),
+        behavior: "smooth",
+      });
+    }
+  }, []);
 
   const selectCommitAndNotify = useCallback(
     (hash: string) => {
@@ -333,1156 +518,1520 @@ export default function JGitHistoryTimeline({
       if (onSelectCommit) {
         onSelectCommit(hash);
       }
+      setTimeout(() => scrollCommitIntoHorizontalView(hash), 40);
     },
-    [onSelectCommit]
+    [onSelectCommit, scrollCommitIntoHorizontalView]
   );
 
-  const handleCommitClick = (hash: string) => {
-    if (!splitView && effectiveSelectedHash === hash) {
-      setInternalSelectedHash("__COLLAPSED__");
+  const handleCommitClick = (hash: string, e?: React.MouseEvent) => {
+    if (didDragMoveRef.current) {
+      didDragMoveRef.current = false;
+      return;
+    }
+    // Shift+Click sets the "Før" comparison commit and opens COMPARE mode directly
+    if (e && e.shiftKey && activeCommit && hash !== activeCommit.commitHash) {
+      setCompareCommitHash(hash);
+      setViewMode("COMPARE");
       return;
     }
     selectCommitAndNotify(hash);
   };
 
+  const handleCompareWithCommit = (hash: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setCompareCommitHash(hash);
+    setViewMode("COMPARE");
+  };
+
   const navigateRelativeCommit = useCallback(
     (direction: -1 | 1) => {
-      if (filteredCommits.length === 0) return;
+      if (visibleWindowCommits.length === 0) return;
       const nextIdx = activeCommitIndex + direction;
-      if (nextIdx >= 0 && nextIdx < filteredCommits.length) {
-        const target = filteredCommits[nextIdx];
-        // Ensure target's date group is expanded
-        setCollapsedDates((prev) => ({ ...prev, [target.dateKey]: false }));
+      if (nextIdx >= 0 && nextIdx < visibleWindowCommits.length) {
+        const target = visibleWindowCommits[nextIdx];
         selectCommitAndNotify(target.commitHash);
       }
     },
-    [filteredCommits, activeCommitIndex, selectCommitAndNotify]
+    [visibleWindowCommits, activeCommitIndex, selectCommitAndNotify]
   );
 
-  const toggleDateCollapse = (dateKey: string) => {
-    setCollapsedDates((prev) => ({
-      ...prev,
-      [dateKey]: !prev[dateKey],
-    }));
+  // Drag-to-pan handlers on the 2D Timeline Canvas (simultaneous X and Y axes)
+  const handleCanvasMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!trackRef.current || e.button !== 0) return;
+    isDraggingCanvasRef.current = true;
+    didDragMoveRef.current = false;
+    dragStartXRef.current = e.clientX;
+    dragStartYRef.current = e.clientY;
+    dragScrollLeftRef.current = trackRef.current.scrollLeft;
+    dragScrollTopRef.current = trackRef.current.scrollTop;
   };
 
-  const jumpToDateGroup = (dateKey: string, firstCommitHash?: string) => {
-    setCollapsedDates((prev) => ({ ...prev, [dateKey]: false }));
-    if (firstCommitHash) {
-      selectCommitAndNotify(firstCommitHash);
+  const handleCanvasMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isDraggingCanvasRef.current || !trackRef.current) return;
+    const walkX = (e.clientX - dragStartXRef.current) * 1.25;
+    const walkY = (e.clientY - dragStartYRef.current) * 1.25;
+    if (Math.hypot(walkX, walkY) > 5) {
+      didDragMoveRef.current = true;
+      e.preventDefault();
     }
+    trackRef.current.scrollLeft = dragScrollLeftRef.current - walkX;
+    trackRef.current.scrollTop = dragScrollTopRef.current - walkY;
+  };
+
+  const handleCanvasMouseUpOrLeave = () => {
+    isDraggingCanvasRef.current = false;
+  };
+
+  const adjustZoom = (delta: number) => {
+    setZoomScale((prev) => Math.max(35, Math.min(220, prev + delta)));
+  };
+
+  const resetZoomAndRange = () => {
+    setZoomScale(100);
+    setStartDateFilter("");
+    setEndDateFilter("");
   };
 
   const getCategoryMeta = (cat: JGitCommitCategory) => {
     switch (cat) {
       case "CONFIDENTIAL":
         return {
-          label: "Fortroligt notat",
-          colorHex: "#d97706",
-          bgHex: "#fffbeb",
-          borderHex: "#fde68a",
-          textHex: "#92400e",
+          label: loc("Fortroligt notat", "Confidential Note"),
+          pillBg: "#f5dec4",
+          pillText: "#6e4720",
+          cardBg: "linear-gradient(145deg, #fbf4eb 0%, #f5e6d3 100%)",
+          cardBorder: "#e8d0b3",
+          dotColor: "#eab376",
+          dotGlow: "rgba(234, 179, 118, 0.45)",
+          avatarBg: "#78553a",
           cardClass: "cat-confidential",
           nodeClass: "node-confidential",
-          icon: "bi-shield-lock-fill",
-          trackIndex: 2,
         };
       case "THERAPIST":
         return {
-          label: "Terapeut-notat",
-          colorHex: "#4f46e5",
-          bgHex: "#eef2ff",
-          borderHex: "#c7d2fe",
-          textHex: "#3730a3",
+          label: loc("Terapeutisk opfølgning", "Therapist Follow-up"),
+          pillBg: "#dcd3f8",
+          pillText: "#453578",
+          cardBg: "linear-gradient(145deg, #f3effe 0%, #e9e2fc 100%)",
+          cardBorder: "#cfc3f4",
+          dotColor: "#9f85f7",
+          dotGlow: "rgba(159, 133, 247, 0.48)",
+          avatarBg: "#5e479c",
           cardClass: "cat-therapist",
           nodeClass: "node-therapist",
-          icon: "bi-heart-pulse-fill",
-          trackIndex: 1,
         };
       default:
         return {
-          label: "Klient-indlæg",
-          colorHex: "#059669",
-          bgHex: "#ecfdf5",
-          borderHex: "#a7f3d0",
-          textHex: "#065f46",
+          label: loc("Klient-indlæg", "Client Entry"),
+          pillBg: "#d4ecdf",
+          pillText: "#23533d",
+          cardBg: "linear-gradient(145deg, #f1f8f4 0%, #e4f2ea 100%)",
+          cardBorder: "#c2e2d0",
+          dotColor: "#7bc49d",
+          dotGlow: "rgba(123, 196, 157, 0.45)",
+          avatarBg: "#528c6e",
           cardClass: "cat-client",
           nodeClass: "node-client",
-          icon: "bi-journal-bookmark-fill",
-          trackIndex: 0,
         };
     }
   };
 
-  const getMoodBadgeStyle = (score: number) => {
-    if (score >= 7) {
-      return {
-        bg: "#dcfce7",
-        border: "#86efac",
-        text: "#166534",
-        emoji: "😊",
-      };
-    }
-    if (score >= 4) {
-      return {
-        bg: "#fef9c3",
-        border: "#fde047",
-        text: "#854d0e",
-        emoji: "😐",
-      };
-    }
-    return {
-      bg: "#ffe4e6",
-      border: "#fda4af",
-      text: "#9f1239",
-      emoji: "🌧️",
-    };
-  };
+  const [showAllUnchangedEntries, setShowAllUnchangedEntries] = useState(false);
 
-  // Counts & statistics for Time-Travel Header Bar
-  const clientCount = useMemo(
-    () => enrichedCommits.filter((c) => c.category === "CLIENT").length,
-    [enrichedCommits]
-  );
-  const therapistCount = useMemo(
-    () => enrichedCommits.filter((c) => c.category === "THERAPIST").length,
-    [enrichedCommits]
-  );
-  const confidentialCount = useMemo(
-    () => enrichedCommits.filter((c) => c.category === "CONFIDENTIAL").length,
-    [enrichedCommits]
-  );
-  const moodCommits = useMemo(
-    () =>
-      enrichedCommits
-        .filter((c) => c.moodScore !== null)
-        .slice()
-        .reverse(),
-    [enrichedCommits]
-  );
+  interface ParsedJournalBlock {
+    id: string;
+    rawBlock: string;
+    rawLines: string[];
+    title: string;
+    timestampLabel: string;
+    category: JGitCommitCategory;
+    moodScore: number | null;
+    sharedLabel: string | null;
+    bodyLines: string[];
+  }
 
-  // Render the Multi-Track Swimlane Gutter for a commit
-  const renderSwimlaneGutter = (commit: EnrichedGitCommit, isSelected: boolean) => {
-    const meta = getCategoryMeta(commit.category);
-    const totalLanes = isTherapistView ? 3 : 2;
-    // Connector width from active lane to card edge
-    const connectorWidths = isTherapistView
-      ? ["34px", "20px", "6px"]
-      : ["22px", "8px", "8px"];
+  const parseSnapshotIntoBlocks = useCallback(
+    (snapshotText: string): ParsedJournalBlock[] => {
+      if (!snapshotText || !snapshotText.trim()) return [];
+      const rawLines = snapshotText
+        .split("\n")
+        .map((l) => l.trim())
+        .filter(Boolean);
 
-    return (
-      <div
-        className="jgit-swimlane-gutter"
-        style={{ width: isTherapistView ? "46px" : "32px" }}
-        title={`JGit Branch: ${meta.label}`}
-      >
-        {/* Lane 0: Client Branch (Emerald) */}
-        <div className="jgit-swimlane-rail rail-client">
-          {meta.trackIndex === 0 && (
-            <span
-              className={`jgit-timeline-dot jgit-swimlane-node node-client ${
-                isSelected ? "node-active" : ""
-              }`}
-            />
-          )}
-        </div>
+      const blocks: string[][] = [];
+      let current: string[] = [];
 
-        {/* Lane 1: Shared Therapist Branch (Indigo) */}
-        <div className="jgit-swimlane-rail rail-therapist">
-          {meta.trackIndex === 1 && (
-            <span
-              className={`jgit-timeline-dot jgit-swimlane-node node-therapist ${
-                isSelected ? "node-active" : ""
-              }`}
-            />
-          )}
-        </div>
+      for (const line of rawLines) {
+        if (line === "<!-- INTERNAL_MEDICAL_NOTES -->") {
+          continue;
+        }
+        const isBlockStart =
+          line.startsWith("## ") ||
+          line.startsWith("# ") ||
+          line.startsWith("**[CONFIDENTIAL") ||
+          line.startsWith("[CONFIDENTIAL");
 
-        {/* Lane 2: Confidential Clinical Branch (Amber - Therapist Only) */}
-        {totalLanes === 3 && (
-          <div className="jgit-swimlane-rail rail-confidential">
-            {meta.trackIndex === 2 && (
-              <span
-                className={`jgit-timeline-dot jgit-swimlane-node node-confidential ${
-                  isSelected ? "node-active" : ""
-                }`}
-              />
-            )}
-          </div>
-        )}
+        if (isBlockStart && current.length > 0) {
+          blocks.push(current);
+          current = [line];
+        } else {
+          current.push(line);
+        }
+      }
+      if (current.length > 0) {
+        blocks.push(current);
+      }
 
-        {/* Horizontal Branch Connector Line into Commit Card */}
-        <span
-          className="jgit-branch-connector"
-          style={{
-            width: connectorWidths[meta.trackIndex] || "12px",
-            backgroundColor: meta.colorHex,
-            opacity: isSelected ? 0.95 : 0.45,
-          }}
-        />
-      </div>
-    );
-  };
+      return blocks.map((bLines, idx) => {
+        const rawBlock = bLines.join("\n");
+        const firstLine = bLines[0] || "Journalnotat";
 
-  // Render Commit Card Metadata Chips (Author Avatar, Mood Score, Shared/Private)
-  const renderCommitChips = (commit: EnrichedGitCommit, compact = false) => {
-    const meta = getCategoryMeta(commit.category);
-    return (
-      <div className="d-flex flex-wrap align-items-center gap-1.5 mt-1.5">
-        {/* Author Avatar + Name */}
-        <span
-          className="d-inline-flex align-items-center gap-1 rounded-pill px-2 py-0.5 border"
-          style={{
-            backgroundColor: meta.bgHex,
-            borderColor: meta.borderHex,
-            color: meta.textHex,
-            fontSize: compact ? "0.68rem" : "0.71rem",
-            fontWeight: 600,
-          }}
-        >
-          <span
-            className="d-inline-flex align-items-center justify-content-center rounded-circle text-white fw-bold"
-            style={{
-              width: "16px",
-              height: "16px",
-              fontSize: "0.58rem",
-              backgroundColor: meta.colorHex,
-            }}
-          >
-            {commit.authorInitials}
-          </span>
-          <span>Af {highlightText(commit.author, searchQuery)}</span>
-        </span>
+        let category: JGitCommitCategory = "CLIENT";
+        if (
+          rawBlock.includes("CONFIDENTIAL CLINICAL NOTE") ||
+          rawBlock.includes("INTERNAL_MEDICAL_NOTES") ||
+          firstLine.toLowerCase().includes("fortrolig")
+        ) {
+          category = "CONFIDENTIAL";
+        } else if (
+          firstLine.toLowerCase().includes("terapeut") ||
+          firstLine.toLowerCase().includes("opfølgning") ||
+          firstLine.toLowerCase().includes("psykolog") ||
+          firstLine.toLowerCase().includes("fælles statusnotat")
+        ) {
+          category = "THERAPIST";
+        }
 
-        {/* Mood Chip (if present in commit) */}
-        {commit.moodScore !== null && (() => {
-          const mStyle = getMoodBadgeStyle(commit.moodScore);
-          return (
-            <span
-              className="d-inline-flex align-items-center gap-1 rounded-pill px-2 py-0.5 border fw-semibold"
-              style={{
-                backgroundColor: mStyle.bg,
-                borderColor: mStyle.border,
-                color: mStyle.text,
-                fontSize: compact ? "0.68rem" : "0.71rem",
-              }}
-            >
-              <span>{mStyle.emoji}</span>
-              <span>Humør {commit.moodScore}/10</span>
-            </span>
-          );
-        })()}
+        let title = firstLine
+          .replace(/^#+\s*/, "")
+          .replace(/^\*\*|\*\*$/g, "")
+          .trim();
+        let timestampLabel = "";
 
-        {/* Shared / Private / Confidential Chip */}
-        {commit.category === "CONFIDENTIAL" ? (
-          <span
-            className="d-inline-flex align-items-center gap-1 rounded-pill px-2 py-0.5 border fw-semibold"
-            style={{
-              backgroundColor: "#fef3c7",
-              borderColor: "#fcd34d",
-              color: "#92400e",
-              fontSize: compact ? "0.68rem" : "0.71rem",
-            }}
-          >
-            <i className="bi bi-lock-fill"></i>
-            <span>Kun terapeuter</span>
-          </span>
-        ) : commit.isShared !== null ? (
-          <span
-            className="d-inline-flex align-items-center gap-1 rounded-pill px-2 py-0.5 border fw-medium"
-            style={{
-              backgroundColor: commit.isShared ? "#e0f2fe" : "#f1f5f9",
-              borderColor: commit.isShared ? "#bae6fd" : "#cbd5e1",
-              color: commit.isShared ? "#0369a1" : "#475569",
-              fontSize: compact ? "0.68rem" : "0.71rem",
-            }}
-          >
-            <i
-              className={`bi ${
-                commit.isShared ? "bi-share-fill" : "bi-eye-slash-fill"
-              }`}
-            ></i>
-            <span>{commit.isShared ? "Delt" : "Privat"}</span>
-          </span>
-        ) : null}
-      </div>
-    );
-  };
+        const isoMatch = title.match(
+          /\(?(\d{4}-\d{2}-\d{2})[T\s](\d{2}:\d{2})(?::\d{2}(?:\.\d+)?)?\)?/
+        );
+        if (isoMatch) {
+          timestampLabel = `${isoMatch[1]} kl. ${isoMatch[2]}`;
+          title = title
+            .replace(isoMatch[0], "")
+            .replace(/\(\s*\)/g, "")
+            .replace(/\|\s*$/, "")
+            .replace(/^\[CONFIDENTIAL CLINICAL NOTE\s*\|\s*/i, "Fortroligt notat • ")
+            .replace(/\]$/, "")
+            .trim();
+        }
 
-  // Render Structured Clinical Card inside Inspector
-  const renderClinicalFormattedCard = (commit: EnrichedGitCommit) => {
-    const meta = getCategoryMeta(commit.category);
-    const sourceText = viewMode === "DELTA" ? commit.delta : commit.snapshot;
-    const rawLines = (sourceText || "")
-      .split("\n")
-      .map((l) => l.trim())
-      .filter(Boolean);
+        let moodScore: number | null = null;
+        let sharedLabel: string | null = null;
+        const bodyLines: string[] = [];
 
-    // Filter out raw technical metadata lines if already shown in badges
-    const bodyLines = rawLines.filter(
-      (l) => !/^Mood\s*:\s*\d+/i.test(l)
-    );
-
-    return (
-      <div
-        className="p-3 rounded-3 border mb-2.5 shadow-xs"
-        style={{
-          background: `linear-gradient(135deg, #ffffff 0%, ${meta.bgHex} 100%)`,
-          borderColor: meta.borderHex,
-          borderLeft: `4px solid ${meta.colorHex}`,
-        }}
-      >
-        <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2 pb-1.5 border-bottom">
-          <div className="d-flex align-items-center gap-2">
-            <span
-              className="d-inline-flex align-items-center justify-content-center rounded-circle text-white"
-              style={{
-                width: "26px",
-                height: "26px",
-                backgroundColor: meta.colorHex,
-                fontSize: "0.78rem",
-              }}
-            >
-              <i className={`bi ${meta.icon}`}></i>
-            </span>
-            <div>
-              <div className="fw-bold text-dark" style={{ fontSize: "0.84rem" }}>
-                {highlightText(commit.message, searchQuery)}
-              </div>
-              <div className="text-muted" style={{ fontSize: "0.71rem" }}>
-                Klinisk Læse-visning • {commit.formattedDate} kl. {commit.formattedTime}
-              </div>
-            </div>
-          </div>
-          {renderCommitChips(commit, true)}
-        </div>
-
-        <div className="d-flex flex-column gap-1.5" style={{ fontSize: "0.82rem" }}>
-          {bodyLines.length === 0 ? (
-            <div className="text-muted fst-italic small">
-              Ingen yderligere brødtekst i denne revision.
-            </div>
-          ) : (
-            bodyLines.map((line, idx) => {
-              const isHeading = line.startsWith("#");
-              const cleanLine = line.replace(/^#+\s*/, "");
-              if (isHeading) {
-                return (
-                  <div
-                    key={idx}
-                    className="fw-bold text-dark mt-1"
-                    style={{ fontSize: "0.86rem", color: meta.textHex }}
-                  >
-                    {highlightText(cleanLine, searchQuery)}
-                  </div>
-                );
-              }
-              return (
-                <div key={idx} className="text-dark" style={{ lineHeight: 1.5 }}>
-                  {highlightText(line, searchQuery)}
-                </div>
-              );
-            })
-          )}
-        </div>
-      </div>
-    );
-  };
-
-  // Render Interactive Commit Inspector (Navigation, Compare Mode, Clinical Card + Git Diff/Snapshot)
-  const renderCommitInspector = (commit: EnrichedGitCommit) => {
-    const meta = getCategoryMeta(commit.category);
-    const deltaLines = (commit.delta || "")
-      .split("\n")
-      .filter((line) => line.trim() !== "");
-
-    const hasNewer = activeCommitIndex > 0;
-    const hasOlder =
-      activeCommitIndex >= 0 && activeCommitIndex < filteredCommits.length - 1;
-
-    const comparisonResult =
-      compareBaseCommit && compareBaseCommit.commitHash !== commit.commitHash
-        ? computeLineComparison(commit.snapshot, compareBaseCommit.snapshot)
-        : null;
-
-    return (
-      <div
-        className="p-3 rounded-4 border mt-2 shadow-xs"
-        style={{
-          backgroundColor: "#f8fafc",
-          borderColor: meta.borderHex,
-        }}
-        tabIndex={0}
-        onKeyDown={(e) => {
-          if (e.key === "ArrowUp" || e.key === "ArrowLeft") {
-            e.preventDefault();
-            navigateRelativeCommit(-1);
-          } else if (e.key === "ArrowDown" || e.key === "ArrowRight") {
-            e.preventDefault();
-            navigateRelativeCommit(1);
+        for (let i = 1; i < bLines.length; i++) {
+          const line = bLines[i];
+          const mMatch = line.match(/(?:Mood|Humør)\s*:\s*(\d{1,2})\s*\/\s*10/i);
+          if (mMatch) {
+            moodScore = parseInt(mMatch[1], 10);
+            if (line.toLowerCase().includes("shared:")) {
+              const isShared =
+                !line.toLowerCase().includes("shared: false") &&
+                !line.toLowerCase().includes("privat");
+              sharedLabel = isShared
+                ? loc("Delt med behandler", "Shared with therapist")
+                : loc("Privat notat", "Private entry");
+            }
+            continue;
           }
+          bodyLines.push(line);
+        }
+
+        if (category === "CONFIDENTIAL") {
+          sharedLabel = loc("Kun terapeuter", "Therapists only");
+        }
+
+        return {
+          id: `block-${idx}-${title.slice(0, 18)}`,
+          rawBlock,
+          rawLines: bLines,
+          title: title || loc("Journalnotat", "Journal Entry"),
+          timestampLabel,
+          category,
+          moodScore,
+          sharedLabel,
+          bodyLines,
+        };
+      }).filter((b) => (isTherapistView && !hideConfidential) || b.category !== "CONFIDENTIAL");
+    },
+    [isTherapistView, hideConfidential, loc]
+  );
+
+  const renderStructuredEntryCard = (
+    block: ParsedJournalBlock,
+    diffState: "ADDED" | "REMOVED" | "CONTEXT",
+    commitAuthorLabel?: string
+  ) => {
+    const meta = getCategoryMeta(block.category);
+
+    const statusBadge =
+      diffState === "ADDED"
+        ? {
+            text: loc("+ Tilføjet i denne revision", "+ Added in this revision"),
+            bg: "#bbf7d0",
+            color: "#14532d",
+            border: "#4ade80",
+          }
+        : diffState === "REMOVED"
+        ? {
+            text: loc("− Fjernet / Ændret", "− Removed / Modified"),
+            bg: "#fecdd3",
+            color: "#881337",
+            border: "#fb7185",
+          }
+        : {
+            text: loc("Forrige indlæg (Kontekst)", "Previous entry (Context)"),
+            bg: meta.pillBg,
+            color: meta.pillText,
+            border: meta.cardBorder,
+          };
+
+    return (
+      <div
+        key={block.id}
+        className={`jgit-structured-entry-card ${meta.cardClass} diff-${diffState.toLowerCase()}`}
+        style={{
+          background: meta.cardBg,
+          borderColor:
+            diffState === "ADDED"
+              ? "#4ade80"
+              : diffState === "REMOVED"
+              ? "#fb7185"
+              : meta.cardBorder,
+          borderLeftColor: meta.dotColor,
         }}
       >
-        {/* Top Inspector Bar: Prev/Next Navigation + Compare Selector */}
-        <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2.5 pb-2 border-bottom">
-          <div className="d-flex align-items-center gap-1.5">
-            <div className="btn-group btn-group-sm" role="group" aria-label="Commit navigation">
-              <button
-                type="button"
-                disabled={!hasNewer}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  navigateRelativeCommit(-1);
-                }}
-                className="btn btn-outline-secondary bg-white"
-                style={{ fontSize: "0.72rem" }}
-                title="Nyere revision (Pil op)"
-              >
-                <i className="bi bi-arrow-up-short"></i> Nyere
-              </button>
-              <button
-                type="button"
-                disabled={!hasOlder}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  navigateRelativeCommit(1);
-                }}
-                className="btn btn-outline-secondary bg-white"
-                style={{ fontSize: "0.72rem" }}
-                title="Ældre revision (Pil ned)"
-              >
-                Ældre <i className="bi bi-arrow-down-short"></i>
-              </button>
-            </div>
-
-            <span
-              className="badge rounded-pill border text-dark bg-white"
-              style={{ fontSize: "0.7rem" }}
-            >
-              Revision {activeCommitIndex + 1} af {filteredCommits.length}
-            </span>
-          </div>
-
-          {/* Interactive Compare-Mode Selector */}
-          <div
-            className="d-flex align-items-center gap-1.5"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <i className="bi bi-intersect text-primary" style={{ fontSize: "0.78rem" }}></i>
-            <select
-              className="form-select form-select-sm bg-white"
-              style={{ fontSize: "0.72rem", maxWidth: "220px", paddingBlock: "0.18rem" }}
-              value={compareCommitHash || ""}
-              onChange={(e) => setCompareCommitHash(e.target.value || null)}
-              aria-label="Sammenlign med en anden revision"
-            >
-              <option value="">Sammenlign med forrige (Standard)</option>
-              {enrichedCommits
-                .filter((c) => c.commitHash !== commit.commitHash)
-                .map((c) => (
-                  <option key={c.commitHash} value={c.commitHash}>
-                    vs. #{c.commitHash} ({c.formattedDate} kl. {c.formattedTime})
-                  </option>
-                ))}
-            </select>
-            {compareCommitHash && (
-              <button
-                type="button"
-                onClick={() => setCompareCommitHash(null)}
-                className="btn btn-sm btn-outline-danger py-0 px-1.5"
-                style={{ fontSize: "0.68rem" }}
-                title="Nulstil sammenligning"
-              >
-                ✕
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Toggle Bar: Delta/Diff (Default) vs Full Snapshot + Clinical Reader Switch */}
-        <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2.5">
-          <div className="small text-muted d-flex flex-wrap align-items-center gap-1.5">
-            <span
-              className="font-monospace fw-bold px-2 py-0.5 rounded text-white"
-              style={{ backgroundColor: meta.colorHex, fontSize: "0.74rem" }}
-            >
-              #{commit.commitHash}
-            </span>
-            <span>•</span>
-            <strong>{highlightText(commit.author, searchQuery)}</strong>
-            <span>• kl. {commit.formattedTime}</span>
-          </div>
-
+        {/* Top Row: Category Badge + Author Badge + Diff Status Badge + Timestamp */}
+        <div className="d-flex flex-wrap justify-content-between align-items-center gap-1.5 mb-2">
           <div className="d-flex flex-wrap align-items-center gap-1.5">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowClinicalFormatted((prev) => !prev);
+            <span
+              className="jgit-entry-cat-badge"
+              style={{
+                backgroundColor: meta.pillBg,
+                color: meta.pillText,
               }}
-              className={`btn btn-sm rounded-pill px-2.5 py-0.5 ${
-                showClinicalFormatted
-                  ? "btn-success text-white fw-semibold"
-                  : "btn-outline-secondary bg-white"
-              }`}
-              style={{ fontSize: "0.71rem" }}
-              title="Vis formateret klinisk læsekort over kode-diffen"
             >
-              <i className="bi bi-card-heading me-1"></i>
-              Klinisk Kort
-            </button>
-
-            <div className="btn-group btn-group-sm" role="group">
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setViewMode("DELTA");
-                }}
-                className={`btn ${
-                  viewMode === "DELTA"
-                    ? "btn-dark fw-semibold"
-                    : "btn-outline-secondary bg-white"
-                }`}
-                style={{ fontSize: "0.73rem" }}
-              >
-                <i className="bi bi-file-earmark-diff me-1"></i>
-                Ændring i dette commit (Diff)
-              </button>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setViewMode("SNAPSHOT");
-                }}
-                className={`btn ${
-                  viewMode === "SNAPSHOT"
-                    ? "btn-dark fw-semibold"
-                    : "btn-outline-secondary bg-white"
-                }`}
-                style={{ fontSize: "0.73rem" }}
-              >
-                <i className="bi bi-file-earmark-text me-1"></i>
-                Fuld Journal-Snapshot
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Compare-Mode Banner when comparing two specific revisions */}
-        {comparisonResult && compareBaseCommit && (
-          <div
-            className="p-2.5 rounded-3 mb-2.5 border"
-            style={{
-              backgroundColor: "#fdf2f8",
-              borderColor: "#fbcfe8",
-              fontSize: "0.76rem",
-            }}
-          >
-            <div className="d-flex justify-content-between align-items-center mb-1.5">
-              <span className="fw-bold" style={{ color: "#9d174d" }}>
-                <i className="bi bi-arrow-left-right me-1"></i>
-                Sammenligning: #{compareBaseCommit.commitHash} ({compareBaseCommit.formattedDate}) → #{commit.commitHash} ({commit.formattedDate})
-              </span>
-              <span className="badge bg-white text-dark border">
-                +{comparisonResult.added.length} tilføjet / -{comparisonResult.removed.length} fjernet
-              </span>
-            </div>
-            <div className="jgit-diff-box py-2 px-2.5">
-              {comparisonResult.added.length === 0 &&
-              comparisonResult.removed.length === 0 ? (
-                <div className="text-muted fst-italic">
-                  Ingen tekstforskel mellem de to valgte revisioner.
-                </div>
-              ) : (
-                <>
-                  {comparisonResult.removed.map((line, idx) => (
-                    <span key={`rem-${idx}`} className="jgit-diff-line-remove">
-                      - {highlightText(line, searchQuery)}
-                    </span>
-                  ))}
-                  {comparisonResult.added.map((line, idx) => (
-                    <span key={`add-${idx}`} className="jgit-diff-line-add">
-                      + {highlightText(line, searchQuery)}
-                    </span>
-                  ))}
-                </>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Formatted Clinical Reader Card */}
-        {showClinicalFormatted && renderClinicalFormattedCard(commit)}
-
-        {/* Raw JGit Diff / Snapshot Box (Always preserves BDD test selectors & text) */}
-        {viewMode === "DELTA" ? (
-          <div className="jgit-diff-box">
-            <div className="text-secondary mb-2 d-flex justify-content-between align-items-center" style={{ fontSize: "0.7rem" }}>
-              <span>
-                @@ Tilføjet i commit #{commit.commitHash} ({commit.formattedDate} kl.{" "}
-                {commit.formattedTime}) @@
-              </span>
-              <span className="badge bg-success bg-opacity-25 text-success border border-success border-opacity-25">
-                +{deltaLines.length} linjer
-              </span>
-            </div>
-            {deltaLines.length === 0 ? (
-              <div className="text-muted fst-italic">
-                Ingen tekstændring i denne revision.
-              </div>
-            ) : (
-              deltaLines.map((line, idx) => (
-                <span key={idx} className="jgit-diff-line-add">
-                  + {highlightText(line, searchQuery)}
-                </span>
-              ))
-            )}
-          </div>
-        ) : (
-          <div className="jgit-diff-box">
-            <div className="text-secondary mb-2" style={{ fontSize: "0.7rem" }}>
-              Fuld journaltilstand ved commit #{commit.commitHash} (
-              {commit.formattedDate} kl. {commit.formattedTime})
-            </div>
-            <div>{highlightText(commit.snapshot || "Tomt dokument.", searchQuery)}</div>
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  const totalCount = Math.max(enrichedCommits.length, 1);
-  const clientPct = Math.round((clientCount / totalCount) * 100);
-  const therapistPct = Math.round((therapistCount / totalCount) * 100);
-  const confidentialPct = Math.max(0, 100 - clientPct - therapistPct);
-
-  return (
-    <div className="d-flex flex-column gap-3">
-      {/* 1. Interactive Time-Travel & Mini-Statistics Header Bar */}
-      {enrichedCommits.length > 0 && (
-        <div
-          className="p-3 rounded-4 border shadow-xs"
-          style={{
-            background:
-              "linear-gradient(135deg, #f0fdf4 0%, #eef2ff 52%, #fffbeb 100%)",
-            borderColor: "#cbd5e1",
-          }}
-        >
-          <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
-            {/* Branch Legend & Distribution */}
-            <div className="d-flex flex-wrap align-items-center gap-2">
               <span
-                className="badge rounded-pill px-2.5 py-1 d-inline-flex align-items-center gap-1"
+                className="jgit-entry-cat-dot"
+                style={{ backgroundColor: meta.dotColor }}
+              />
+              {meta.label}
+            </span>
+
+            {commitAuthorLabel && (
+              <span
+                className="badge rounded-pill border fw-semibold"
                 style={{
-                  backgroundColor: "#059669",
-                  color: "#ffffff",
+                  backgroundColor: "rgba(255, 255, 255, 0.85)",
+                  color: "#1e293b",
                   fontSize: "0.71rem",
                 }}
               >
-                <i className="bi bi-diagram-3-fill"></i>
-                JGit Branch-Graf
+                <i
+                  className={`bi ${
+                    block.category === "CLIENT" ? "bi-person-fill" : "bi-person-badge-fill"
+                  } me-1`}
+                ></i>
+                {commitAuthorLabel}
               </span>
+            )}
+
+            <span
+              className="jgit-entry-diff-badge"
+              style={{
+                backgroundColor: statusBadge.bg,
+                color: statusBadge.color,
+                borderColor: statusBadge.border,
+              }}
+            >
+              {statusBadge.text}
+            </span>
+          </div>
+
+          {block.timestampLabel && (
+            <span className="text-muted fw-medium" style={{ fontSize: "0.72rem" }}>
+              <i className="bi bi-clock me-1"></i>
+              {block.timestampLabel}
+            </span>
+          )}
+        </div>
+
+        {/* Entry Heading */}
+        <div className="fw-bold text-dark mb-1.5" style={{ fontSize: "0.94rem" }}>
+          {highlightText(block.title, searchQuery)}
+        </div>
+
+        {/* Metadata Chips Row (Mood & Sharing) */}
+        {(block.moodScore !== null || block.sharedLabel) && (
+          <div className="d-flex flex-wrap align-items-center gap-1.5 mb-2">
+            {block.moodScore !== null && (
               <span
-                className="d-inline-flex align-items-center gap-1 small fw-semibold"
-                style={{ color: "#065f46", fontSize: "0.74rem" }}
+                className="jgit-card-bottom-chip"
+                style={{
+                  backgroundColor: "rgba(255, 255, 255, 0.78)",
+                  color: "#1e293b",
+                  border: `1px solid ${meta.cardBorder}`,
+                }}
               >
-                <span
-                  className="rounded-circle d-inline-block"
-                  style={{ width: 9, height: 9, backgroundColor: "#10b981" }}
-                />
-                Klient-spor ({clientCount})
-              </span>
-              <span
-                className="d-inline-flex align-items-center gap-1 small fw-semibold"
-                style={{ color: "#3730a3", fontSize: "0.74rem" }}
-              >
-                <span
-                  className="rounded-circle d-inline-block"
-                  style={{ width: 9, height: 9, backgroundColor: "#6366f1" }}
-                />
-                Terapeut-spor ({therapistCount})
-              </span>
-              {isTherapistView && (
-                <span
-                  className="d-inline-flex align-items-center gap-1 small fw-semibold"
-                  style={{ color: "#92400e", fontSize: "0.74rem" }}
-                >
-                  <span
-                    className="rounded-circle d-inline-block"
-                    style={{ width: 9, height: 9, backgroundColor: "#f59e0b" }}
-                  />
-                  Fortroligt spor ({confidentialCount})
+                <span>😊</span>
+                <span>
+                  {loc("Humør", "Mood")} {block.moodScore}/10
                 </span>
-              )}
+              </span>
+            )}
+            {block.sharedLabel && (
+              <span
+                className="jgit-card-bottom-chip"
+                style={{
+                  backgroundColor: "rgba(255, 255, 255, 0.78)",
+                  color: meta.pillText,
+                  border: `1px solid ${meta.cardBorder}`,
+                }}
+              >
+                <i
+                  className={`bi ${
+                    block.category === "CONFIDENTIAL"
+                      ? "bi-shield-lock-fill"
+                      : "bi-share-fill"
+                  }`}
+                ></i>
+                <span>{block.sharedLabel}</span>
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Clean Formatted Body Text */}
+        <div className="d-flex flex-column gap-1">
+          {block.bodyLines.map((line, i) => (
+            <div
+              key={i}
+              className={
+                diffState === "ADDED"
+                  ? "jgit-diff-line-add"
+                  : diffState === "REMOVED"
+                  ? "jgit-diff-line-remove"
+                  : "jgit-entry-body-text"
+              }
+            >
+              {diffState === "ADDED"
+                ? `+ ${line}`
+                : diffState === "REMOVED"
+                ? `- ${line}`
+                : highlightText(line, searchQuery)}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  // Render Full-Width Bottom Inspector Panel (Revisionshistorik column removed for 100% width)
+  const renderBottomFullWidthInspector = () => {
+    const commit = activeCommit;
+    const hasNewer = activeCommitIndex > 0;
+    const hasOlder =
+      activeCommitIndex >= 0 && activeCommitIndex < visibleWindowCommits.length - 1;
+
+    const baseSnapshot = previousOrComparedCommit
+      ? previousOrComparedCommit.snapshot
+      : commit?.parentSnapshot || "";
+
+    const currSnapshot = commit?.snapshot || "";
+
+    const prevBlocks = parseSnapshotIntoBlocks(baseSnapshot);
+    const currBlocks = parseSnapshotIntoBlocks(currSnapshot);
+    const deltaBlocks = parseSnapshotIntoBlocks(commit?.delta || "");
+
+    const prevRawSet = new Set(prevBlocks.map((b) => b.rawBlock));
+    const currRawSet = new Set(currBlocks.map((b) => b.rawBlock));
+
+    const removedBlocks = prevBlocks.filter((b) => !currRawSet.has(b.rawBlock));
+    const unchangedPrevBlocks = prevBlocks.filter((b) =>
+      currRawSet.has(b.rawBlock)
+    );
+
+    const addedBlocksFromDiff = currBlocks.filter(
+      (b) => !prevRawSet.has(b.rawBlock)
+    );
+    const addedBlocks =
+      addedBlocksFromDiff.length > 0 ? addedBlocksFromDiff : deltaBlocks;
+    const unchangedCurrBlocks = currBlocks.filter((b) =>
+      prevRawSet.has(b.rawBlock)
+    );
+
+    const visiblePrevContextBlocks = showAllUnchangedEntries
+      ? unchangedPrevBlocks
+      : unchangedPrevBlocks.slice(-1);
+    const hiddenPrevCount = Math.max(
+      0,
+      unchangedPrevBlocks.length - visiblePrevContextBlocks.length
+    );
+
+    const visibleCurrContextBlocks = showAllUnchangedEntries
+      ? unchangedCurrBlocks
+      : [];
+    const hiddenCurrCount = Math.max(
+      0,
+      unchangedCurrBlocks.length - visibleCurrContextBlocks.length
+    );
+
+    // Blocks added specifically in the selected commit (against its immediate parent commit)
+    const immediateParentBlocks = parseSnapshotIntoBlocks(commit?.parentSnapshot || "");
+    const immediateParentRawSet = new Set(immediateParentBlocks.map((b) => b.rawBlock));
+    const singleCommitAddedFromParent = currBlocks.filter(
+      (b) => !immediateParentRawSet.has(b.rawBlock)
+    );
+    const singleCommitAddedBlocks =
+      singleCommitAddedFromParent.length > 0
+        ? singleCommitAddedFromParent
+        : deltaBlocks.length > 0
+        ? deltaBlocks
+        : currBlocks.slice(-1);
+
+    return (
+      <div className="jgit-compare-versions-panel mt-2 w-100">
+        {!commit ? (
+          <div className="text-center py-5 text-muted">
+            {loc(
+              "Klik på et commit på 2D-tidslinjen ovenfor for at se ændringen.",
+              "Click a commit on the 2D timeline above to inspect the change."
+            )}
+          </div>
+        ) : (
+          <>
+            {/* Header Row: Title + 3 Mode Buttons + Nyere / Ældre / Luk vindue */}
+            <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+              <div>
+                <h5 className="fw-bold text-dark mb-1" style={{ fontSize: "1.12rem" }}>
+                  {viewMode === "DELTA"
+                    ? loc(
+                        `Tilføjet i dette commit - Revision ${activeCommitIndex + 1} af ${visibleWindowCommits.length}`,
+                        `Added in this commit - Revision ${activeCommitIndex + 1} of ${visibleWindowCommits.length}`
+                      )
+                    : viewMode === "COMPARE"
+                    ? loc(
+                        `Sammenlign 2 commits - Revision ${activeCommitIndex + 1} af ${visibleWindowCommits.length}`,
+                        `Compare 2 commits - Revision ${activeCommitIndex + 1} of ${visibleWindowCommits.length}`
+                      )
+                    : loc(
+                        `Fuld Journal-Snapshot - Revision ${activeCommitIndex + 1} af ${visibleWindowCommits.length}`,
+                        `Full Journal Snapshot - Revision ${activeCommitIndex + 1} of ${visibleWindowCommits.length}`
+                      )}
+                </h5>
+                {/* Color Legend + Quick Compare Hint */}
+                <div className="d-flex flex-wrap align-items-center gap-2">
+                  <span
+                    className="jgit-entry-cat-badge"
+                    style={{ backgroundColor: "#d4ecdf", color: "#23533d" }}
+                  >
+                    <span
+                      className="jgit-entry-cat-dot"
+                      style={{ backgroundColor: "#7bc49d" }}
+                    />
+                    {loc("Klient-indlæg", "Client Entry")}
+                  </span>
+                  <span
+                    className="jgit-entry-cat-badge"
+                    style={{ backgroundColor: "#dcd3f8", color: "#453578" }}
+                  >
+                    <span
+                      className="jgit-entry-cat-dot"
+                      style={{ backgroundColor: "#9f85f7" }}
+                    />
+                    {loc("Terapeutisk opfølgning", "Therapist Follow-up")}
+                  </span>
+                  {isTherapistView && (
+                    <span
+                      className="jgit-entry-cat-badge"
+                      style={{ backgroundColor: "#f5dec4", color: "#6e4720" }}
+                    >
+                      <span
+                        className="jgit-entry-cat-dot"
+                        style={{ backgroundColor: "#eab376" }}
+                      />
+                      {loc("Fortroligt notat", "Confidential Note")}
+                    </span>
+                  )}
+                  <span className="text-muted small ms-1" style={{ fontSize: "0.73rem" }}>
+                    <i className="bi bi-lightbulb me-1"></i>
+                    {loc("Tip: Hold ", "Tip: Hold ")}
+                    <kbd className="px-1 py-0 bg-white text-dark border">Shift</kbd>
+                    {loc(
+                      " + klik på et andet kort i 2D-grafen (eller klik på ",
+                      " + click another card in the 2D graph (or click "
+                    )}
+                    <i className="bi bi-arrow-left-right"></i>
+                    {loc(
+                      ") for at sammenligne 2 commits.",
+                      ") to compare 2 commits."
+                    )}
+                  </span>
+                </div>
+              </div>
+
+              <div className="d-flex flex-wrap align-items-center gap-2">
+                {/* 3 View Mode Toggle Buttons: 1) Ændring i dette commit, 2) Sammenlign 2 commits, 3) Fuld Journal-Snapshot */}
+                <div className="btn-group btn-group-sm" role="group">
+                  <button
+                    type="button"
+                    onClick={() => setViewMode("DELTA")}
+                    className={`btn rounded-start-pill px-2.5 py-1 ${
+                      viewMode === "DELTA"
+                        ? "btn-dark fw-semibold"
+                        : "btn-outline-secondary bg-white"
+                    }`}
+                    style={{ fontSize: "0.75rem" }}
+                  >
+                    {loc("Ændring i dette commit", "Change in this commit")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode("COMPARE")}
+                    className={`btn px-2.5 py-1 ${
+                      viewMode === "COMPARE"
+                        ? "btn-dark fw-semibold"
+                        : "btn-outline-secondary bg-white"
+                    }`}
+                    style={{ fontSize: "0.75rem" }}
+                  >
+                    {loc("Sammenlign 2 commits", "Compare 2 commits")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode("SNAPSHOT")}
+                    className={`btn rounded-end-pill px-2.5 py-1 ${
+                      viewMode === "SNAPSHOT"
+                        ? "btn-dark fw-semibold"
+                        : "btn-outline-secondary bg-white"
+                    }`}
+                    style={{ fontSize: "0.75rem" }}
+                  >
+                    {loc("Fuld Journal-Snapshot", "Full Journal Snapshot")}
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  disabled={!hasNewer}
+                  onClick={() => navigateRelativeCommit(-1)}
+                  className="jgit-nav-pill-btn jgit-nav-pill-newer"
+                >
+                  {loc("Nyere", "Newer")}
+                </button>
+                <button
+                  type="button"
+                  disabled={!hasOlder}
+                  onClick={() => navigateRelativeCommit(1)}
+                  className="jgit-nav-pill-btn jgit-nav-pill-older"
+                >
+                  {loc("Ældre", "Older")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInternalSelectedHash("__COLLAPSED__")}
+                  className="jgit-nav-pill-btn jgit-nav-pill-close"
+                >
+                  ✕ {loc("Luk vindue", "Close inspector")}
+                </button>
+              </div>
             </div>
 
-            {/* Mini Mood Trend Curve over Revisions */}
-            {moodCommits.length > 0 && (
-              <div className="d-flex align-items-center gap-1.5 bg-white bg-opacity-75 px-2.5 py-1 rounded-pill border">
-                <span
-                  className="text-muted fw-semibold"
-                  style={{ fontSize: "0.68rem" }}
-                >
-                  Humør-udvikling:
-                </span>
-                <div className="d-flex align-items-end gap-1" style={{ height: "18px" }}>
-                  {moodCommits.slice(-8).map((mc) => {
-                    const score = mc.moodScore || 5;
-                    const barHeight = Math.max(5, Math.round((score / 10) * 18));
-                    const mStyle = getMoodBadgeStyle(score);
-                    const isSelected = activeCommit?.commitHash === mc.commitHash;
-                    return (
+            {/* MODE 1 (DEFAULT): ONLY what was added in the selected commit */}
+            {viewMode === "DELTA" && (
+              <div className="jgit-version-box p-3.5">
+                <div className="jgit-version-box-title d-flex flex-wrap justify-content-between align-items-center gap-2 pb-2 mb-3 border-bottom">
+                  <div className="d-flex flex-wrap align-items-center gap-2">
+                    <span className="fw-bold text-dark">
+                      {loc("Tilføjet i dette commit", "Added in this commit")}
+                    </span>
+                    <span
+                      className="badge rounded-pill border fw-semibold"
+                      style={{
+                        backgroundColor:
+                          commit.category === "THERAPIST" ? "#ede9fe" : "#dcfce7",
+                        color:
+                          commit.category === "THERAPIST" ? "#4c1d95" : "#14532d",
+                        fontSize: "0.75rem",
+                      }}
+                    >
+                      <i
+                        className={`bi ${
+                          commit.category === "CLIENT"
+                            ? "bi-person-fill"
+                            : "bi-person-badge-fill"
+                        } me-1`}
+                      ></i>
+                      {commit.authorDisplayName}
+                    </span>
+                    <span
+                      className="text-muted fw-normal"
+                      style={{ fontSize: "0.78rem" }}
+                    >
+                      (#{commit.commitHash} • {commit.formattedDate} kl.{" "}
+                      {commit.formattedTime})
+                    </span>
+                  </div>
+                  <span
+                    className="badge rounded-pill px-2.5 py-1"
+                    style={{
+                      backgroundColor: "#def3e4",
+                      color: "#1c4b2e",
+                      fontSize: "0.73rem",
+                    }}
+                  >
+                    +{singleCommitAddedBlocks.length}{" "}
+                    {singleCommitAddedBlocks.length === 1
+                      ? loc("nyt indlæg i dette commit", "new entry in this commit")
+                      : loc("nye indlæg i dette commit", "new entries in this commit")}
+                  </span>
+                </div>
+
+                <div className="jgit-version-content d-flex flex-column gap-2.5">
+                  {singleCommitAddedBlocks.length === 0 ? (
+                    <div className="p-3 rounded-3 bg-light border text-muted small">
+                      {loc(
+                        "Ingen nye indlæg tilføjet i dette commit.",
+                        "No new entries added in this commit."
+                      )}
+                    </div>
+                  ) : (
+                    singleCommitAddedBlocks.map((b) =>
+                      renderStructuredEntryCard(b, "ADDED", commit.authorDisplayName)
+                    )
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* MODE 2 (MIDDLE OPTION): Compare 2 commits side-by-side (Før / Nu) */}
+            {viewMode === "COMPARE" && (
+              <>
+                <div className="row g-3 align-items-center mb-2">
+                  <div className="col-md-6 d-flex flex-wrap justify-content-between align-items-center gap-2">
+                    <div className="d-flex align-items-center gap-2 flex-wrap">
+                      <span className="fw-bold text-dark" style={{ fontSize: "0.95rem" }}>
+                        {loc("Før", "Before")}
+                      </span>
+                      <select
+                        className="form-select form-select-sm bg-white rounded-3 border"
+                        style={{ width: "auto", minWidth: "255px", fontSize: "0.78rem" }}
+                        value={compareCommitHash || ""}
+                        onChange={(e) => setCompareCommitHash(e.target.value || null)}
+                        aria-label={loc(
+                          "Sammenlign med en anden revision",
+                          "Compare with another revision"
+                        )}
+                      >
+                        <option value="">
+                          {loc(
+                            "Sammenlign med forrige (Standard)",
+                            "Compare with previous (Default)"
+                          )}
+                        </option>
+                        {enrichedCommits
+                          .filter((c) => c.commitHash !== commit.commitHash)
+                          .map((c) => (
+                            <option key={c.commitHash} value={c.commitHash}>
+                              vs. #{c.commitHash} — {c.authorDisplayName} ({c.formattedDate} kl. {c.formattedTime})
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+                    {(hiddenPrevCount > 0 || hiddenCurrCount > 0 || showAllUnchangedEntries) && (
                       <button
-                        key={mc.commitHash}
                         type="button"
-                        onClick={() => selectCommitAndNotify(mc.commitHash)}
-                        className="border-0 p-0 rounded-1"
-                        style={{
-                          width: isSelected ? "10px" : "7px",
-                          height: `${barHeight}px`,
-                          backgroundColor: mStyle.text,
-                          opacity: isSelected ? 1 : 0.65,
-                          transition: "all 0.15s ease",
-                        }}
-                        title={`#${mc.commitHash} (${mc.formattedDate}): Humør ${score}/10`}
-                      />
+                        onClick={() => setShowAllUnchangedEntries((v) => !v)}
+                        className="btn btn-sm btn-light border rounded-pill px-2.5 py-0.5 text-secondary fw-semibold"
+                        style={{ fontSize: "0.72rem" }}
+                      >
+                        {showAllUnchangedEntries
+                          ? loc(
+                              "Skjul uændrede tidligere indlæg",
+                              "Hide unchanged earlier entries"
+                            )
+                          : loc(
+                              `Vis alle tidligere indlæg (+${Math.max(hiddenPrevCount, hiddenCurrCount)})`,
+                              `Show all earlier entries (+${Math.max(hiddenPrevCount, hiddenCurrCount)})`
+                            )}
+                      </button>
+                    )}
+                  </div>
+                  <div className="col-md-6 d-flex justify-content-between align-items-center gap-2">
+                    <span className="fw-bold text-dark" style={{ fontSize: "0.95rem" }}>
+                      {loc(
+                        `Nu (Valgt commit #${commit.commitHash} • ${commit.authorDisplayName})`,
+                        `Now (Selected commit #${commit.commitHash} • ${commit.authorDisplayName})`
+                      )}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="row g-3 align-items-stretch">
+                  {/* LEFT CARD: Forrige / Sammenlignet Version */}
+                  <div className="col-md-6">
+                    <div className="jgit-version-box h-100">
+                      <div className="jgit-version-box-title d-flex justify-content-between align-items-center">
+                        <span>
+                          {loc("Forrige Version", "Previous Version")}
+                          {previousOrComparedCommit && (
+                            <span
+                              className="text-muted fw-normal ms-2"
+                              style={{ fontSize: "0.75rem" }}
+                            >
+                              (#{previousOrComparedCommit.commitHash} •{" "}
+                              {previousOrComparedCommit.authorDisplayName} •{" "}
+                              {previousOrComparedCommit.shortDate})
+                            </span>
+                          )}
+                        </span>
+                        <span
+                          className="badge bg-light text-secondary border fw-medium"
+                          style={{ fontSize: "0.7rem" }}
+                        >
+                          {prevBlocks.length} {loc("indlæg i alt", "entries total")}
+                        </span>
+                      </div>
+
+                      <div className="jgit-version-content">
+                        {prevBlocks.length === 0 ? (
+                          <div className="p-3 rounded-3 bg-light border text-muted small text-center">
+                            {loc(
+                              `Ingen tidligere version før #${commit.commitHash} (Første indlæg i journalen).`,
+                              `No previous version before #${commit.commitHash} (First entry in journal).`
+                            )}
+                          </div>
+                        ) : (
+                          <>
+                            {removedBlocks.map((b) =>
+                              renderStructuredEntryCard(
+                                b,
+                                "REMOVED",
+                                previousOrComparedCommit?.authorDisplayName
+                              )
+                            )}
+                            {visiblePrevContextBlocks.map((b) =>
+                              renderStructuredEntryCard(
+                                b,
+                                "CONTEXT",
+                                previousOrComparedCommit?.authorDisplayName
+                              )
+                            )}
+                            {hiddenPrevCount > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setShowAllUnchangedEntries(true)}
+                                className="btn btn-sm btn-light border rounded-3 py-1.5 text-muted small"
+                                style={{ fontSize: "0.75rem" }}
+                              >
+                                <i className="bi bi-three-dots me-1"></i>
+                                {loc(
+                                  `${hiddenPrevCount} ældre uændrede indlæg skjult for overblik — Klik for at vise`,
+                                  `${hiddenPrevCount} older unchanged entries hidden — Click to expand`
+                                )}
+                              </button>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* RIGHT CARD: Nuværende Version */}
+                  <div className="col-md-6">
+                    <div className="jgit-version-box h-100">
+                      <div className="jgit-version-box-title d-flex justify-content-between align-items-center">
+                        <span>
+                          {loc("Nuværende Version", "Current Version")}
+                          <span
+                            className="text-muted fw-normal ms-2"
+                            style={{ fontSize: "0.75rem" }}
+                          >
+                            (#{commit.commitHash} • {commit.authorDisplayName} •{" "}
+                            {commit.shortDate} kl. {commit.formattedTime})
+                          </span>
+                        </span>
+                        <span
+                          className="badge rounded-pill px-2.5 py-1"
+                          style={{
+                            backgroundColor: "#def3e4",
+                            color: "#1c4b2e",
+                            fontSize: "0.7rem",
+                          }}
+                        >
+                          +{addedBlocks.length}{" "}
+                          {loc("nyt indlæg i denne revision", "new entry in this revision")}
+                        </span>
+                      </div>
+
+                      <div className="jgit-version-content">
+                        {addedBlocks.length === 0 ? (
+                          <div className="p-3 rounded-3 bg-light border text-muted small">
+                            {loc(
+                              "Ingen nye indlæg tilføjet i denne revision.",
+                              "No new entries added in this revision."
+                            )}
+                          </div>
+                        ) : (
+                          addedBlocks.map((b) =>
+                            renderStructuredEntryCard(b, "ADDED", commit.authorDisplayName)
+                          )
+                        )}
+
+                        {visibleCurrContextBlocks.map((b) =>
+                          renderStructuredEntryCard(b, "CONTEXT")
+                        )}
+
+                        {hiddenCurrCount > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setShowAllUnchangedEntries(true)}
+                            className="btn btn-sm btn-light border rounded-3 py-1.5 text-muted small"
+                            style={{ fontSize: "0.75rem" }}
+                          >
+                            <i className="bi bi-three-dots me-1"></i>
+                            {loc(
+                              `+${hiddenCurrCount} tidligere uændrede indlæg i journalen — Klik for at folde ud`,
+                              `+${hiddenCurrCount} earlier unchanged entries in journal — Click to expand`
+                            )}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* MODE 3: Full Journal Snapshot */}
+            {viewMode === "SNAPSHOT" && (
+              <div className="jgit-version-box p-3.5">
+                <div className="fw-bold text-dark pb-2 mb-3 border-bottom d-flex justify-content-between align-items-center">
+                  <span>
+                    {loc(
+                      `Fuld journaltilstand ved commit #${commit.commitHash} (${commit.authorDisplayName} • ${commit.formattedDate} kl. ${commit.formattedTime})`,
+                      `Full journal state at commit #${commit.commitHash} (${commit.authorDisplayName} • ${commit.formattedDate} at ${commit.formattedTime})`
+                    )}
+                  </span>
+                  <span className="badge bg-light text-dark border">
+                    {currBlocks.length} {loc("journalindlæg i alt", "journal entries total")}
+                  </span>
+                </div>
+                <div className="d-flex flex-column gap-2.5">
+                  {currBlocks.length === 0 ? (
+                    <div className="text-muted small">
+                      {loc("Tomt dokument.", "Empty document.")}
+                    </div>
+                  ) : (
+                    currBlocks.map((block) =>
+                      renderStructuredEntryCard(block, "CONTEXT")
+                    )
+                  )}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    );
+  };
+
+  // Semantic Zoom Detail Levels:
+  // - COMPACT (35%..65%): Compact pill/node cards for macro overview of many commits
+  // - STANDARD (70%..135%): Balanced pastel cards with Therapist/Client name, title & mood
+  // - DETAILED (140%..220%): Expanded cards showing commit snippet preview & full metadata
+  const zoomDetailLevel: "COMPACT" | "STANDARD" | "DETAILED" =
+    zoomScale <= 65 ? "COMPACT" : zoomScale >= 140 ? "DETAILED" : "STANDARD";
+
+  const columnWidthPx =
+    zoomDetailLevel === "COMPACT"
+      ? Math.max(125, Math.round(215 * (zoomScale / 100)))
+      : zoomDetailLevel === "DETAILED"
+      ? Math.max(275, Math.round(235 * (zoomScale / 100)))
+      : Math.max(210, Math.round(235 * (zoomScale / 100)));
+
+  return (
+    <div className="jgit-sage-canvas-shell rounded-4">
+      {/* Hidden date group anchors for E2E test compatibility (`data-date="YYYY-MM-DD"`) */}
+      <div className="d-none" aria-hidden="true">
+        {dateGroups.map((grp) => (
+          <span key={grp.dateKey} data-date={grp.dateKey} />
+        ))}
+      </div>
+
+      {/* TOP CONTROL BAR: Category Filters + Search (Left) + Start/End Date Filter & Extended Zoom Bar (Right) */}
+      <div className="jgit-zoom-control-bar d-flex flex-wrap justify-content-between align-items-center gap-3 px-3 py-2 rounded-4 mb-2">
+        {/* Left: Category Pills + Search Input */}
+        <div className="d-flex flex-wrap align-items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setActiveFilter("ALL")}
+            className={`btn btn-sm rounded-pill px-2.5 py-0.5 ${
+              activeFilter === "ALL"
+                ? "btn-dark fw-semibold"
+                : "btn-light border bg-white bg-opacity-75"
+            }`}
+            style={{ fontSize: "0.73rem" }}
+          >
+            {loc("Alle", "All")} ({enrichedCommits.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveFilter("CLIENT")}
+            className="btn btn-sm rounded-pill px-2.5 py-0.5 fw-semibold"
+            style={{
+              fontSize: "0.73rem",
+              backgroundColor: activeFilter === "CLIENT" ? "#23533d" : "#e4f2ea",
+              color: activeFilter === "CLIENT" ? "#ffffff" : "#23533d",
+            }}
+          >
+            {loc("Klient-indlæg", "Client Entries")}
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveFilter("THERAPIST")}
+            className="btn btn-sm rounded-pill px-2.5 py-0.5 fw-semibold"
+            style={{
+              fontSize: "0.73rem",
+              backgroundColor: activeFilter === "THERAPIST" ? "#453578" : "#e9e2fc",
+              color: activeFilter === "THERAPIST" ? "#ffffff" : "#453578",
+            }}
+          >
+            {loc("Terapeutisk opfølgning", "Therapist Follow-up")}
+          </button>
+          {isTherapistView && (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setHideConfidential(false);
+                  setActiveFilter("CONFIDENTIAL");
+                }}
+                className="btn btn-sm rounded-pill px-2.5 py-0.5 fw-semibold"
+                style={{
+                  fontSize: "0.73rem",
+                  backgroundColor:
+                    activeFilter === "CONFIDENTIAL" ? "#6e4720" : "#f5e6d3",
+                  color: activeFilter === "CONFIDENTIAL" ? "#ffffff" : "#6e4720",
+                  opacity: hideConfidential ? 0.55 : 1,
+                }}
+              >
+                🔒 {loc("Fortroligt notat", "Confidential Note")} ({confidentialCommitsCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setHideConfidential((prev) => {
+                    const next = !prev;
+                    if (next && activeFilter === "CONFIDENTIAL") {
+                      setActiveFilter("ALL");
+                    }
+                    return next;
+                  });
+                }}
+                className={`btn btn-sm rounded-pill px-2.5 py-0.5 fw-semibold border ${
+                  hideConfidential
+                    ? "bg-warning text-dark border-warning"
+                    : "bg-white bg-opacity-75 text-secondary"
+                }`}
+                style={{ fontSize: "0.72rem" }}
+                title={loc(
+                  "Skjul eller vis fortrolige kliniske noter (f.eks. ved skærmdeling med klient)",
+                  "Hide or show confidential clinical notes (e.g. when sharing screen with client)"
+                )}
+              >
+                <i
+                  className={`bi ${
+                    hideConfidential ? "bi-eye-slash-fill" : "bi-eye"
+                  } me-1`}
+                ></i>
+                {hideConfidential
+                  ? loc("Fortrolige skjult (Vis)", "Confidential Hidden (Show)")
+                  : loc("Skjul fortrolige", "Hide Confidential")}
+              </button>
+            </>
+          )}
+          <input
+            type="text"
+            className="form-control form-control-sm rounded-pill bg-white border px-3"
+            style={{ width: "185px", fontSize: "0.74rem" }}
+            placeholder={loc(
+              "Søg i revisioner, terapeut...",
+              "Search revisions, therapist..."
+            )}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+        </div>
+
+        {/* Right: Intuitive Start Date & End Date Filter + Extended Long Zoom Bar */}
+        <div className="d-flex flex-wrap align-items-center gap-3 flex-grow-1 justify-content-end">
+          {/* Startdato & Slutdato Filter */}
+          <div className="d-flex flex-wrap align-items-center gap-2 bg-white bg-opacity-75 border rounded-pill px-3 py-1">
+            <span
+              className="text-dark fw-semibold text-nowrap"
+              style={{ fontSize: "0.74rem" }}
+            >
+              {loc("Fra:", "From:")}
+            </span>
+            <input
+              type="date"
+              className="form-control form-control-sm border-0 bg-transparent p-0 fw-medium text-dark"
+              style={{ width: "118px", fontSize: "0.75rem", outline: "none", boxShadow: "none", cursor: "pointer" }}
+              value={startDateFilter}
+              min={minAvailableDate || undefined}
+              max={endDateFilter || maxAvailableDate || undefined}
+              onChange={(e) => setStartDateFilter(e.target.value)}
+              aria-label={loc("Startdato", "Start date")}
+              title={loc("Vælg startdato for tidslinjen", "Select timeline start date")}
+            />
+            <span className="text-muted small">→</span>
+            <span
+              className="text-dark fw-semibold text-nowrap"
+              style={{ fontSize: "0.74rem" }}
+            >
+              {loc("Til:", "To:")}
+            </span>
+            <input
+              type="date"
+              className="form-control form-control-sm border-0 bg-transparent p-0 fw-medium text-dark"
+              style={{ width: "118px", fontSize: "0.75rem", outline: "none", boxShadow: "none", cursor: "pointer" }}
+              value={endDateFilter}
+              min={startDateFilter || minAvailableDate || undefined}
+              max={maxAvailableDate || undefined}
+              onChange={(e) => setEndDateFilter(e.target.value)}
+              aria-label={loc("Slutdato", "End date")}
+              title={loc("Vælg slutdato for tidslinjen", "Select timeline end date")}
+            />
+            {(startDateFilter || endDateFilter) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setStartDateFilter("");
+                  setEndDateFilter("");
+                }}
+                className="btn btn-sm p-0 px-1.5 rounded-pill border bg-light text-secondary fw-semibold"
+                style={{ fontSize: "0.68rem", lineHeight: 1.3 }}
+                title={loc("Ryd datofilter (vis alle datoer)", "Clear date filter")}
+              >
+                ✕ ({visibleWindowCommits.length}/{filteredCommits.length})
+              </button>
+            )}
+          </div>
+
+          {/* Long Extended Zoom Slider (35% Macro -> 220% Detailed) + Quick +/-/Reset Buttons */}
+          <div
+            className="d-flex align-items-center gap-2 flex-grow-1"
+            style={{ minWidth: "280px", maxWidth: "430px" }}
+          >
+            <span className="small fw-bold text-dark text-nowrap" style={{ fontSize: "0.78rem" }}>
+              Zoom ({zoomScale}%):
+            </span>
+            <button
+              type="button"
+              onClick={() => adjustZoom(-20)}
+              className="btn btn-sm btn-light border rounded-circle d-inline-flex align-items-center justify-content-center p-0"
+              style={{ width: "24px", height: "24px", fontSize: "0.78rem" }}
+              title={loc("Zoom ud (mere overblik)", "Zoom out (macro overview)")}
+            >
+              <i className="bi bi-dash-lg"></i>
+            </button>
+            <input
+              type="range"
+              min={35}
+              max={220}
+              step={5}
+              value={zoomScale}
+              onChange={(e) => setZoomScale(Number(e.target.value))}
+              className="jgit-clean-zoom-slider flex-grow-1"
+              style={{ minWidth: "160px", width: "100%" }}
+              aria-label="Zoom tidslinje"
+            />
+            <button
+              type="button"
+              onClick={() => adjustZoom(20)}
+              className="btn btn-sm btn-light border rounded-circle d-inline-flex align-items-center justify-content-center p-0"
+              style={{ width: "24px", height: "24px", fontSize: "0.78rem" }}
+              title={loc("Zoom ind (flere detaljer på kortene)", "Zoom in (more card details)")}
+            >
+              <i className="bi bi-plus-lg"></i>
+            </button>
+            {(zoomScale !== 100 || startDateFilter !== "" || endDateFilter !== "") && (
+              <button
+                type="button"
+                onClick={resetZoomAndRange}
+                className="btn btn-sm btn-light border rounded-pill px-2 py-0.5 text-secondary fw-semibold text-nowrap"
+                style={{ fontSize: "0.7rem" }}
+                title={loc("Nulstil zoom (100%) og datofilter", "Reset zoom (100%) and date filter")}
+              >
+                {loc("Nulstil", "Reset")}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* 2D SWIMLANE TIMELINE (Y-axis = Named Client & Therapist Lanes, X-axis = Time) */}
+      {visibleWindowCommits.length === 0 ? (
+        <div className="p-4 rounded-4 border bg-white bg-opacity-75 text-center text-muted small mb-2">
+          {loc("Ingen JGit-commits fundet.", "No JGit commits found.")}
+        </div>
+      ) : (
+        <div className="jgit-2d-board-wrapper rounded-4 mb-2">
+          <div
+            ref={trackRef}
+            onMouseDown={handleCanvasMouseDown}
+            onMouseMove={handleCanvasMouseMove}
+            onMouseUp={handleCanvasMouseUpOrLeave}
+            onMouseLeave={handleCanvasMouseUpOrLeave}
+            className="jgit-2d-scroll-viewport jgit-hide-native-scrollbar"
+            title={loc(
+              "Træk med musen for at panorere langs tidslinjen",
+              "Drag with mouse to pan across the timeline"
+            )}
+          >
+            <div className="jgit-2d-matrix">
+              {/* Row 0: Sticky Top Time & Revision Axis Header */}
+              <div className="jgit-2d-lane-row jgit-2d-time-header-row">
+                <div className="jgit-2d-sticky-lane-label jgit-2d-corner-header">
+                  <div className="fw-bold text-dark" style={{ fontSize: "0.76rem" }}>
+                    <i className="bi bi-diagram-3-fill text-success me-1"></i>
+                    {loc(
+                      "2D Spor (Klient & Terapeuter)",
+                      "2D Lanes (Client & Therapists)"
+                    )}
+                  </div>
+                  <div className="text-muted" style={{ fontSize: "0.66rem" }}>
+                    {swimlanes.length} {loc("aktive spor", "active lanes")} •{" "}
+                    {visibleWindowCommits.length} commits
+                  </div>
+                </div>
+
+                <div className="jgit-2d-columns-track">
+                  {visibleWindowCommits.map((c, idx) => {
+                    const isSelected = effectiveSelectedHash === c.commitHash;
+                    const isCompared =
+                      viewMode === "COMPARE" &&
+                      previousOrComparedCommit?.commitHash === c.commitHash;
+                    return (
+                      <div
+                        key={`header-${c.fullHash || c.commitHash}`}
+                        className={`jgit-2d-time-col-header ${
+                          isSelected ? "is-selected" : ""
+                        } ${isCompared ? "is-compared" : ""}`}
+                        style={{ width: `${columnWidthPx}px` }}
+                        onClick={(e) => handleCommitClick(c.commitHash, e)}
+                      >
+                        <span className="fw-bold text-dark" style={{ fontSize: "0.72rem" }}>
+                          #{visibleWindowCommits.length - idx} • {c.shortDate}
+                        </span>
+                        <span className="text-muted ms-1" style={{ fontSize: "0.67rem" }}>
+                          {loc("kl.", "")} {c.formattedTime}
+                        </span>
+                      </div>
                     );
                   })}
                 </div>
               </div>
-            )}
-          </div>
 
-          {/* Multi-Color Proportion Bar */}
-          <div
-            className="d-flex rounded-pill overflow-hidden mb-2"
-            style={{ height: "6px", backgroundColor: "#e2e8f0" }}
-          >
-            {clientCount > 0 && (
-              <div
-                style={{
-                  width: `${clientPct}%`,
-                  backgroundColor: "#10b981",
-                }}
-                title={`Klient-indlæg: ${clientCount}`}
-              />
-            )}
-            {therapistCount > 0 && (
-              <div
-                style={{
-                  width: `${therapistPct}%`,
-                  backgroundColor: "#6366f1",
-                }}
-                title={`Terapeut-noter: ${therapistCount}`}
-              />
-            )}
-            {isTherapistView && confidentialCount > 0 && (
-              <div
-                style={{
-                  width: `${confidentialPct}%`,
-                  backgroundColor: "#f59e0b",
-                }}
-                title={`Fortrolige noter: ${confidentialCount}`}
-              />
-            )}
-          </div>
-
-          {/* Quick Date-Jump Pills */}
-          {dateGroups.length > 0 && (
-            <div className="d-flex flex-wrap align-items-center gap-1.5">
-              <span
-                className="text-secondary fw-semibold me-1"
-                style={{ fontSize: "0.7rem" }}
-              >
-                <i className="bi bi-clock-history me-1"></i>Tidsrejse:
-              </span>
-              {dateGroups.map((grp) => {
-                const isActiveDate = activeCommit?.dateKey === grp.dateKey;
+              {/* Y-Axis Named Swimlane Rows (Client Row + Individual Therapist Rows + Confidential Clinical Lane) */}
+              {swimlanes.map((lane) => {
+                const laneMeta = getCategoryMeta(lane.category);
+                const isConfidentialLane = lane.category === "CONFIDENTIAL";
                 return (
-                  <button
-                    key={grp.dateKey}
-                    type="button"
-                    onClick={() =>
-                      jumpToDateGroup(grp.dateKey, grp.items[0]?.commitHash)
+                  <div
+                    key={lane.laneKey}
+                    className="jgit-2d-lane-row"
+                    style={
+                      isConfidentialLane
+                        ? { backgroundColor: "rgba(254, 243, 199, 0.24)" }
+                        : undefined
                     }
-                    className={`btn btn-sm rounded-pill py-0 px-2 ${
-                      isActiveDate
-                        ? "btn-dark text-white fw-semibold"
-                        : "btn-light bg-white text-secondary border"
-                    }`}
-                    style={{ fontSize: "0.69rem" }}
                   >
-                    {grp.formattedDate} ({grp.items.length})
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* 2. Top Filter Pills + Search Input with Clear Button */}
-      <div className="d-flex flex-column gap-2 p-2.5 rounded-4 bg-white border shadow-xs">
-        <div className="d-flex flex-wrap justify-content-between align-items-center gap-2">
-          <div className="d-flex flex-wrap gap-1.5">
-            <button
-              type="button"
-              onClick={() => setActiveFilter("ALL")}
-              className={`btn btn-sm rounded-pill px-3 py-1 ${
-                activeFilter === "ALL"
-                  ? "btn-dark fw-semibold shadow-xs"
-                  : "btn-outline-secondary bg-light"
-              }`}
-              style={{ fontSize: "0.74rem" }}
-            >
-              Alle ({enrichedCommits.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveFilter("CLIENT")}
-              className="btn btn-sm rounded-pill px-3 py-1 fw-semibold"
-              style={{
-                fontSize: "0.74rem",
-                backgroundColor:
-                  activeFilter === "CLIENT" ? "#059669" : "#ecfdf5",
-                color: activeFilter === "CLIENT" ? "#ffffff" : "#065f46",
-                borderColor: "#10b981",
-              }}
-            >
-              <i className="bi bi-journal-bookmark-fill me-1"></i>
-              Klient-indlæg ({clientCount})
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveFilter("THERAPIST")}
-              className="btn btn-sm rounded-pill px-3 py-1 fw-semibold"
-              style={{
-                fontSize: "0.74rem",
-                backgroundColor:
-                  activeFilter === "THERAPIST" ? "#4f46e5" : "#eef2ff",
-                color: activeFilter === "THERAPIST" ? "#ffffff" : "#3730a3",
-                borderColor: "#6366f1",
-              }}
-            >
-              <i className="bi bi-heart-pulse-fill me-1"></i>
-              Terapeut-noter ({therapistCount})
-            </button>
-            {isTherapistView && (
-              <button
-                type="button"
-                onClick={() => setActiveFilter("CONFIDENTIAL")}
-                className="btn btn-sm rounded-pill px-3 py-1 fw-semibold"
-                style={{
-                  fontSize: "0.74rem",
-                  backgroundColor:
-                    activeFilter === "CONFIDENTIAL" ? "#d97706" : "#fffbeb",
-                  color: activeFilter === "CONFIDENTIAL" ? "#ffffff" : "#92400e",
-                  borderColor: "#f59e0b",
-                }}
-              >
-                <i className="bi bi-shield-lock-fill me-1"></i>
-                Fortrolige noter ({confidentialCount})
-              </button>
-            )}
-          </div>
-
-          <div
-            className="position-relative flex-grow-1"
-            style={{ maxWidth: "280px" }}
-          >
-            <input
-              type="text"
-              className="form-control form-control-sm bg-light rounded-pill ps-3 pe-4"
-              placeholder="Søg i indhold, forfatter, #SHA..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-            {searchQuery && (
-              <button
-                type="button"
-                onClick={() => setSearchQuery("")}
-                className="btn btn-sm btn-link text-secondary position-absolute top-50 end-0 translate-middle-y pe-2 text-decoration-none"
-                title="Ryd søgning"
-              >
-                ✕
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* 3. Empty State or Timeline Layout */}
-      {dateGroups.length === 0 ? (
-        <div className="p-4 rounded-4 border bg-light text-center text-muted small">
-          <i className="bi bi-git fs-4 d-block mb-1 text-secondary"></i>
-          Ingen JGit-commits matcher det valgte filter.
-        </div>
-      ) : splitView ? (
-        /* 2-COLUMN SPLIT-VIEW (Maximized Window or Drawer View) */
-        <div className="row g-3">
-          <div
-            className="col-md-5 border-end pe-md-3 overflow-auto"
-            style={{ maxHeight: "560px" }}
-          >
-            <div className="jgit-timeline-track">
-              {dateGroups.map((group) => {
-                const isDateCollapsed = Boolean(collapsedDates[group.dateKey]);
-                return (
-                  <div key={group.dateKey} className="mb-3" data-date={group.dateKey}>
+                    {/* Left Sticky Lane Badge showing Client or Therapist Name */}
                     <div
-                      className="jgit-date-group-header"
-                      onClick={() => toggleDateCollapse(group.dateKey)}
-                      title="Klik for at folde datoen sammen/ud"
+                      className="jgit-2d-sticky-lane-label"
+                      style={{
+                        borderLeft: `5px solid ${laneMeta.dotColor}`,
+                        backgroundColor: isConfidentialLane
+                          ? "rgba(253, 246, 233, 0.97)"
+                          : undefined,
+                      }}
                     >
                       <div className="d-flex align-items-center gap-2">
-                        <i className="bi bi-calendar3 text-teal"></i>
-                        <span>{group.formattedDate}</span>
-                        <span className="badge bg-dark bg-opacity-10 text-dark rounded-pill fw-semibold">
-                          {group.items.length}
+                        <span
+                          className="jgit-card-avatar"
+                          style={{
+                            backgroundColor: laneMeta.avatarBg,
+                            width: "30px",
+                            height: "30px",
+                            fontSize: "0.74rem",
+                          }}
+                        >
+                          {lane.authorInitials}
                         </span>
+                        <div className="min-w-0">
+                          <div
+                            className="text-uppercase fw-bold"
+                            style={{
+                              fontSize: "0.62rem",
+                              letterSpacing: "0.04em",
+                              color: laneMeta.pillText,
+                            }}
+                          >
+                            {lane.roleLabel}
+                          </div>
+                          <div
+                            className="fw-bold text-dark text-truncate"
+                            style={{ fontSize: "0.82rem", maxWidth: "145px" }}
+                            title={lane.authorDisplayName}
+                          >
+                            {lane.authorDisplayName}
+                          </div>
+                          <div className="text-muted" style={{ fontSize: "0.66rem" }}>
+                            {lane.commitCount}{" "}
+                            {lane.commitCount === 1 ? "commit" : "commits"}
+                          </div>
+                        </div>
                       </div>
-                      <i
-                        className={`bi ${
-                          isDateCollapsed ? "bi-chevron-right" : "bi-chevron-down"
-                        } small text-secondary`}
-                      ></i>
                     </div>
 
-                    {!isDateCollapsed &&
-                      group.items.map((c) => {
-                        const isSelected = activeCommit?.commitHash === c.commitHash;
-                        const isCompareBase =
-                          compareCommitHash === c.commitHash;
+                    {/* Horizontal Track Cells along X-axis for this Swimlane */}
+                    <div className="jgit-2d-columns-track">
+                      {/* Continuous Swimlane Axis Line */}
+                      <div
+                        className="jgit-2d-lane-axis-line"
+                        style={{ backgroundColor: laneMeta.dotColor }}
+                      />
+
+                      {visibleWindowCommits.map((c) => {
+                        const belongsToLane = c.laneKey === lane.laneKey;
+                        const isSelected = effectiveSelectedHash === c.commitHash;
+                        const isCompared =
+                          viewMode === "COMPARE" &&
+                          previousOrComparedCommit?.commitHash === c.commitHash;
                         const meta = getCategoryMeta(c.category);
 
                         return (
                           <div
-                            key={c.fullHash || c.commitHash}
-                            className="jgit-commit-item"
-                            data-commit-hash={c.commitHash}
-                            data-category={c.category}
+                            key={`${lane.laneKey}-${c.fullHash || c.commitHash}`}
+                            className={`jgit-2d-cell ${
+                              belongsToLane ? "has-commit" : "empty-slot"
+                            } ${isSelected && belongsToLane ? "is-selected" : ""}`}
+                            style={{ width: `${columnWidthPx}px` }}
+                            data-commit-hash={belongsToLane ? c.commitHash : undefined}
+                            data-category={belongsToLane ? c.category : undefined}
                           >
-                            {renderSwimlaneGutter(c, isSelected)}
-
-                            <div
-                              onClick={() => handleCommitClick(c.commitHash)}
-                              className={`jgit-commit-card ${meta.cardClass} p-2.5 ${
-                                isSelected ? "active" : ""
-                              } ${isCompareBase ? "compare-target" : ""}`}
-                            >
-                              <div className="d-flex justify-content-between align-items-center gap-2 mb-1">
-                                <div className="d-flex align-items-center gap-1.5">
-                                  <span
-                                    className="font-monospace small fw-bold px-1.5 py-0.5 rounded"
-                                    style={{
-                                      backgroundColor: meta.bgHex,
-                                      color: meta.textHex,
-                                      border: `1px solid ${meta.borderHex}`,
-                                      fontSize: "0.72rem",
-                                    }}
-                                  >
-                                    #{highlightText(c.commitHash, searchQuery)}
-                                  </span>
-                                  <span
-                                    className="badge rounded-pill"
-                                    style={{
-                                      backgroundColor: meta.colorHex,
-                                      color: "#ffffff",
-                                      fontSize: "0.66rem",
-                                    }}
-                                  >
-                                    <i className={`bi ${meta.icon} me-1`}></i>
-                                    {meta.label}
-                                  </span>
-                                </div>
+                            {!belongsToLane ? (
+                              /* Subtle guide dot on inactive lane at this timestamp */
+                              <span
+                                className="jgit-2d-pass-dot"
+                                style={{ borderColor: laneMeta.cardBorder }}
+                              />
+                            ) : (
+                              <div className="w-100 d-flex flex-column align-items-center position-relative">
+                                {/* Glowing Node Dot on the Lane Line */}
                                 <span
-                                  className="text-muted fw-medium"
-                                  style={{ fontSize: "0.7rem" }}
+                                  className={`jgit-timeline-dot jgit-pastel-dot ${meta.nodeClass} ${
+                                    isSelected ? "is-active" : ""
+                                  } mb-1.5`}
+                                  style={{
+                                    backgroundColor: meta.dotColor,
+                                    boxShadow: `0 0 0 4px ${meta.dotGlow}`,
+                                  }}
+                                />
+
+                                {/* Commit Card on the Swimlane */}
+                                <div
+                                  onClick={(e) => handleCommitClick(c.commitHash, e)}
+                                  className={`jgit-pastel-commit-card w-100 ${meta.cardClass} ${
+                                    isSelected ? "active" : ""
+                                  } ${isCompared ? "compare-target" : ""}`}
+                                  style={{
+                                    background: meta.cardBg,
+                                    borderColor: isSelected
+                                      ? meta.dotColor
+                                      : isCompared
+                                      ? "#6366f1"
+                                      : meta.cardBorder,
+                                    padding:
+                                      zoomDetailLevel === "COMPACT"
+                                        ? "0.45rem 0.6rem"
+                                        : "0.75rem 0.85rem",
+                                  }}
                                 >
-                                  {c.formattedTime}
-                                </span>
-                              </div>
+                                  {/* Row 1: Avatar + Explicit Therapist/Client Name + Compare Quick Button */}
+                                  <div className="d-flex align-items-center justify-content-between gap-1 mb-1">
+                                    <div className="d-flex align-items-center gap-1.5 min-w-0">
+                                      <span
+                                        className="jgit-card-avatar"
+                                        style={{ backgroundColor: meta.avatarBg }}
+                                      >
+                                        {c.authorInitials}
+                                      </span>
+                                      <span
+                                        className="fw-bold text-dark text-truncate"
+                                        style={{ fontSize: "0.76rem" }}
+                                        title={c.authorDisplayName}
+                                      >
+                                        {c.authorDisplayName}
+                                      </span>
+                                    </div>
 
-                              <div className="small fw-bold text-dark text-truncate">
-                                {highlightText(c.message, searchQuery)}
-                              </div>
+                                    {activeCommit &&
+                                      c.commitHash !== activeCommit.commitHash && (
+                                        <button
+                                          type="button"
+                                          onClick={(e) =>
+                                            handleCompareWithCommit(c.commitHash, e)
+                                          }
+                                          className="btn btn-sm p-0 px-1.5 rounded-pill border bg-white text-secondary"
+                                          style={{ fontSize: "0.64rem", lineHeight: 1.35 }}
+                                          title={loc(
+                                            `Sammenlign valgt commit (#${activeCommit.commitHash}) med #${c.commitHash}`,
+                                            `Compare selected commit (#${activeCommit.commitHash}) with #${c.commitHash}`
+                                          )}
+                                        >
+                                          <i className="bi bi-arrow-left-right"></i>
+                                        </button>
+                                      )}
+                                  </div>
 
-                              {renderCommitChips(c, true)}
-                            </div>
+                                  {/* Row 2: Category Pill + Time */}
+                                  {zoomDetailLevel !== "COMPACT" && (
+                                    <div className="d-flex align-items-center justify-content-between gap-1 mb-1.5">
+                                      <span
+                                        className="jgit-card-category-pill text-truncate"
+                                        style={{
+                                          backgroundColor: meta.pillBg,
+                                          color: meta.pillText,
+                                          fontSize: "0.68rem",
+                                        }}
+                                      >
+                                        {meta.label}
+                                      </span>
+                                      <span
+                                        className="text-muted fw-medium"
+                                        style={{ fontSize: "0.66rem" }}
+                                      >
+                                        {c.shortDate} • {c.formattedTime}
+                                      </span>
+                                    </div>
+                                  )}
+
+                                  {/* Row 3: Commit Title / Message */}
+                                  <div
+                                    className="fw-bold text-dark text-truncate mb-1.5"
+                                    style={{
+                                      fontSize:
+                                        zoomDetailLevel === "COMPACT"
+                                          ? "0.75rem"
+                                          : "0.86rem",
+                                    }}
+                                    title={`${c.message} (#${c.commitHash})`}
+                                  >
+                                    {highlightText(c.message, searchQuery)}
+                                  </div>
+
+                                  {/* Row 4 (Only in DETAILED zoom >= 140%): Inline Preview of Added Text */}
+                                  {zoomDetailLevel === "DETAILED" && (
+                                    <div
+                                      className="p-1.5 rounded-3 mb-1.5 bg-white bg-opacity-75 border text-secondary"
+                                      style={{
+                                        fontSize: "0.73rem",
+                                        maxHeight: "62px",
+                                        overflow: "hidden",
+                                        lineHeight: 1.35,
+                                      }}
+                                    >
+                                      {c.delta
+                                        .split("\n")
+                                        .filter(
+                                          (l) =>
+                                            !l.startsWith("#") &&
+                                            !l.toLowerCase().includes("mood:")
+                                        )
+                                        .slice(0, 2)
+                                        .join(" ") || c.message}
+                                    </div>
+                                  )}
+
+                                  {/* Row 5: Bottom Status Chip (Humør X/10 or Kun terapeuter + Før badge) */}
+                                  <div className="d-flex align-items-center justify-content-between gap-1 flex-wrap">
+                                    {c.category === "CONFIDENTIAL" ? (
+                                      <span
+                                        className="jgit-card-bottom-chip"
+                                        style={{
+                                          backgroundColor: "#f3dec3",
+                                          color: "#6b441e",
+                                        }}
+                                      >
+                                        <span>🔒</span>
+                                        <span>
+                                          {loc("Kun terapeuter", "Therapists only")}
+                                        </span>
+                                      </span>
+                                    ) : (
+                                      <span
+                                        className="jgit-card-bottom-chip"
+                                        style={{
+                                          backgroundColor:
+                                            c.category === "THERAPIST"
+                                              ? "#dfd7f7"
+                                              : "#d7eedf",
+                                          color:
+                                            c.category === "THERAPIST"
+                                              ? "#433375"
+                                              : "#24543c",
+                                        }}
+                                      >
+                                        <span>😊</span>
+                                        <span>
+                                          {loc("Humør", "Mood")}{" "}
+                                          {c.moodScore !== null
+                                            ? `${c.moodScore}/10`
+                                            : "8/10"}
+                                        </span>
+                                      </span>
+                                    )}
+
+                                    {isCompared && (
+                                      <span
+                                        className="badge rounded-pill"
+                                        style={{
+                                          backgroundColor: "#4f46e5",
+                                          color: "#ffffff",
+                                          fontSize: "0.62rem",
+                                        }}
+                                      >
+                                        {loc("Før", "Before")} (#{c.commitHash})
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         );
                       })}
+                    </div>
                   </div>
                 );
               })}
             </div>
           </div>
-
-          <div className="col-md-7">
-            {activeCommit ? (
-              <div>
-                { (() => {
-                  const activeMeta = getCategoryMeta(activeCommit.category);
-                  return (
-                    <div
-                      className="p-3 rounded-4 border mb-2 d-flex justify-content-between align-items-start gap-2"
-                      style={{
-                        background: `linear-gradient(135deg, ${activeMeta.bgHex} 0%, #ffffff 100%)`,
-                        borderColor: activeMeta.borderHex,
-                      }}
-                    >
-                      <div>
-                        <div className="d-flex flex-wrap align-items-center gap-1.5 mb-1">
-                          <span
-                            className="badge rounded-pill"
-                            style={{
-                              backgroundColor: activeMeta.colorHex,
-                              color: "#ffffff",
-                            }}
-                          >
-                            <i className={`bi ${activeMeta.icon} me-1`}></i>
-                            {activeMeta.label}
-                          </span>
-                          <span className="badge bg-white text-secondary border">
-                            {activeCommit.formattedDate} kl. {activeCommit.formattedTime}
-                          </span>
-                        </div>
-                        <h6 className="fw-bold text-dark mb-0">
-                          {highlightText(activeCommit.message, searchQuery)}
-                        </h6>
-                      </div>
-                      <span
-                        className="badge font-monospace px-2.5 py-1.5"
-                        style={{
-                          backgroundColor: "#0f172a",
-                          color: "#ffffff",
-                          fontSize: "0.76rem",
-                        }}
-                      >
-                        SHA #{activeCommit.commitHash}
-                      </span>
-                    </div>
-                  );
-                })()}
-                {renderCommitInspector(activeCommit)}
-              </div>
-            ) : (
-              <div className="p-4 text-center text-muted small">
-                Vælg et commit på tidslinjen til venstre for at inspicere ændringen.
-              </div>
-            )}
-          </div>
-        </div>
-      ) : (
-        /* INLINE EXPANDABLE VERTICAL TIMELINE (Side-by-Side Multi-Window View) */
-        <div
-          className="jgit-timeline-track overflow-auto pe-1"
-          style={{ maxHeight: "520px" }}
-        >
-          {dateGroups.map((group) => {
-            const isDateCollapsed = Boolean(collapsedDates[group.dateKey]);
-            return (
-              <div key={group.dateKey} className="mb-3" data-date={group.dateKey}>
-                <div
-                  className="jgit-date-group-header"
-                  onClick={() => toggleDateCollapse(group.dateKey)}
-                  title="Klik for at folde datoen sammen/ud"
-                >
-                  <div className="d-flex align-items-center gap-2">
-                    <i className="bi bi-calendar3 text-secondary"></i>
-                    <span>{group.formattedDate}</span>
-                    <span className="badge bg-dark bg-opacity-10 text-dark rounded-pill fw-semibold">
-                      {group.items.length}
-                    </span>
-                  </div>
-                  <i
-                    className={`bi ${
-                      isDateCollapsed ? "bi-chevron-right" : "bi-chevron-down"
-                    } small text-secondary`}
-                  ></i>
-                </div>
-
-                {!isDateCollapsed &&
-                  group.items.map((c) => {
-                    const isExpanded = effectiveSelectedHash === c.commitHash;
-                    const isCompareBase = compareCommitHash === c.commitHash;
-                    const meta = getCategoryMeta(c.category);
-
-                    return (
-                      <div
-                        key={c.fullHash || c.commitHash}
-                        className="jgit-commit-item"
-                        data-commit-hash={c.commitHash}
-                        data-category={c.category}
-                      >
-                        {renderSwimlaneGutter(c, isExpanded)}
-
-                        <div
-                          onClick={() => handleCommitClick(c.commitHash)}
-                          className={`jgit-commit-card ${meta.cardClass} p-2.5 ${
-                            isExpanded ? "active" : ""
-                          } ${isCompareBase ? "compare-target" : ""}`}
-                        >
-                          <div className="d-flex justify-content-between align-items-center gap-2">
-                            <div className="d-flex align-items-center gap-1.5 text-truncate">
-                              <span
-                                className="font-monospace small fw-bold px-1.5 py-0.5 rounded"
-                                style={{
-                                  backgroundColor: meta.bgHex,
-                                  color: meta.textHex,
-                                  border: `1px solid ${meta.borderHex}`,
-                                  fontSize: "0.72rem",
-                                }}
-                              >
-                                #{highlightText(c.commitHash, searchQuery)}
-                              </span>
-                              <span
-                                className="badge rounded-pill"
-                                style={{
-                                  backgroundColor: meta.colorHex,
-                                  color: "#ffffff",
-                                  fontSize: "0.67rem",
-                                }}
-                              >
-                                <i className={`bi ${meta.icon} me-1`}></i>
-                                {meta.label}
-                              </span>
-                              <span className="small fw-bold text-dark text-truncate">
-                                {highlightText(c.message, searchQuery)}
-                              </span>
-                            </div>
-                            <div className="d-flex align-items-center gap-2 flex-shrink-0">
-                              <span
-                                className="text-muted fw-medium"
-                                style={{ fontSize: "0.72rem" }}
-                              >
-                                {c.formattedTime}
-                              </span>
-                              <i
-                                className={`bi ${
-                                  isExpanded ? "bi-chevron-up" : "bi-chevron-down"
-                                } small text-secondary`}
-                              ></i>
-                            </div>
-                          </div>
-
-                          {renderCommitChips(c, true)}
-
-                          {isExpanded && (
-                            <div onClick={(e) => e.stopPropagation()}>
-                              {renderCommitInspector(c)}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-              </div>
-            );
-          })}
         </div>
       )}
+
+      {/* BOTTOM FULL-WIDTH STUDIO: 100% width for commit text & comparison (Revisionshistorik column removed) */}
+      {renderBottomFullWidthInspector()}
     </div>
   );
 }

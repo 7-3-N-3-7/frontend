@@ -2,13 +2,10 @@ import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import './globals.css';
-import { NextIntlClientProvider } from 'next-intl';
 import { getMessages } from 'next-intl/server';
-import LanguageSwitcher from '@/components/LanguageSwitcher';
 import { notFound } from 'next/navigation';
 import { routing } from '@/i18n/routing';
-
-export const dynamic = 'force-dynamic';
+import { CachedI18nProvider } from '@/components/CachedI18nProvider';
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -39,7 +36,7 @@ export default async function RootLayout({
     notFound();
   }
 
-  // Providing all messages to the client
+  // Providing all messages to the client (cached via Next.js data cache + NEXT_LOCALE cookie)
   const messages = await getMessages();
 
   return (
@@ -48,9 +45,9 @@ export default async function RootLayout({
         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" />
       </head>
       <body>
-        <NextIntlClientProvider locale={locale} messages={messages}>
+        <CachedI18nProvider initialLocale={locale} initialMessages={messages as Record<string, any>}>
           {children}
-        </NextIntlClientProvider>
+        </CachedI18nProvider>
       </body>
     </html>
   );

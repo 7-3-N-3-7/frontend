@@ -607,18 +607,24 @@ export class FrontendBddWorld extends World {
       )
       .catch(() => {});
 
-    // If visiting the therapist dashboard, open the Client Journal and JGit Timeline windows for Anders Sand so Multi-Window assertions can inspect the real DOM
+    // If visiting the therapist dashboard, select a calendar day with appointments (e.g. 2026-10-14) and open the Client Journal and JGit Timeline windows for Anders Sand so Multi-Window assertions can inspect the real DOM
     if (targetPath.includes("/dashboard/therapist")) {
+      const aptDayBtn = page.locator("button.calendar-day-cell.has-appointments").first();
+      if ((await aptDayBtn.count()) > 0) {
+        await aptDayBtn.click();
+        await page.waitForTimeout(250);
+      }
+
       const openJournalBtn = page
         .locator('button:has-text("Åbn Anders Sands Journal"), button:has-text("+ Anders Sand")')
         .first();
       if ((await openJournalBtn.count()) > 0) {
         await openJournalBtn.click();
-        await page.waitForTimeout(400);
+        await page.waitForTimeout(500);
       }
 
       const openTimelineBtn = page
-        .locator('button:has-text("JGit Tidslinje"), button:has-text("Åbn JGit Tidslinje")')
+        .locator('[data-window-kind="CLIENT_JOURNAL"] button:has-text("JGit Tidslinje"), button:has-text("Åbn JGit Tidslinje ↗")')
         .first();
       if ((await openTimelineBtn.count()) > 0) {
         await openTimelineBtn.click();

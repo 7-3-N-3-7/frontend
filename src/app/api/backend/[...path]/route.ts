@@ -119,6 +119,15 @@ async function proxyRequest(
     if (resContentType) {
       responseHeaders.set('Content-Type', resContentType);
     }
+    const fallbackHeader = backendRes.headers.get('x-locale-fallback');
+    if (fallbackHeader) {
+      responseHeaders.set('X-Locale-Fallback', fallbackHeader);
+    }
+
+    // Cache public language dictionaries in browser & CDN while keeping mutations uncached
+    if (req.method === 'GET' && targetPath.startsWith('i18n/') && !targetPath.startsWith('i18n/document/')) {
+      responseHeaders.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=600');
+    }
 
     return new NextResponse(responseText, {
       status: backendRes.status,

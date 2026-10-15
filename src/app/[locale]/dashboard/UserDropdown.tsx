@@ -6,6 +6,7 @@ import { Dialog } from "@base-ui/react/dialog";
 import { signOut } from "next-auth/react";
 import { useTranslations } from "next-intl";
 import { usePathname, useRouter } from "@/i18n/routing";
+import { useI18nCache } from "@/components/CachedI18nProvider";
 
 interface MeContext {
   userUuid: string;
@@ -28,6 +29,7 @@ export default function UserDropdown() {
   const pathname = usePathname();
   const router = useRouter();
   const t = useTranslations();
+  const i18nCache = useI18nCache();
   const [me, setMe] = useState<MeContext | null>(null);
   const [organisations, setOrganisations] = useState<Array<{ id: string; cvrNumber: string; name: string }>>([]);
   const [showOnboardDialog, setShowOnboardDialog] = useState(false);
@@ -51,11 +53,12 @@ export default function UserDropdown() {
     }
   };
 
-  const loadMe = async () => {
+  const loadMe = async (forceRefresh = false) => {
     try {
-      const res = await fetch("/api/backend/clinic/me", { cache: "no-store" });
-      if (res.ok) {
-        const data = await res.json();
+      const data = i18nCache?.getCachedMe
+        ? await i18nCache.getCachedMe(forceRefresh)
+        : await fetch("/api/backend/clinic/me").then((r) => (r.ok ? r.json() : null));
+      if (data) {
         setMe(data);
         setDisplayName(data.fullName || data.username || "");
       }
@@ -65,8 +68,8 @@ export default function UserDropdown() {
   };
 
   useEffect(() => {
-    loadMe();
-  }, [pathname]);
+    loadMe(false);
+  }, [i18nCache]);
 
   const openOnboardingModal = async () => {
     setErrorMsg("");
@@ -122,10 +125,9 @@ export default function UserDropdown() {
         // ignore
       }
 
-      await loadMe();
+      await loadMe(true);
       setShowOnboardDialog(false);
       router.push("/dashboard/therapist");
-      router.refresh();
     } catch (err: any) {
       setErrorMsg(err?.message || "Fejl ved oprettelse af terapeutprofil");
     } finally {
