@@ -406,20 +406,94 @@ export async function ensureBackendBaselineSeed(): Promise<void> {
   }
 }
 
+let spawnedNextProcess: any = null;
+
+async function launchPlaywrightBrowser(): Promise<Browser> {
+  try {
+    return await chromium.launch({ headless: true });
+  } catch {
+    try {
+      return await chromium.launch({
+        executablePath:
+          "/home/work/.cache/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell",
+        headless: true,
+      });
+    } catch {
+      return await chromium.launch({
+        executablePath:
+          "/home/work/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome",
+        headless: true,
+      });
+    }
+  }
+}
+
+async function ensureFrontendServerRunning(): Promise<void> {
+  const checkListening = async () => {
+    try {
+      const res = await fetch(`${baseTestUrl}/api/backend/i18n/da`, {
+        signal: AbortSignal.timeout(3000),
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  };
+
+  if (await checkListening()) {
+    return;
+  }
+
+  const { spawn } = await import("node:child_process");
+  const cleanEnv = { ...process.env };
+  delete cleanEnv.NODE_OPTIONS;
+  delete cleanEnv.__NEXT_PRIVATE_ORIGIN;
+
+  spawnedNextProcess = spawn(
+    process.execPath,
+    ["node_modules/next/dist/bin/next", "dev", "-H", "0.0.0.0", "-p", "3000"],
+    {
+      cwd: process.cwd(),
+      env: cleanEnv,
+      stdio: "ignore",
+      detached: true,
+    }
+  );
+
+  for (let i = 0; i < 60; i++) {
+    await new Promise((r) => setTimeout(r, 1000));
+    if (await checkListening()) {
+      // Warm up /da and /api/auth/csrf so initial webpack compilation is complete
+      await fetch(`${baseTestUrl}/api/auth/csrf`).catch(() => {});
+      await fetch(`${baseTestUrl}/da`).catch(() => {});
+      return;
+    }
+  }
+}
+
 BeforeAll(async function () {
+  await ensureFrontendServerRunning();
   await provisionKeycloakUsers();
   await ensureBackendBaselineSeed();
-  try {
-    sharedBrowser = await chromium.launch({ channel: "msedge", headless: true });
-  } catch {
-    sharedBrowser = await chromium.launch({ headless: true });
-  }
+  sharedBrowser = await launchPlaywrightBrowser();
 });
 
 AfterAll(async function () {
   if (sharedBrowser) {
     await sharedBrowser.close();
     sharedBrowser = null;
+  }
+  if (spawnedNextProcess && spawnedNextProcess.pid) {
+    try {
+      process.kill(-spawnedNextProcess.pid);
+    } catch {
+      try {
+        spawnedNextProcess.kill();
+      } catch {
+        // ignore
+      }
+    }
+    spawnedNextProcess = null;
   }
 });
 
@@ -460,11 +534,7 @@ export class FrontendBddWorld extends World {
 
   public async ensurePlaywrightPage(): Promise<Page> {
     if (!sharedBrowser) {
-      try {
-        sharedBrowser = await chromium.launch({ channel: "msedge", headless: true });
-      } catch {
-        sharedBrowser = await chromium.launch({ headless: true });
-      }
+      sharedBrowser = await launchPlaywrightBrowser();
     }
     if (!this.browserContext) {
       this.browserContext = await sharedBrowser.newContext({

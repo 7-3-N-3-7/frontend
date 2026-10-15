@@ -80,6 +80,12 @@ export default function ClientPortalWorkspace({
   const [journalContent, setJournalContent] = useState("");
   const [journalMood, setJournalMood] = useState(7);
   const [sharedWithTherapists, setSharedWithTherapists] = useState(true);
+  const [selectedTherapistUuids, setSelectedTherapistUuids] = useState<string[]>([]);
+  const [initializedTherapistSelection, setInitializedTherapistSelection] = useState(false);
+
+  // Per-entry Individual Access Editor State
+  const [editingSharingEntryId, setEditingSharingEntryId] = useState<string | null>(null);
+  const [savingSharingEntryId, setSavingSharingEntryId] = useState<string | null>(null);
 
   // JGit Version History Drawer State
   const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false);
@@ -135,16 +141,26 @@ export default function ClientPortalWorkspace({
           String(b.timestamp || "").localeCompare(String(a.timestamp || ""))
         );
 
+        const loadedHandshakes = Array.isArray(ovData.handshakes) ? ovData.handshakes : [];
         setOverview({
           clientProfile: ovData.clientProfile || meData.clientProfile,
           providerProfile: ovData.providerProfile || meData.providerProfile,
           appointments: Array.isArray(ovData.appointments) ? ovData.appointments : [],
-          handshakes: Array.isArray(ovData.handshakes) ? ovData.handshakes : [],
+          handshakes: loadedHandshakes,
           journals: mergedJournals,
           pcl5Tests: Array.isArray(ovData.pcl5Tests) ? ovData.pcl5Tests : [],
           providers: Array.isArray(ovData.providers) ? ovData.providers : [],
           services: Array.isArray(ovData.services) ? ovData.services : [],
         });
+
+        const activeHsUuids = loadedHandshakes
+          .filter((h: any) => h.status === "ACTIVE" && h.therapistUuid)
+          .map((h: any) => String(h.therapistUuid));
+        if (!initializedTherapistSelection && activeHsUuids.length > 0) {
+          setSelectedTherapistUuids(activeHsUuids);
+          setInitializedTherapistSelection(true);
+        }
+
         if (!selectedServiceId && Array.isArray(ovData.services) && ovData.services.length > 0) {
           setSelectedServiceId(ovData.services[0].id);
         }
@@ -156,7 +172,7 @@ export default function ClientPortalWorkspace({
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [selectedServiceId]);
+  }, [selectedServiceId, initializedTherapistSelection]);
 
   useEffect(() => {
     fetchDatabaseData(false);
@@ -280,10 +296,30 @@ export default function ClientPortalWorkspace({
     }
   };
 
+  const toggleComposerTherapist = (therapistUuid: string) => {
+    setSelectedTherapistUuids((prev) => {
+      const exists = prev.includes(therapistUuid);
+      const next = exists
+        ? prev.filter((id) => id !== therapistUuid)
+        : [...prev, therapistUuid];
+      if (next.length === 0) {
+        setSharedWithTherapists(false);
+      } else {
+        setSharedWithTherapists(true);
+      }
+      return next;
+    });
+  };
+
   // Create Journal Entry (POST /api/v1/journals)
   const handleCreateJournal = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!journalTitle.trim() || !journalContent.trim() || !me?.userUuid) return;
+
+    const activeHs = overview.handshakes.filter((h: any) => h.status === "ACTIVE");
+    const effectiveShared =
+      sharedWithTherapists && (activeHs.length === 0 || selectedTherapistUuids.length > 0);
+    const effectiveTherapistUuids = effectiveShared ? selectedTherapistUuids : [];
 
     try {
       const res = await fetch("/api/backend/journals", {
@@ -294,7 +330,8 @@ export default function ClientPortalWorkspace({
           title: journalTitle.trim(),
           content: journalContent.trim(),
           moodRating: journalMood,
-          sharedWithTherapists,
+          sharedWithTherapists: effectiveShared,
+          sharedTherapistUuids: effectiveTherapistUuids,
         }),
       });
 
@@ -306,6 +343,38 @@ export default function ClientPortalWorkspace({
       }
     } catch {
       showMessage("danger", "Kunne ikke gemme dagbogsindlæg.");
+    }
+  };
+
+  // Update Individual JournalEntry Sharing / Therapist Access (PATCH /api/v1/journals/{id}/sharing)
+  const handleUpdateEntrySharing = async (
+    entryId: string,
+    nextSharedWithTherapists: boolean,
+    nextTherapistUuids: string[]
+  ) => {
+    setSavingSharingEntryId(entryId);
+    try {
+      const res = await fetch(`/api/backend/journals/${entryId}/sharing`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sharedWithTherapists: nextSharedWithTherapists,
+          sharedTherapistUuids: nextSharedWithTherapists ? nextTherapistUuids : [],
+        }),
+      });
+      if (res.ok) {
+        await fetchDatabaseData(true);
+        showMessage(
+          "success",
+          nextSharedWithTherapists
+            ? "Adgang til dagbogsindlæg opdateret for de valgte terapeuter."
+            : "Dagbogsindlæg er nu sat som privat (skjult for alle terapeuter)."
+        );
+      }
+    } catch {
+      showMessage("danger", "Kunne ikke opdatere delingsindstillinger for indlægget.");
+    } finally {
+      setSavingSharingEntryId(null);
     }
   };
 
@@ -909,24 +978,128 @@ export default function ClientPortalWorkspace({
                           />
                         </div>
 
-                        <div className="d-flex align-items-center justify-content-between p-3 rounded-3 bg-white border mb-3">
-                          <div>
-                            <div className="small fw-semibold">
-                              {sharedWithTherapists
-                                ? "Delt med aktive Handshake-terapeuter"
-                                : "Kun privat for mig"}
+                        <div className="p-3 rounded-3 bg-white border mb-3">
+                          <div className="d-flex align-items-center justify-content-between">
+                            <div>
+                              <div className="small fw-semibold">
+                                {sharedWithTherapists
+                                  ? activeHandshakes.length > 0
+                                    ? `Delt med valgte Handshake-terapeuter (${selectedTherapistUuids.length}/${activeHandshakes.length})`
+                                    : "Delt med aktive Handshake-terapeuter"
+                                  : "Kun privat for mig"}
+                              </div>
+                              <div className="text-muted" style={{ fontSize: "0.75rem" }}>
+                                {sharedWithTherapists
+                                  ? "Vælg specifikke terapeuter med aktivt Handshake, eller slå fra for at holde indlægget helt privat."
+                                  : "Privat fra alle terapeuter — du kan altid dele indlægget individuelt senere."}
+                              </div>
                             </div>
-                            <div className="text-muted" style={{ fontSize: "0.75rem" }}>
-                              Styr om indlægget vises i terapeutens patient-view.
-                            </div>
+                            <Switch.Root
+                              checked={sharedWithTherapists}
+                              onCheckedChange={(checked) => {
+                                setSharedWithTherapists(checked);
+                                if (checked && selectedTherapistUuids.length === 0 && activeHandshakes.length > 0) {
+                                  setSelectedTherapistUuids(
+                                    activeHandshakes.map((h: any) => String(h.therapistUuid))
+                                  );
+                                }
+                              }}
+                              className="base-switch-root"
+                            >
+                              <Switch.Thumb className="base-switch-thumb" />
+                            </Switch.Root>
                           </div>
-                          <Switch.Root
-                            checked={sharedWithTherapists}
-                            onCheckedChange={setSharedWithTherapists}
-                            className="base-switch-root"
-                          >
-                            <Switch.Thumb className="base-switch-thumb" />
-                          </Switch.Root>
+
+                          {sharedWithTherapists && (
+                            <div className="mt-3 pt-2 border-top">
+                              <div className="d-flex justify-content-between align-items-center mb-2">
+                                <span className="text-muted fw-semibold" style={{ fontSize: "0.75rem" }}>
+                                  Vælg Handshake-terapeuter der må se dette indlæg:
+                                </span>
+                                {activeHandshakes.length > 1 && (
+                                  <div className="d-flex gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedTherapistUuids(
+                                          activeHandshakes.map((h: any) => String(h.therapistUuid))
+                                        );
+                                        setSharedWithTherapists(true);
+                                      }}
+                                      className="btn btn-link btn-sm p-0 text-decoration-none"
+                                      style={{ fontSize: "0.72rem" }}
+                                    >
+                                      Vælg alle
+                                    </button>
+                                    <span className="text-muted" style={{ fontSize: "0.72rem" }}>•</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedTherapistUuids([]);
+                                        setSharedWithTherapists(false);
+                                      }}
+                                      className="btn btn-link btn-sm p-0 text-decoration-none text-secondary"
+                                      style={{ fontSize: "0.72rem" }}
+                                    >
+                                      Hold privat
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+
+                              {activeHandshakes.length === 0 ? (
+                                <div className="small text-muted fst-italic" style={{ fontSize: "0.75rem" }}>
+                                  Ingen aktive Handshake-terapeuter endnu. Indlægget kan deles med specifikke terapeuter, når du opretter et Handshake.
+                                </div>
+                              ) : (
+                                <div className="d-flex flex-column gap-1.5">
+                                  {activeHandshakes.map((hs: any) => {
+                                    const tUuid = String(hs.therapistUuid);
+                                    const isChecked = selectedTherapistUuids.includes(tUuid);
+                                    return (
+                                      <label
+                                        key={hs.id || tUuid}
+                                        className={`d-flex align-items-center justify-content-between p-2 rounded-3 border ${
+                                          isChecked ? "bg-success-subtle border-success-subtle" : "bg-light"
+                                        }`}
+                                        style={{ cursor: "pointer", fontSize: "0.8rem" }}
+                                      >
+                                        <div className="d-flex align-items-center gap-2">
+                                          <input
+                                            type="checkbox"
+                                            className="form-check-input mt-0"
+                                            checked={isChecked}
+                                            onChange={() => toggleComposerTherapist(tUuid)}
+                                          />
+                                          <div>
+                                            <div className="fw-semibold text-dark">
+                                              {hs.therapistName || "Behandler"}
+                                            </div>
+                                            {hs.organisationName && (
+                                              <div className="text-muted" style={{ fontSize: "0.7rem" }}>
+                                                {hs.organisationName}
+                                                {hs.cvrNumber ? ` (CVR: ${hs.cvrNumber})` : ""}
+                                              </div>
+                                            )}
+                                          </div>
+                                        </div>
+                                        <span
+                                          className={`badge ${
+                                            isChecked
+                                              ? "bg-success text-white"
+                                              : "bg-secondary-subtle text-secondary"
+                                          }`}
+                                          style={{ fontSize: "0.68rem" }}
+                                        >
+                                          {isChecked ? "Har adgang" : "Ingen adgang"}
+                                        </span>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
 
                         <button type="submit" className="btn btn-success w-100 rounded-pill py-2 fw-semibold">
@@ -968,6 +1141,23 @@ export default function ClientPortalWorkspace({
                             String(entry.title || "")
                               .toLowerCase()
                               .includes("opfølgning");
+
+                          const entrySharedUuids: string[] = Array.isArray(entry.sharedTherapistUuids)
+                            ? entry.sharedTherapistUuids.map(String)
+                            : [];
+                          const effectiveEntryTherapistUuids: string[] = entry.sharedWithTherapists
+                            ? entrySharedUuids.length > 0
+                              ? entrySharedUuids
+                              : activeHandshakes.map((h: any) => String(h.therapistUuid))
+                            : [];
+                          const sharedTherapistNames = activeHandshakes
+                            .filter((h: any) =>
+                              effectiveEntryTherapistUuids.includes(String(h.therapistUuid))
+                            )
+                            .map((h: any) => h.therapistName || "Behandler");
+
+                          const isEditingEntrySharing = editingSharingEntryId === String(entry.id);
+
                           return (
                             <div key={entry.id} className="p-3 rounded-4 border bg-white shadow-xs">
                               <div className="d-flex justify-content-between align-items-center mb-2">
@@ -989,7 +1179,11 @@ export default function ClientPortalWorkspace({
                                         : "bg-secondary-subtle text-secondary"
                                     }`}
                                   >
-                                    {entry.sharedWithTherapists ? "Delt med terapeut" : "Privat"}
+                                    {entry.sharedWithTherapists
+                                      ? sharedTherapistNames.length > 0
+                                        ? `Delt med: ${sharedTherapistNames.join(", ")}`
+                                        : "Delt med terapeut"
+                                      : "Privat (Kun mig)"}
                                   </span>
                                   {entry.timestamp && (
                                     <span className="text-muted" style={{ fontSize: "0.74rem" }}>
@@ -997,20 +1191,153 @@ export default function ClientPortalWorkspace({
                                     </span>
                                   )}
                                 </div>
-                                {entry.gitCommitHash && (
+                                <div className="d-flex align-items-center gap-2">
                                   <button
                                     type="button"
-                                    onClick={() => handleOpenGitHistory(entry.gitCommitHash)}
-                                    className="btn btn-link btn-sm p-0 text-decoration-none font-monospace text-dark fw-semibold"
-                                    style={{ fontSize: "0.78rem" }}
-                                    title="Åbn dette commit i JGit-tidslinjen"
+                                    onClick={() =>
+                                      setEditingSharingEntryId(
+                                        isEditingEntrySharing ? null : String(entry.id)
+                                      )
+                                    }
+                                    className="btn btn-sm btn-outline-secondary rounded-pill py-0 px-2"
+                                    style={{ fontSize: "0.74rem" }}
+                                    title="Administrer hvilke terapeuter der har adgang til dette indlæg"
                                   >
-                                    #{entry.gitCommitHash} ↗
+                                    <i className="bi bi-shield-lock me-1"></i>
+                                    Deling &amp; Adgang
                                   </button>
-                                )}
+                                  {entry.gitCommitHash && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenGitHistory(entry.gitCommitHash)}
+                                      className="btn btn-link btn-sm p-0 text-decoration-none font-monospace text-dark fw-semibold"
+                                      style={{ fontSize: "0.78rem" }}
+                                      title="Åbn dette commit i JGit-tidslinjen"
+                                    >
+                                      #{entry.gitCommitHash} ↗
+                                    </button>
+                                  )}
+                                </div>
                               </div>
                               <h6 className="fw-bold mb-1">{entry.title}</h6>
                               <p className="small text-secondary mb-0">{entry.content}</p>
+
+                              {isEditingEntrySharing && (
+                                <div className="mt-3 pt-3 border-top bg-light rounded-3 p-3">
+                                  <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                                    <div>
+                                      <div className="small fw-bold text-dark">
+                                        Individuel adgangsstyring for dette dagbogsindlæg
+                                      </div>
+                                      <div className="text-muted" style={{ fontSize: "0.73rem" }}>
+                                        Vælg specifikke Handshake-terapeuter eller gør indlægget helt privat.
+                                      </div>
+                                    </div>
+                                    <div className="d-flex gap-2">
+                                      <button
+                                        type="button"
+                                        disabled={savingSharingEntryId === String(entry.id)}
+                                        onClick={() =>
+                                          handleUpdateEntrySharing(
+                                            String(entry.id),
+                                            false,
+                                            []
+                                          )
+                                        }
+                                        className={`btn btn-sm rounded-pill px-3 ${
+                                          !entry.sharedWithTherapists
+                                            ? "btn-secondary"
+                                            : "btn-outline-secondary bg-white"
+                                        }`}
+                                        style={{ fontSize: "0.75rem" }}
+                                      >
+                                        Hold privat fra alle
+                                      </button>
+                                      {activeHandshakes.length > 0 && (
+                                        <button
+                                          type="button"
+                                          disabled={savingSharingEntryId === String(entry.id)}
+                                          onClick={() =>
+                                            handleUpdateEntrySharing(
+                                              String(entry.id),
+                                              true,
+                                              activeHandshakes.map((h: any) =>
+                                                String(h.therapistUuid)
+                                              )
+                                            )
+                                          }
+                                          className="btn btn-sm btn-outline-success rounded-pill px-3 bg-white"
+                                          style={{ fontSize: "0.75rem" }}
+                                        >
+                                          Del med alle aktive ({activeHandshakes.length})
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {activeHandshakes.length === 0 ? (
+                                    <div className="small text-muted fst-italic">
+                                      Du har ingen aktive Handshake-terapeuter i øjeblikket.
+                                    </div>
+                                  ) : (
+                                    <div className="d-flex flex-column gap-1.5 mt-2">
+                                      {activeHandshakes.map((hs: any) => {
+                                        const tUuid = String(hs.therapistUuid);
+                                        const hasAccess =
+                                          Boolean(entry.sharedWithTherapists) &&
+                                          effectiveEntryTherapistUuids.includes(tUuid);
+                                        return (
+                                          <label
+                                            key={hs.id || tUuid}
+                                            className="d-flex align-items-center justify-content-between p-2 rounded-3 bg-white border"
+                                            style={{ cursor: "pointer", fontSize: "0.8rem" }}
+                                          >
+                                            <div className="d-flex align-items-center gap-2">
+                                              <input
+                                                type="checkbox"
+                                                className="form-check-input mt-0"
+                                                disabled={savingSharingEntryId === String(entry.id)}
+                                                checked={hasAccess}
+                                                onChange={() => {
+                                                  const nextUuids = hasAccess
+                                                    ? effectiveEntryTherapistUuids.filter(
+                                                        (id) => id !== tUuid
+                                                      )
+                                                    : [...effectiveEntryTherapistUuids, tUuid];
+                                                  handleUpdateEntrySharing(
+                                                    String(entry.id),
+                                                    nextUuids.length > 0,
+                                                    nextUuids
+                                                  );
+                                                }}
+                                              />
+                                              <div>
+                                                <span className="fw-semibold text-dark">
+                                                  {hs.therapistName || "Behandler"}
+                                                </span>
+                                                {hs.organisationName && (
+                                                  <span className="text-muted ms-1" style={{ fontSize: "0.72rem" }}>
+                                                    ({hs.organisationName})
+                                                  </span>
+                                                )}
+                                              </div>
+                                            </div>
+                                            <span
+                                              className={`badge ${
+                                                hasAccess
+                                                  ? "bg-success-subtle text-success"
+                                                  : "bg-secondary-subtle text-secondary"
+                                              }`}
+                                            >
+                                              {hasAccess ? "Delt" : "Fjernet"}
+                                            </span>
+                                          </label>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           );
                         })}
@@ -1141,13 +1468,29 @@ export default function ClientPortalWorkspace({
       <Dialog.Root open={historyDrawerOpen} onOpenChange={setHistoryDrawerOpen}>
         <Dialog.Portal>
           <Dialog.Backdrop className="base-dialog-backdrop" />
-          <Dialog.Popup className="base-drawer-popup p-4" style={{ maxWidth: "820px" }}>
-            <div className="d-flex justify-content-between align-items-center border-bottom pb-3 mb-3">
+          <Dialog.Popup className="base-drawer-popup p-4" style={{ maxWidth: "1040px" }}>
+            <div
+              className="d-flex justify-content-between align-items-center p-3 rounded-4 mb-3 border shadow-xs"
+              style={{
+                background:
+                  "linear-gradient(135deg, #ecfdf5 0%, #eef2ff 60%, #f0fdfa 100%)",
+                borderColor: "#a7f3d0",
+              }}
+            >
               <div>
-                <span className="badge bg-success-subtle text-success mb-1">
-                  JGit Versionshistorik
-                </span>
-                <Dialog.Title className="h5 fw-bold mb-0">
+                <div className="d-flex align-items-center gap-2 mb-1">
+                  <span
+                    className="badge rounded-pill px-2.5 py-1"
+                    style={{ backgroundColor: "#059669", color: "#ffffff" }}
+                  >
+                    <i className="bi bi-git me-1"></i>
+                    JGit Versionshistorik
+                  </span>
+                  <span className="badge bg-white text-secondary border rounded-pill">
+                    {gitHistory.length} revisioner
+                  </span>
+                </div>
+                <Dialog.Title className="h5 fw-bold text-dark mb-0">
                   Mine Journal-Revisioner (Filtreret Klient-Tidslinje)
                 </Dialog.Title>
               </div>
@@ -1159,6 +1502,10 @@ export default function ClientPortalWorkspace({
               isTherapistView={false}
               splitView={true}
               selectedCommitHash={selectedCommit?.commitHash || null}
+              onSelectCommit={(hash) => {
+                const found = gitHistory.find((c: any) => c.commitHash === hash);
+                if (found) setSelectedCommit(found);
+              }}
               locale={locale}
             />
           </Dialog.Popup>

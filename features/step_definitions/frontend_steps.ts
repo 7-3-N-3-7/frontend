@@ -424,8 +424,8 @@ Then(
       `Expected JGit timeline date group ${dateStr}`
     );
     assert.ok(
-      this.currentUiHtml.includes('class="jgit-timeline-dot"'),
-      "Expected neutral timeline dot (.jgit-timeline-dot) on each commit"
+      this.currentUiHtml.includes("jgit-timeline-dot"),
+      "Expected timeline dot (.jgit-timeline-dot) on each commit"
     );
   }
 );

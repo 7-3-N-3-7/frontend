@@ -1345,34 +1345,42 @@ export default function TherapistMultiWindowWorkspace({
                               className="d-flex flex-column gap-2 overflow-auto"
                               style={{ maxHeight: "150px" }}
                             >
-                              {bundle.entries.map((entry: any) => (
-                                <div
-                                  key={entry.id}
-                                  className="p-2 rounded-3 bg-light border small"
-                                >
-                                  <div className="d-flex justify-content-between align-items-center text-muted" style={{ fontSize: "0.7rem" }}>
-                                    <span>{entry.title}</span>
-                                    {entry.gitCommitHash && (
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          handleOpenGitAudit(
-                                            win.clientUuid!,
-                                            clientObj?.name || "Klient",
-                                            entry.gitCommitHash
-                                          )
-                                        }
-                                        className="btn btn-link btn-sm p-0 text-decoration-none font-monospace text-dark fw-semibold"
-                                        style={{ fontSize: "0.7rem" }}
-                                        title="Fokuser dette commit i JGit Tidslinje-vinduet"
-                                      >
-                                        #{entry.gitCommitHash} ↗
-                                      </button>
-                                    )}
+                              {bundle.entries.map((entry: any) => {
+                                const isSyncedCommit =
+                                  Boolean(entry.gitCommitHash) &&
+                                  selectedGitCommitsByClient[win.clientUuid!] ===
+                                    entry.gitCommitHash;
+                                return (
+                                  <div
+                                    key={entry.id}
+                                    className={`p-2 rounded-3 bg-light border small ${
+                                      isSyncedCommit ? "journal-commit-synced" : ""
+                                    }`}
+                                  >
+                                    <div className="d-flex justify-content-between align-items-center text-muted" style={{ fontSize: "0.7rem" }}>
+                                      <span>{entry.title}</span>
+                                      {entry.gitCommitHash && (
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            handleOpenGitAudit(
+                                              win.clientUuid!,
+                                              clientObj?.name || "Klient",
+                                              entry.gitCommitHash
+                                            )
+                                          }
+                                          className="btn btn-link btn-sm p-0 text-decoration-none font-monospace text-dark fw-semibold"
+                                          style={{ fontSize: "0.7rem" }}
+                                          title="Fokuser dette commit i JGit Tidslinje-vinduet"
+                                        >
+                                          #{entry.gitCommitHash} ↗
+                                        </button>
+                                      )}
+                                    </div>
+                                    <div className="text-dark mt-0.5">{entry.content}</div>
                                   </div>
-                                  <div className="text-dark mt-0.5">{entry.content}</div>
-                                </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           </div>
 
@@ -1421,41 +1429,51 @@ export default function TherapistMultiWindowWorkspace({
                               className="d-flex flex-column gap-2 overflow-auto"
                               style={{ maxHeight: "160px" }}
                             >
-                              {bundle.clinicalNotes.map((cn: any) => (
-                                <div
-                                  key={cn.id}
-                                  className="p-2 rounded-3 bg-white border small"
-                                >
+                              {bundle.clinicalNotes.map((cn: any) => {
+                                const isSyncedConfidential =
+                                  Boolean(cn.gitCommitHash) &&
+                                  selectedGitCommitsByClient[win.clientUuid!] ===
+                                    cn.gitCommitHash;
+                                return (
                                   <div
-                                    className="d-flex justify-content-between align-items-center fw-semibold text-secondary"
-                                    style={{ fontSize: "0.7rem" }}
+                                    key={cn.id}
+                                    className={`p-2 rounded-3 bg-white border small ${
+                                      isSyncedConfidential
+                                        ? "confidential-commit-synced"
+                                        : ""
+                                    }`}
                                   >
-                                    <span>
-                                      {cn.authorTherapistName} • {cn.organisationName}
-                                    </span>
-                                    {cn.gitCommitHash && (
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          handleOpenGitAudit(
-                                            win.clientUuid!,
-                                            clientObj?.name || "Klient",
-                                            cn.gitCommitHash
-                                          )
-                                        }
-                                        className="btn btn-link btn-sm p-0 text-decoration-none font-monospace text-dark fw-semibold"
-                                        style={{ fontSize: "0.7rem" }}
-                                        title="Fokuser dette commit i JGit Tidslinje-vinduet"
-                                      >
-                                        #{cn.gitCommitHash} ↗
-                                      </button>
-                                    )}
+                                    <div
+                                      className="d-flex justify-content-between align-items-center fw-semibold text-secondary"
+                                      style={{ fontSize: "0.7rem" }}
+                                    >
+                                      <span>
+                                        {cn.authorTherapistName} • {cn.organisationName}
+                                      </span>
+                                      {cn.gitCommitHash && (
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            handleOpenGitAudit(
+                                              win.clientUuid!,
+                                              clientObj?.name || "Klient",
+                                              cn.gitCommitHash
+                                            )
+                                          }
+                                          className="btn btn-link btn-sm p-0 text-decoration-none font-monospace text-dark fw-semibold"
+                                          style={{ fontSize: "0.7rem" }}
+                                          title="Fokuser dette commit i JGit Tidslinje-vinduet"
+                                        >
+                                          #{cn.gitCommitHash} ↗
+                                        </button>
+                                      )}
+                                    </div>
+                                    <div className="text-dark mt-0.5">
+                                      {cn.confidentialMarkdown}
+                                    </div>
                                   </div>
-                                  <div className="text-dark mt-0.5">
-                                    {cn.confidentialMarkdown}
-                                  </div>
-                                </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           </div>
                         </div>
@@ -1464,14 +1482,21 @@ export default function TherapistMultiWindowWorkspace({
                       {/* WINDOW TYPE C: JGIT HISTORY TIMELINE MULTI-WINDOW WORKSPACE */}
                       {win.kind === "JGIT_TIMELINE" && win.clientUuid && (
                         <div className="p-3 d-flex flex-column gap-3">
-                          <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 p-2.5 rounded-3 bg-light border small">
+                          <div
+                            className="d-flex flex-wrap justify-content-between align-items-center gap-2 p-2.5 rounded-3 border small"
+                            style={{
+                              background:
+                                "linear-gradient(135deg, #ecfdf5 0%, #eef2ff 55%, #fffbeb 100%)",
+                              borderColor: "#cbd5e1",
+                            }}
+                          >
                             <div>
-                              <span className="fw-semibold text-dark">
-                                <i className="bi bi-git me-1"></i>
+                              <span className="fw-bold text-dark">
+                                <i className="bi bi-git text-success me-1"></i>
                                 {clientObj?.name || "Klient"} — JGit Revisionshistorik
                               </span>
-                              <span className="text-muted ms-2">
-                                ({clientCommits.length} commits)
+                              <span className="badge bg-white text-secondary border rounded-pill ms-2">
+                                {clientCommits.length} commits
                               </span>
                             </div>
                             <div className="d-flex gap-2">
@@ -1479,7 +1504,7 @@ export default function TherapistMultiWindowWorkspace({
                                 <button
                                   type="button"
                                   onClick={() => openClientJournalWindow(clientObj)}
-                                  className="btn btn-sm btn-outline-success rounded-pill py-0.5 px-2.5"
+                                  className="btn btn-sm btn-outline-success bg-white rounded-pill py-0.5 px-2.5"
                                   style={{ fontSize: "0.74rem" }}
                                 >
                                   <i className="bi bi-journal-medical me-1"></i> Åbn Journal ved siden af
@@ -1530,13 +1555,30 @@ export default function TherapistMultiWindowWorkspace({
       >
         <Dialog.Portal>
           <Dialog.Backdrop className="base-dialog-backdrop" />
-          <Dialog.Popup className="base-drawer-popup p-4">
-            <div className="d-flex justify-content-between align-items-center border-bottom pb-3 mb-3">
+          <Dialog.Popup className="base-drawer-popup p-4" style={{ maxWidth: "1040px" }}>
+            <div
+              className="d-flex justify-content-between align-items-center p-3 rounded-4 mb-3 border shadow-xs"
+              style={{
+                background:
+                  "linear-gradient(135deg, #ecfdf5 0%, #eef2ff 52%, #fffbeb 100%)",
+                borderColor: "#c7d2fe",
+              }}
+            >
               <div>
-                <span className="badge bg-success-subtle text-success mb-1">
-                  JGit Audit Trail (Terapeut-visning)
-                </span>
-                <Dialog.Title className="h5 fw-bold mb-0">
+                <div className="d-flex align-items-center gap-2 mb-1">
+                  <span
+                    className="badge rounded-pill px-2.5 py-1"
+                    style={{ backgroundColor: "#4f46e5", color: "#ffffff" }}
+                  >
+                    <i className="bi bi-git me-1"></i>
+                    JGit Audit Trail (Terapeut-visning)
+                  </span>
+                  <span className="badge bg-warning text-dark rounded-pill">
+                    <i className="bi bi-shield-lock-fill me-1"></i>
+                    Inkl. INTERNAL_MEDICAL_NOTES
+                  </span>
+                </div>
+                <Dialog.Title className="h5 fw-bold text-dark mb-0">
                   Versionshistorik for {historyClient?.name} (Inkl. INTERNAL_MEDICAL_NOTES)
                 </Dialog.Title>
               </div>
@@ -1548,6 +1590,16 @@ export default function TherapistMultiWindowWorkspace({
               isTherapistView={true}
               splitView={true}
               selectedCommitHash={selectedCommit?.commitHash || null}
+              onSelectCommit={(hash) => {
+                const found = gitCommits.find((c: any) => c.commitHash === hash);
+                if (found) setSelectedCommit(found);
+                if (historyClient?.uuid) {
+                  setSelectedGitCommitsByClient((prev) => ({
+                    ...prev,
+                    [historyClient.uuid]: hash,
+                  }));
+                }
+              }}
               locale={locale}
             />
           </Dialog.Popup>
