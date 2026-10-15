@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import http from "node:http";
+import https from "node:https";
 
 export interface KeycloakTestIdentity {
   userUuid: string;
@@ -6,10 +8,11 @@ export interface KeycloakTestIdentity {
   fullName?: string;
   email?: string;
   roles: string[];
+  accessToken?: string;
 }
 
 export class RestAssuredResponse {
-  public readonly status: number;
+  public status: number;
   public readonly headers: Headers;
   public readonly rawBody: string;
   private readonly parsedJson: any;
@@ -25,11 +28,30 @@ export class RestAssuredResponse {
     }
   }
 
-  public then(): RestAssuredAssertion {
-    return new RestAssuredAssertion(this);
+  private _suppressThenable = false;
+
+  public get then(): () => RestAssuredAssertion {
+    if (this._suppressThenable) {
+      return undefined as any;
+    }
+    return ((onFulfilled?: (value: any) => any) => {
+      if (typeof onFulfilled === "function") {
+        this._suppressThenable = true;
+        try {
+          return onFulfilled(this);
+        } finally {
+          this._suppressThenable = false;
+        }
+      }
+      return new RestAssuredAssertion(this);
+    }) as any;
   }
 
   public json<T = any>(): T {
+    return this.parsedJson as T;
+  }
+
+  public bodyAsJson<T = any>(): T {
     return this.parsedJson as T;
   }
 
@@ -39,7 +61,11 @@ export class RestAssuredResponse {
 }
 
 export class RestAssuredAssertion {
-  constructor(private readonly response: RestAssuredResponse) {}
+  private readonly response: RestAssuredResponse;
+
+  constructor(response: RestAssuredResponse) {
+    this.response = response;
+  }
 
   public statusCode(expectedStatus: number): this {
     assert.equal(
@@ -127,6 +153,9 @@ export class RestAssuredRequestSpecification {
     this.reqHeaders["X-Auth-Email"] =
       identity.email || `${identity.username}@klinik.dk`;
     this.reqHeaders["X-Auth-Roles"] = identity.roles.join(", ");
+    if (identity.accessToken) {
+      this.reqHeaders["Authorization"] = `Bearer ${identity.accessToken}`;
+    }
     return this;
   }
 
@@ -170,23 +199,66 @@ export class RestAssuredRequestSpecification {
     method: string,
     path: string
   ): Promise<RestAssuredResponse> {
-    const url = path.startsWith("http")
+    const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+    const fullUrl = path.startsWith("http")
       ? path
-      : `${this.baseUrl}${path.startsWith("/") ? path : `/${path}`}`;
+      : `${this.baseUrl}${normalizedPath}`;
+    const parsedUrl = new URL(fullUrl);
+    const bodyStr =
+      method === "GET" || method === "HEAD" ? undefined : this.reqBody;
 
-    const res = await fetch(url, {
-      method,
-      headers: this.reqHeaders,
-      body:
-        method === "GET" || method === "HEAD" ? undefined : this.reqBody,
-      redirect: "manual",
+    const headers: Record<string, string> = {
+      ...this.reqHeaders,
+      Connection: "close",
+    };
+    if (bodyStr !== undefined) {
+      headers["Content-Length"] = String(Buffer.byteLength(bodyStr, "utf8"));
+    }
+
+    const client = parsedUrl.protocol === "https:" ? https : http;
+
+    return new Promise<RestAssuredResponse>((resolve, reject) => {
+      const req = client.request(
+        parsedUrl,
+        {
+          method,
+          headers,
+        },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+          res.on("end", () => {
+            const rawText = Buffer.concat(chunks).toString("utf8");
+            const respHeaders = new Headers();
+            for (const [k, v] of Object.entries(res.headers)) {
+              if (Array.isArray(v)) {
+                respHeaders.set(k, v.join(", "));
+              } else if (typeof v === "string") {
+                respHeaders.set(k, v);
+              }
+            }
+            resolve(
+              new RestAssuredResponse(
+                res.statusCode || 500,
+                respHeaders,
+                rawText
+              )
+            );
+          });
+        }
+      );
+
+      req.on("error", reject);
+      if (bodyStr !== undefined) {
+        req.write(bodyStr);
+      }
+      req.end();
     });
-
-    const rawText = await res.text();
-    return new RestAssuredResponse(res.status, res.headers, rawText);
   }
 }
 
-export function given(baseUrl = "http://localhost:3000"): RestAssuredRequestSpecification {
+export function given(
+  baseUrl = process.env.TEST_BASE_URL || "http://localhost:3000"
+): RestAssuredRequestSpecification {
   return new RestAssuredRequestSpecification(baseUrl);
 }

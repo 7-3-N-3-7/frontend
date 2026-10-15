@@ -31,15 +31,35 @@ async function proxyRequest(
     headers['Authorization'] = `Bearer ${activeAccessToken}`;
   }
 
-  // Forward verified session identity headers from NextAuth BFF
-  const userUuid = session?.user?.id || token?.userUuid || token?.sub;
-  const username = session?.user?.username || token?.username;
-  const fullName = session?.user?.name || token?.fullName || username;
-  const email = session?.user?.email || token?.email;
+  // Forward verified session identity headers from NextAuth BFF (with fallback to incoming X-Auth-* headers for direct REST Assured BFF API tests)
+  const userUuid =
+    session?.user?.id ||
+    token?.userUuid ||
+    token?.sub ||
+    req.headers.get('x-auth-user-uuid') ||
+    undefined;
+  const username =
+    session?.user?.username ||
+    token?.username ||
+    req.headers.get('x-auth-username') ||
+    undefined;
+  const fullName =
+    session?.user?.name ||
+    token?.fullName ||
+    req.headers.get('x-auth-full-name') ||
+    username;
+  const email =
+    session?.user?.email ||
+    token?.email ||
+    req.headers.get('x-auth-email') ||
+    undefined;
+  const rawRolesHeader = req.headers.get('x-auth-roles') || '';
   const roles = Array.isArray(session?.roles)
     ? session.roles
     : Array.isArray(token?.roles)
     ? token.roles
+    : rawRolesHeader
+    ? rawRolesHeader.split(',').map((s) => s.trim()).filter(Boolean)
     : [];
 
   if (userUuid) headers['X-Auth-User-Uuid'] = String(userUuid);

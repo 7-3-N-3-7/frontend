@@ -1133,7 +1133,7 @@ export default function TherapistMultiWindowWorkspace({
 
                 return (
                   <div key={win.id} className={colClass}>
-                    <div className="workspace-window-card h-100 d-flex flex-column">
+                    <div className="workspace-window-card h-100 d-flex flex-column" data-window-kind={win.kind}>
                       {/* Window Titlebar */}
                       <div className="workspace-window-header d-flex justify-content-between align-items-center">
                         <div>

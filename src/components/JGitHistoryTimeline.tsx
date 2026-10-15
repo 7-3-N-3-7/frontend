@@ -417,7 +417,7 @@ export default function JGitHistoryTimeline({
           >
             <div className="jgit-timeline-track">
               {dateGroups.map((group) => (
-                <div key={group.dateKey} className="mb-3">
+                <div key={group.dateKey} className="mb-3" data-date={group.dateKey}>
                   <div className="jgit-date-group-header">
                     <i className="bi bi-calendar3 text-secondary"></i>
                     <span>{group.formattedDate}</span>
@@ -429,7 +429,12 @@ export default function JGitHistoryTimeline({
                   {group.items.map((c) => {
                     const isSelected = activeCommit?.commitHash === c.commitHash;
                     return (
-                      <div key={c.fullHash || c.commitHash} className="jgit-commit-item">
+                      <div
+                        key={c.fullHash || c.commitHash}
+                        className="jgit-commit-item"
+                        data-commit-hash={c.commitHash}
+                        data-category={c.category}
+                      >
                         <span className="jgit-timeline-dot" />
                         <div
                           onClick={() => handleCommitClick(c.commitHash)}
@@ -507,7 +512,7 @@ export default function JGitHistoryTimeline({
           style={{ maxHeight: "480px" }}
         >
           {dateGroups.map((group) => (
-            <div key={group.dateKey} className="mb-3">
+            <div key={group.dateKey} className="mb-3" data-date={group.dateKey}>
               <div className="jgit-date-group-header">
                 <i className="bi bi-calendar3 text-secondary"></i>
                 <span>{group.formattedDate}</span>
@@ -519,7 +524,12 @@ export default function JGitHistoryTimeline({
               {group.items.map((c) => {
                 const isExpanded = internalSelectedHash === c.commitHash;
                 return (
-                  <div key={c.fullHash || c.commitHash} className="jgit-commit-item">
+                  <div
+                    key={c.fullHash || c.commitHash}
+                    className="jgit-commit-item"
+                    data-commit-hash={c.commitHash}
+                    data-category={c.category}
+                  >
                     <span className="jgit-timeline-dot" />
                     <div
                       onClick={() => handleCommitClick(c.commitHash)}

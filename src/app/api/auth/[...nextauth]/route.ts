@@ -43,6 +43,9 @@ async function refreshAccessToken(token: any) {
       accessToken: refreshedTokens.access_token,
       refreshToken: refreshedTokens.refresh_token ?? token.refreshToken, // Fall back to old refresh token
       accessTokenExpires: decoded.exp * 1000,
+      userUuid: decoded.sub || token.userUuid,
+      fullName: decoded.name || token.fullName || decoded.preferred_username,
+      email: decoded.email || token.email,
       roles: decoded.realm_access?.roles || [],
       username: decoded.preferred_username
     };

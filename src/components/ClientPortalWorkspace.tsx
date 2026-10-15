@@ -94,28 +94,53 @@ export default function ClientPortalWorkspace({
     setTimeout(() => setStatusAlert(null), 5000);
   };
 
-  const fetchDatabaseData = useCallback(async () => {
-    setLoading(true);
+  const fetchDatabaseData = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const meRes = await fetch("/api/backend/clinic/me", { cache: "no-store" });
       if (!meRes.ok) {
-        setLoading(false);
+        if (!silent) setLoading(false);
         return;
       }
       const meData = await meRes.json();
       setMe(meData);
 
-      const ovRes = await fetch(`/api/backend/clinic/client/${meData.userUuid}/overview`, {
-        cache: "no-store",
-      });
+      const [ovRes, bundleRes] = await Promise.all([
+        fetch(`/api/backend/clinic/client/${meData.userUuid}/overview`, {
+          cache: "no-store",
+        }),
+        fetch(`/api/backend/journals/client/${meData.userUuid}`, {
+          cache: "no-store",
+        }).catch(() => null),
+      ]);
+
+      let bundleEntries: any[] = [];
+      if (bundleRes && bundleRes.ok) {
+        const bData = await bundleRes.json().catch(() => null);
+        if (bData && Array.isArray(bData.entries)) {
+          bundleEntries = bData.entries;
+        }
+      }
+
       if (ovRes.ok) {
         const ovData = await ovRes.json();
+        const ovJournals = Array.isArray(ovData.journals) ? ovData.journals : [];
+        const mergedMap = new Map<string, any>();
+        for (const j of [...bundleEntries, ...ovJournals]) {
+          if (j && j.id) {
+            mergedMap.set(String(j.id), j);
+          }
+        }
+        const mergedJournals = Array.from(mergedMap.values()).sort((a, b) =>
+          String(b.timestamp || "").localeCompare(String(a.timestamp || ""))
+        );
+
         setOverview({
           clientProfile: ovData.clientProfile || meData.clientProfile,
           providerProfile: ovData.providerProfile || meData.providerProfile,
           appointments: Array.isArray(ovData.appointments) ? ovData.appointments : [],
           handshakes: Array.isArray(ovData.handshakes) ? ovData.handshakes : [],
-          journals: Array.isArray(ovData.journals) ? ovData.journals : [],
+          journals: mergedJournals,
           pcl5Tests: Array.isArray(ovData.pcl5Tests) ? ovData.pcl5Tests : [],
           providers: Array.isArray(ovData.providers) ? ovData.providers : [],
           services: Array.isArray(ovData.services) ? ovData.services : [],
@@ -125,14 +150,19 @@ export default function ClientPortalWorkspace({
         }
       }
     } catch {
-      showMessage("danger", "Kunne ikke hente data fra backend-databasen.");
+      if (!silent) {
+        showMessage("danger", "Kunne ikke hente data fra backend-databasen.");
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [selectedServiceId]);
 
   useEffect(() => {
-    fetchDatabaseData();
+    fetchDatabaseData(false);
+    const onFocus = () => fetchDatabaseData(true);
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
   }, [fetchDatabaseData]);
 
   // Book Appointment (Bilag 5.1.4 + Q3 + Q9)
@@ -606,27 +636,53 @@ export default function ClientPortalWorkspace({
                           .filter((j: any) =>
                             `${j.title} ${j.content}`.toLowerCase().includes(timelineFilter.toLowerCase())
                           )
-                          .map((entry: any) => (
-                            <div key={entry.id} className="p-3 rounded-4 border bg-light bg-opacity-50">
-                              <div className="d-flex justify-content-between align-items-center mb-1">
-                                <span className="badge bg-success-subtle text-success">
-                                  Dagbog • Humør {entry.moodRating}/10
-                                </span>
-                                {entry.gitCommitHash && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleOpenGitHistory(entry.gitCommitHash)}
-                                    className="btn btn-link btn-sm p-0 text-decoration-none font-monospace text-dark fw-semibold"
-                                    style={{ fontSize: "0.76rem" }}
-                                  >
-                                    JGit #{entry.gitCommitHash} ↗
-                                  </button>
-                                )}
+                          .map((entry: any) => {
+                            const isFromTherapist =
+                              String(entry.title || "")
+                                .toLowerCase()
+                                .includes("terapeut") ||
+                              String(entry.title || "")
+                                .toLowerCase()
+                                .includes("opfølgning");
+                            return (
+                              <div
+                                key={entry.id}
+                                className="p-3 rounded-4 border bg-light bg-opacity-50"
+                              >
+                                <div className="d-flex justify-content-between align-items-center mb-1">
+                                  <div className="d-flex align-items-center gap-2">
+                                    {isFromTherapist ? (
+                                      <span className="badge bg-info-subtle text-dark border">
+                                        <i className="bi bi-person-badge me-1"></i>
+                                        Behandler-notat (Delt med dig)
+                                      </span>
+                                    ) : (
+                                      <span className="badge bg-success-subtle text-success">
+                                        Dagbog • Humør {entry.moodRating}/10
+                                      </span>
+                                    )}
+                                    {entry.timestamp && (
+                                      <span className="text-muted" style={{ fontSize: "0.74rem" }}>
+                                        {String(entry.timestamp).replace("T", " kl. ").slice(0, 19)}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {entry.gitCommitHash && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenGitHistory(entry.gitCommitHash)}
+                                      className="btn btn-link btn-sm p-0 text-decoration-none font-monospace text-dark fw-semibold"
+                                      style={{ fontSize: "0.76rem" }}
+                                    >
+                                      JGit #{entry.gitCommitHash} ↗
+                                    </button>
+                                  )}
+                                </div>
+                                <h6 className="fw-bold mb-1">{entry.title}</h6>
+                                <p className="small text-secondary mb-0">{entry.content}</p>
                               </div>
-                              <h6 className="fw-bold mb-1">{entry.title}</h6>
-                              <p className="small text-secondary mb-0">{entry.content}</p>
-                            </div>
-                          ))}
+                            );
+                          })}
                       </div>
                     </div>
 
@@ -880,51 +936,84 @@ export default function ClientPortalWorkspace({
                     </div>
 
                     <div className="col-lg-7">
-                      <div className="d-flex justify-content-between align-items-center mb-3">
-                        <h5 className="fw-bold mb-0">Mine Gemte Dagbogsindlæg</h5>
-                        <button
-                          type="button"
-                          onClick={() => handleOpenGitHistory()}
-                          className="btn btn-sm btn-outline-dark rounded-pill px-3"
-                        >
-                          <i className="bi bi-git me-1"></i> Se JGit Tidslinje
-                        </button>
+                      <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+                        <h5 className="fw-bold mb-0">
+                          Mine Journalindlæg &amp; Behandler-notater ({overview.journals.length})
+                        </h5>
+                        <div className="d-flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => fetchDatabaseData(false)}
+                            className="btn btn-sm btn-outline-secondary rounded-pill px-3"
+                            title="Hent nyeste journalindlæg fra databasen"
+                          >
+                            <i className="bi bi-arrow-clockwise me-1"></i> Opdater
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenGitHistory()}
+                            className="btn btn-sm btn-outline-dark rounded-pill px-3"
+                          >
+                            <i className="bi bi-git me-1"></i> Se JGit Tidslinje
+                          </button>
+                        </div>
                       </div>
 
                       <div className="d-flex flex-column gap-3">
-                        {overview.journals.map((entry: any) => (
-                          <div key={entry.id} className="p-3 rounded-4 border bg-white shadow-xs">
-                            <div className="d-flex justify-content-between align-items-center mb-2">
-                              <div className="d-flex align-items-center gap-2">
-                                <span className="badge bg-primary-subtle text-primary">
-                                  Humør: {entry.moodRating}/10
-                                </span>
-                                <span
-                                  className={`badge ${
-                                    entry.sharedWithTherapists
-                                      ? "bg-success-subtle text-success"
-                                      : "bg-secondary-subtle text-secondary"
-                                  }`}
-                                >
-                                  {entry.sharedWithTherapists ? "Delt med terapeut" : "Privat"}
-                                </span>
+                        {overview.journals.map((entry: any) => {
+                          const isFromTherapist =
+                            String(entry.title || "")
+                              .toLowerCase()
+                              .includes("terapeut") ||
+                            String(entry.title || "")
+                              .toLowerCase()
+                              .includes("opfølgning");
+                          return (
+                            <div key={entry.id} className="p-3 rounded-4 border bg-white shadow-xs">
+                              <div className="d-flex justify-content-between align-items-center mb-2">
+                                <div className="d-flex flex-wrap align-items-center gap-2">
+                                  {isFromTherapist ? (
+                                    <span className="badge bg-info-subtle text-dark border">
+                                      <i className="bi bi-person-badge me-1"></i>
+                                      Fra din behandler
+                                    </span>
+                                  ) : (
+                                    <span className="badge bg-primary-subtle text-primary">
+                                      Humør: {entry.moodRating}/10
+                                    </span>
+                                  )}
+                                  <span
+                                    className={`badge ${
+                                      entry.sharedWithTherapists
+                                        ? "bg-success-subtle text-success"
+                                        : "bg-secondary-subtle text-secondary"
+                                    }`}
+                                  >
+                                    {entry.sharedWithTherapists ? "Delt med terapeut" : "Privat"}
+                                  </span>
+                                  {entry.timestamp && (
+                                    <span className="text-muted" style={{ fontSize: "0.74rem" }}>
+                                      {String(entry.timestamp).replace("T", " kl. ").slice(0, 19)}
+                                    </span>
+                                  )}
+                                </div>
+                                {entry.gitCommitHash && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenGitHistory(entry.gitCommitHash)}
+                                    className="btn btn-link btn-sm p-0 text-decoration-none font-monospace text-dark fw-semibold"
+                                    style={{ fontSize: "0.78rem" }}
+                                    title="Åbn dette commit i JGit-tidslinjen"
+                                  >
+                                    #{entry.gitCommitHash} ↗
+                                  </button>
+                                )}
                               </div>
-                              {entry.gitCommitHash && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenGitHistory(entry.gitCommitHash)}
-                                  className="btn btn-link btn-sm p-0 text-decoration-none font-monospace text-dark fw-semibold"
-                                  style={{ fontSize: "0.78rem" }}
-                                  title="Åbn dette commit i JGit-tidslinjen"
-                                >
-                                  #{entry.gitCommitHash} ↗
-                                </button>
-                              )}
+                              <h6 className="fw-bold mb-1">{entry.title}</h6>
+                              <p className="small text-secondary mb-0">{entry.content}</p>
                             </div>
-                            <h6 className="fw-bold mb-1">{entry.title}</h6>
-                            <p className="small text-secondary mb-0">{entry.content}</p>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   </div>
