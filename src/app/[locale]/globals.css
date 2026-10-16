@@ -1,49 +1,1362 @@
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
-html {
-  height: 100%;
+  --bs-body-bg: #f4f7f9;
+  --bs-body-color: #1e293b;
+  --clinic-teal: #0f766e;
+  --clinic-teal-light: #f0fdfa;
+  --clinic-navy: #1e3a8a;
 }
 
 html,
 body {
-  max-width: 100vw;
-  overflow-x: hidden;
+  min-height: 100vh;
+  background-color: #f4f7f9;
+  color: #1e293b;
+  font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
-body {
-  min-height: 100%;
+/* Smooth Base UI + Bootstrap 5 Transitions */
+.base-tab-btn {
+  border: 1px solid transparent;
+  background: transparent;
+  color: #475569;
+  padding: 0.55rem 1.1rem;
+  border-radius: 0.65rem;
+  font-weight: 500;
+  font-size: 0.9rem;
+  transition: all 0.18s ease-in-out;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.base-tab-btn:hover {
+  background-color: #e2e8f0;
+  color: #0f172a;
+}
+
+.base-tab-btn[data-active],
+.base-tab-btn.active {
+  background-color: #0f766e;
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(15, 118, 110, 0.22);
+}
+
+/* Base UI Switch Styling */
+.base-switch-root {
+  width: 44px;
+  height: 24px;
+  background-color: #cbd5e1;
+  border-radius: 999px;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  position: relative;
+  transition: background-color 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+}
+
+.base-switch-root[data-checked] {
+  background-color: #0f766e;
+}
+
+.base-switch-thumb {
+  width: 20px;
+  height: 20px;
+  background-color: #ffffff;
+  border-radius: 50%;
+  transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+  transform: translateX(0);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.base-switch-thumb[data-checked] {
+  transform: translateX(20px);
+}
+
+/* Base UI Dialog Backdrop & Popup */
+.base-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(15, 23, 42, 0.48);
+  backdrop-filter: blur(3px);
+  z-index: 1050;
+  animation: fadeIn 0.18s ease-out;
+}
+
+.base-dialog-popup {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1055;
+  width: 95%;
+  max-width: 680px;
+  max-height: 90vh;
+  overflow-y: auto;
+  background: #ffffff;
+  border-radius: 1rem;
+  box-shadow: 0 20px 45px rgba(15, 23, 42, 0.2);
+  animation: scaleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.base-drawer-popup {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1055;
+  width: 100%;
+  max-width: 640px;
+  overflow-y: auto;
+  background: #ffffff;
+  box-shadow: -10px 0 35px rgba(15, 23, 42, 0.18);
+  animation: slideInRight 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Therapist Monthly Calendar Grid (Bootstrap 5 Enhanced) */
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.5rem;
+}
+
+.calendar-weekday {
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+  padding: 0.4rem 0;
+}
+
+.calendar-day-cell {
+  min-height: 86px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  padding: 0.5rem 0.6rem;
+  cursor: pointer;
+  transition: all 0.16s ease;
   display: flex;
   flex-direction: column;
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  justify-content: space-between;
+  text-align: left;
 }
 
-* {
-  box-sizing: border-box;
-  padding: 0;
-  margin: 0;
+.calendar-day-cell:hover {
+  border-color: #0f766e;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(15, 118, 110, 0.08);
 }
 
-a {
-  color: inherit;
-  text-decoration: none;
+.calendar-day-cell.selected {
+  border: 2px solid #0f766e;
+  background-color: #f0fdfa;
 }
 
-@media (prefers-color-scheme: dark) {
-  html {
-    color-scheme: dark;
+.calendar-day-cell.has-appointments {
+  background-color: #f8fafc;
+  border-color: #cbd5e1;
+}
+
+.calendar-day-cell.selected.has-appointments {
+  background-color: #ccfbf1;
+  border-color: #0f766e;
+}
+
+.calendar-day-cell.is-closed {
+  background-color: #f8fafc;
+  border-color: #e2e8f0;
+  opacity: 0.72;
+}
+
+.calendar-day-cell.is-closed:hover {
+  opacity: 0.95;
+  background-color: #f1f5f9;
+}
+
+/* Workspace Window Card */
+.workspace-window-card {
+  border: 1px solid #cbd5e1;
+  border-radius: 0.9rem;
+  background: #ffffff;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+  overflow: hidden;
+  transition: box-shadow 0.2s ease;
+}
+
+.workspace-window-header {
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+  color: #ffffff;
+  padding: 0.65rem 1rem;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: translate(-50%, -48%) scale(0.96); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+/* JGit Date-Grouped Colorful Swimlane & Vertical Timeline Styling */
+.jgit-timeline-track {
+  position: relative;
+  padding-left: 0.25rem;
+}
+
+.jgit-timeline-track::before {
+  display: none;
+}
+
+.jgit-date-group-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #1e293b;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.65rem;
+  margin-top: 0.65rem;
+  padding: 0.45rem 0.75rem;
+  background: linear-gradient(90deg, #f8fafc 0%, #f1f5f9 100%);
+  border: 1px solid #e2e8f0;
+  border-left: 4px solid #0f766e;
+  border-radius: 0.6rem;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.16s ease;
+}
+
+.jgit-date-group-header:hover {
+  background: linear-gradient(90deg, #f0fdfa 0%, #e0f2fe 100%);
+  border-color: #99f6e4;
+  border-left-color: #0d9488;
+}
+
+.jgit-commit-item {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 0.65rem;
+  margin-bottom: 0.65rem;
+}
+
+/* Keep .jgit-timeline-dot present for E2E selector compatibility while styling as glowing node */
+.jgit-timeline-dot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background-color: #10b981;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.35);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.jgit-swimlane-gutter {
+  position: relative;
+  display: flex;
+  justify-content: space-around;
+  align-items: stretch;
+  flex-shrink: 0;
+  padding: 0 2px;
+}
+
+.jgit-swimlane-rail {
+  position: relative;
+  width: 14px;
+  display: flex;
+  justify-content: center;
+}
+
+.jgit-swimlane-rail::before {
+  content: "";
+  position: absolute;
+  top: -0.4rem;
+  bottom: -0.4rem;
+  width: 2.5px;
+  border-radius: 2px;
+  opacity: 0.32;
+}
+
+.jgit-swimlane-rail.rail-client::before {
+  background: linear-gradient(180deg, #10b981 0%, #059669 100%);
+}
+
+.jgit-swimlane-rail.rail-therapist::before {
+  background: linear-gradient(180deg, #6366f1 0%, #4f46e5 100%);
+}
+
+.jgit-swimlane-rail.rail-confidential::before {
+  background: linear-gradient(180deg, #f59e0b 0%, #d97706 100%);
+}
+
+.jgit-swimlane-node {
+  position: relative;
+  z-index: 2;
+  margin-top: 0.9rem;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2.5px solid #ffffff;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.jgit-swimlane-node.node-client {
+  background-color: #10b981;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.35), 0 2px 6px rgba(16, 185, 129, 0.4);
+}
+
+.jgit-swimlane-node.node-therapist {
+  background-color: #6366f1;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.35), 0 2px 6px rgba(99, 102, 241, 0.4);
+}
+
+.jgit-swimlane-node.node-confidential {
+  background-color: #f59e0b;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.4), 0 2px 6px rgba(245, 158, 11, 0.45);
+}
+
+.jgit-swimlane-node.node-active {
+  transform: scale(1.3);
+}
+
+/* Branch connector line from active swimlane node to card */
+.jgit-branch-connector {
+  position: absolute;
+  top: 1.25rem;
+  right: -0.55rem;
+  height: 2px;
+  pointer-events: none;
+  z-index: 1;
+  border-radius: 2px;
+}
+
+.jgit-commit-card {
+  flex-grow: 1;
+  min-width: 0;
+  border: 1px solid #e2e8f0;
+  border-left-width: 4px;
+  border-radius: 0.75rem;
+  background-color: #ffffff;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  cursor: pointer;
+}
+
+.jgit-commit-card.cat-client {
+  border-left-color: #10b981;
+  background: linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%);
+}
+
+.jgit-commit-card.cat-therapist {
+  border-left-color: #6366f1;
+  background: linear-gradient(135deg, #ffffff 0%, #eef2ff 100%);
+}
+
+.jgit-commit-card.cat-confidential {
+  border-left-color: #f59e0b;
+  background: linear-gradient(135deg, #ffffff 0%, #fffbeb 100%);
+}
+
+.jgit-commit-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
+}
+
+.jgit-commit-card.cat-client.active {
+  border-color: #059669;
+  border-left-width: 5px;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.22), 0 8px 20px rgba(16, 185, 129, 0.12);
+}
+
+.jgit-commit-card.cat-therapist.active {
+  border-color: #4f46e5;
+  border-left-width: 5px;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.22), 0 8px 20px rgba(99, 102, 241, 0.12);
+}
+
+.jgit-commit-card.cat-confidential.active {
+  border-color: #d97706;
+  border-left-width: 5px;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.28), 0 8px 20px rgba(245, 158, 11, 0.14);
+}
+
+.jgit-commit-card.compare-target {
+  outline: 2px dashed #ec4899;
+  outline-offset: 1px;
+}
+
+.jgit-diff-box {
+  background: linear-gradient(160deg, #0f172a 0%, #1e293b 100%);
+  color: #e2e8f0;
+  border-radius: 0.75rem;
+  padding: 0.95rem 1.1rem;
+  font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border: 1px solid #334155;
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.25);
+}
+
+.jgit-diff-line-add {
+  background-color: rgba(16, 185, 129, 0.18);
+  color: #6ee7b7;
+  display: block;
+  padding: 0.12rem 0.5rem;
+  border-left: 3px solid #10b981;
+  margin: 0.14rem 0;
+  border-radius: 0 0.3rem 0.3rem 0;
+}
+
+.jgit-diff-line-remove {
+  background-color: rgba(244, 63, 94, 0.18);
+  color: #fda4af;
+  display: block;
+  padding: 0.12rem 0.5rem;
+  border-left: 3px solid #f43f5e;
+  margin: 0.14rem 0;
+  border-radius: 0 0.3rem 0.3rem 0;
+}
+
+.jgit-search-mark {
+  background-color: #fde047;
+  color: #0f172a;
+  padding: 0 0.2rem;
+  border-radius: 0.2rem;
+  font-weight: 700;
+}
+
+/* Synchronized Multi-Window Journal Entry Glow */
+.journal-commit-synced {
+  border-color: #10b981 !important;
+  background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%) !important;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.28), 0 4px 12px rgba(16, 185, 129, 0.12);
+  transition: all 0.2s ease;
+}
+
+.confidential-commit-synced {
+  border-color: #f59e0b !important;
+  background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%) !important;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.32), 0 4px 12px rgba(245, 158, 11, 0.14);
+  transition: all 0.2s ease;
+}
+
+/* 8-Column Portal Layout: 0/8 -> 1/8 Left Sidebar Nav + 1/8 -> 8/8 Workspace Area */
+.portal-8col-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+  align-items: start;
+}
+
+@media (min-width: 992px) {
+  .portal-8col-grid {
+    grid-template-columns: minmax(238px, 14.5%) minmax(0, 85.5%);
+    gap: 1.25rem;
   }
+
+  .portal-sidebar-1of8 {
+    position: sticky;
+    top: 4.5rem;
+  }
+}
+
+.gap-1\.5 {
+  gap: 0.375rem !important;
+}
+
+.gap-2\.5 {
+  gap: 0.625rem !important;
+}
+
+.px-2\.5 {
+  padding-left: 0.625rem !important;
+  padding-right: 0.625rem !important;
+}
+
+.py-1\.5 {
+  padding-top: 0.375rem !important;
+  padding-bottom: 0.375rem !important;
+}
+
+.mb-1\.5 {
+  margin-bottom: 0.375rem !important;
+}
+
+.p-2\.5 {
+  padding: 0.625rem !important;
+}
+
+.p-3\.5 {
+  padding: 0.875rem !important;
+}
+
+.sidebar-nav-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 1rem;
+  padding: 0.85rem 0.65rem;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05);
+}
+
+.sidebar-tab-btn {
+  width: 100%;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #475569;
+  padding: 0.62rem 0.8rem;
+  border-radius: 0.75rem;
+  font-weight: 600;
+  font-size: 0.82rem;
+  line-height: 1.25;
+  text-align: left;
+  transition: all 0.18s ease-in-out;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.sidebar-tab-btn:hover {
+  background-color: #f1f5f9;
+  color: #0f172a;
+  transform: translateX(2px);
+}
+
+.sidebar-tab-btn[data-active],
+.sidebar-tab-btn.active {
+  background: linear-gradient(135deg, #0f766e 0%, #0d9488 100%);
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(15, 118, 110, 0.25);
+}
+
+/* Single Unified Horizontal JGit Graph & Interactive Timeline Scrollbar/Zoom */
+.jgit-single-graph-shell {
+  background: linear-gradient(135deg, #f8fafc 0%, #ffffff 55%, #f0fdf4 100%);
+  border-color: #cbd5e1 !important;
+}
+
+.jgit-horizontal-track {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 1.5rem;
+  padding-bottom: 1.1rem;
+  border-radius: 1rem;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  scroll-behavior: smooth;
+  overflow-x: auto;
+}
+
+/* Hide standard browser scrollbar — replaced by the Interactive Timeline Scrollbar below */
+.jgit-hide-native-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.jgit-hide-native-scrollbar::-webkit-scrollbar {
+  display: none;
+  height: 0;
+  width: 0;
+}
+
+.jgit-h-date-group {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  min-width: 240px;
+}
+
+.jgit-h-commits-row {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.jgit-h-commit-item {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.4rem;
+  margin-bottom: 0;
+  flex-shrink: 0;
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Single Unified Horizontal Graph Axis */
+.jgit-unified-axis {
+  position: relative;
+  height: 28px;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.jgit-unified-axis-line {
+  position: absolute;
+  left: -0.75rem;
+  right: -0.75rem;
+  top: 50%;
+  height: 3px;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background: linear-gradient(90deg, #10b981 0%, #6366f1 55%, #f59e0b 100%);
+  opacity: 0.45;
+}
+
+.jgit-unified-axis .jgit-swimlane-node {
+  margin-top: 0;
+  z-index: 3;
+}
+
+.jgit-unified-connector {
+  position: absolute;
+  left: 50%;
+  top: 55%;
+  bottom: -0.45rem;
+  width: 2.5px;
+  transform: translateX(-50%);
+  pointer-events: none;
+  z-index: 2;
+  border-radius: 2px;
+}
+
+.jgit-h-commit-card {
+  width: 285px;
+}
+
+.jgit-h-commit-card.active {
+  width: min(590px, 78vw);
+}
+
+.jgit-commit-item.is-highlighted {
+  z-index: 25;
+}
+
+.jgit-commit-card.active {
+  position: relative;
+  z-index: 25;
+  transform: translateY(-6px) scale(1.015);
+}
+
+.jgit-commit-card.cat-client.active {
+  border-color: #059669;
+  border-left-width: 6px;
+  background: linear-gradient(135deg, #ffffff 0%, #ecfdf5 100%);
+  box-shadow: 0 16px 36px rgba(5, 150, 105, 0.24), 0 0 0 2px rgba(16, 185, 129, 0.38);
+}
+
+.jgit-commit-card.cat-therapist.active {
+  border-color: #4f46e5;
+  border-left-width: 6px;
+  background: linear-gradient(135deg, #ffffff 0%, #eef2ff 100%);
+  box-shadow: 0 16px 36px rgba(79, 70, 229, 0.24), 0 0 0 2px rgba(99, 102, 241, 0.38);
+}
+
+.jgit-commit-card.cat-confidential.active {
+  border-color: #d97706;
+  border-left-width: 6px;
+  background: linear-gradient(135deg, #ffffff 0%, #fffbeb 100%);
+  box-shadow: 0 16px 36px rgba(217, 119, 6, 0.26), 0 0 0 2px rgba(245, 158, 11, 0.42);
+}
+
+/* Custom Interactive Dual-Handle Timeline Zoom Window Selector */
+.jgit-timeline-scrollbar {
+  background: linear-gradient(135deg, #f0fdf4 0%, #eef2ff 55%, #fffbeb 100%);
+  border-color: #cbd5e1 !important;
+}
+
+.jgit-zoom-window-container {
+  position: relative;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  padding: 0 0.5rem;
+}
+
+.jgit-zoom-window-rail {
+  position: absolute;
+  left: 0.5rem;
+  right: 0.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 8px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  border: 1px solid #cbd5e1;
+}
+
+.jgit-zoom-window-selection {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 12px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(16, 185, 129, 0.35) 0%, rgba(99, 102, 241, 0.35) 100%);
+  border: 1.5px solid #0f766e;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.jgit-scrubber-tick {
+  position: relative;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2px solid #ffffff;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.25);
+  padding: 0;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease;
+  z-index: 2;
+}
+
+.jgit-scrubber-tick:hover,
+.jgit-scrubber-tick.is-focused {
+  transform: scale(1.42);
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.32), 0 3px 8px rgba(15, 23, 42, 0.3);
+  z-index: 4;
+}
+
+/* Dual overlapping range inputs where only the left & right thumbs capture pointer events */
+.jgit-dual-zoom-input {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 100%;
+  height: 0;
+  margin: 0;
+  background: transparent;
+  pointer-events: none;
+  -webkit-appearance: none;
+  appearance: none;
+  z-index: 5;
+}
+
+.jgit-dual-zoom-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  pointer-events: auto;
+  width: 18px;
+  height: 26px;
+  border-radius: 6px;
+  background: #0f766e;
+  border: 2px solid #ffffff;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.35);
+  cursor: ew-resize;
+  transition: transform 0.15s ease, background-color 0.15s ease;
+}
+
+.jgit-dual-zoom-input::-webkit-slider-thumb:hover {
+  background: #0d9488;
+  transform: scale(1.08);
+}
+
+.jgit-dual-zoom-input::-moz-range-thumb {
+  pointer-events: auto;
+  width: 18px;
+  height: 26px;
+  border-radius: 6px;
+  background: #0f766e;
+  border: 2px solid #ffffff;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.35);
+  cursor: ew-resize;
+  transition: transform 0.15s ease, background-color 0.15s ease;
+}
+
+.jgit-dual-zoom-input::-moz-range-thumb:hover {
+  background: #0d9488;
+  transform: scale(1.08);
+}
+
+@keyframes jgitPopOpen {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.jgit-popup-inspector,
+.jgit-floating-popup-window {
+  animation: jgitPopOpen 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* =========================================================================
+   REDESIGNED JGIT TIMELINE UI/UX (Sage Canvas, Curved Branch Graph,
+   Pastel Commit Cards, Revisionshistorik Sidebar & Før/Nu Diff Studio)
+   ========================================================================= */
+
+.jgit-sage-canvas-shell {
+  background: #ffffff;
+  padding: 0;
+  border: none;
+  box-shadow: none;
+}
+
+.jgit-branch-horizontal-scroll {
+  overflow-x: auto;
+  overflow-y: visible;
+  padding: 0.6rem 0.4rem 1.2rem;
+}
+
+.jgit-branch-cards-strip {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 1.15rem;
+  min-width: 100%;
+  position: relative;
+}
+
+.jgit-branch-column {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  flex-shrink: 0;
+  padding-top: 28px;
+  padding-bottom: 22px;
+}
+
+/* Continuous dark-slate horizontal main branch line across the top */
+.jgit-branch-top-rail {
+  position: absolute;
+  top: 6px;
+  left: -0.65rem;
+  right: -0.65rem;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3;
+}
+
+.jgit-branch-main-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 3px;
+  transform: translateY(-50%);
+  background-color: #5b6b73;
+  z-index: 1;
+}
+
+.jgit-pastel-dot {
+  position: relative;
+  z-index: 4;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2.5px solid #ffffff;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.jgit-pastel-dot.is-active {
+  transform: scale(1.28);
+}
+
+/* Smooth SVG curve dipping below the card for lower-branch commits */
+.jgit-branch-curve-svg {
+  position: absolute;
+  top: 13px;
+  left: -14px;
+  width: calc(100% + 28px);
+  height: calc(100% - 14px);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.jgit-lower-branch-dot {
+  position: absolute;
+  bottom: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2.5px solid #ffffff;
+  z-index: 4;
+}
+
+/* Soft Rounded Pastel Commit Cards */
+.jgit-pastel-commit-card {
+  position: relative;
+  z-index: 3;
+  border-radius: 1.05rem;
+  border: 1.5px solid rgba(255, 255, 255, 0.75);
+  padding: 0.78rem 0.9rem;
+  box-shadow: 0 8px 20px rgba(30, 41, 59, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.jgit-pastel-commit-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 24px rgba(30, 41, 59, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.jgit-pastel-commit-card.active {
+  transform: translateY(-3px);
+  border-width: 2px;
+  box-shadow: 0 14px 28px rgba(30, 41, 59, 0.18),
+    0 0 0 3px rgba(255, 255, 255, 0.65);
+}
+
+.jgit-card-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  color: #ffffff;
+  font-size: 0.66rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.14);
+}
+
+.jgit-card-category-pill {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.16rem 0.62rem;
+  border-radius: 999px;
+}
+
+.jgit-card-bottom-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.18rem 0.62rem;
+  border-radius: 999px;
+}
+
+/* Clean Extended Zoom Slider in Middle Right */
+.jgit-clean-zoom-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 240px;
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(71, 95, 84, 0.35);
+  outline: none;
+  cursor: pointer;
+}
+
+.jgit-clean-zoom-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #f8faf9;
+  border: 2px solid #0f766e;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.25);
+  cursor: pointer;
+}
+
+.jgit-clean-zoom-slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #f8faf9;
+  border: 2px solid #0f766e;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.25);
+  cursor: pointer;
+}
+
+.jgit-zoom-control-bar {
+  background: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05);
+}
+
+/* 2D Swimlane Timeline Matrix (Y-Axis = Named Client & Therapist Lanes, X-Axis = Time) */
+.jgit-2d-board-wrapper {
+  background: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.82);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65),
+    0 6px 20px rgba(15, 23, 42, 0.06);
+  overflow: hidden;
+}
+
+.jgit-2d-scroll-viewport {
+  overflow-x: auto;
+  overflow-y: auto;
+  min-height: 520px;
+  max-height: 720px;
+  cursor: grab;
+  user-select: none;
+}
+
+.jgit-hide-native-scrollbar::-webkit-scrollbar {
+  height: 6px;
+  width: 6px;
+}
+
+.jgit-hide-native-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.jgit-hide-native-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 999px;
+}
+
+.jgit-hide-native-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.6);
+}
+
+.jgit-2d-scroll-viewport:active {
+  cursor: grabbing;
+}
+
+.jgit-2d-matrix {
+  display: inline-flex;
+  flex-direction: column;
+  min-width: 100%;
+}
+
+.jgit-2d-lane-row {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  border-bottom: 1px dashed rgba(100, 116, 139, 0.22);
+  min-height: 125px;
+}
+
+.jgit-2d-lane-row:last-child {
+  border-bottom: none;
+}
+
+.jgit-2d-time-header-row {
+  min-height: 38px;
+  background: #ffffff;
+  border-bottom: 1px solid #e2e8f0;
+  position: sticky;
+  top: 0;
+  z-index: 15;
+}
+
+/* Left Sticky Column on Y-axis showing Client / Therapist Name */
+.jgit-2d-sticky-lane-label {
+  position: sticky;
+  left: 0;
+  z-index: 12;
+  width: 215px;
+  min-width: 215px;
+  flex-shrink: 0;
+  background: #ffffff;
+  backdrop-filter: blur(6px);
+  border-right: 1px solid rgba(148, 163, 184, 0.35);
+  padding: 0.65rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  box-shadow: 4px 0 12px rgba(15, 23, 42, 0.04);
+}
+
+.jgit-2d-corner-header {
+  z-index: 18;
+  background: #ffffff;
+  padding: 0.4rem 0.75rem;
+}
+
+.jgit-2d-columns-track {
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.55rem 0.85rem;
+  flex-grow: 1;
+}
+
+.jgit-2d-lane-axis-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 19px;
+  height: 2.5px;
+  opacity: 0.38;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.jgit-2d-time-col-header {
+  flex-shrink: 0;
+  text-align: center;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.jgit-2d-time-col-header:hover {
+  background-color: rgba(15, 118, 110, 0.08);
+}
+
+.jgit-2d-time-col-header.is-selected {
+  background-color: rgba(16, 185, 129, 0.16);
+  border: 1px solid rgba(16, 185, 129, 0.45);
+}
+
+.jgit-2d-time-col-header.is-compared {
+  background-color: rgba(99, 102, 241, 0.16);
+  border: 1px dashed #6366f1;
+}
+
+.jgit-2d-cell {
+  position: relative;
+  z-index: 2;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  transition: width 0.16s ease;
+}
+
+.jgit-2d-pass-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
+  border: 2px solid #cbd5e1;
+  margin-top: 8px;
+  opacity: 0.65;
+}
+
+/* Full-width bottom inspector panel */
+.jgit-compare-versions-panel {
+  background: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  border-radius: 1.15rem;
+  padding: 1.15rem 1.35rem;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+}
+
+.jgit-nav-pill-btn {
+  border-radius: 0.65rem;
+  padding: 0.35rem 0.9rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+  transition: all 0.15s ease;
+}
+
+.jgit-nav-pill-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.jgit-nav-pill-newer {
+  background: linear-gradient(135deg, #e5ded2 0%, #d2dfd6 100%);
+  color: #2c3531;
+  border-color: #c7d1c9;
+}
+
+.jgit-nav-pill-older {
+  background: linear-gradient(135deg, #e2dbf8 0%, #d2c8f4 100%);
+  color: #34295c;
+  border-color: #c4b7ee;
+}
+
+.jgit-nav-pill-close {
+  background: #23272e;
+  color: #ffffff;
+}
+
+.jgit-nav-pill-close:hover {
+  background: #111317;
+}
+
+/* Inner Før / Nu Version Cards */
+.jgit-version-box {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.95rem;
+  padding: 1rem 1.15rem;
+  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.03);
+}
+
+.jgit-version-box-title {
+  font-size: 0.94rem;
+  font-weight: 700;
+  color: #1e293b;
+  padding-bottom: 0.65rem;
+  margin-bottom: 0.75rem;
+  border-bottom: 1px solid #ecefe9;
+}
+
+.jgit-version-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: #334155;
+  word-break: break-word;
+}
+
+/* Soft Pastel Diff Highlights matching the screenshot */
+.jgit-version-content .jgit-diff-line-add {
+  background-color: #def3e4;
+  color: #1c4b2e;
+  border-left: 3px solid #68b884;
+  padding: 0.35rem 0.65rem;
+  border-radius: 0.4rem;
+  margin: 0.1rem 0;
+  display: block;
+}
+
+.jgit-version-content .jgit-diff-line-remove {
+  background-color: #f6e3e3;
+  color: #6b2929;
+  border-left: 3px solid #d98282;
+  padding: 0.35rem 0.65rem;
+  border-radius: 0.4rem;
+  margin: 0.1rem 0;
+  display: block;
+}
+
+.jgit-diff-line-neutral {
+  color: #334155;
+  padding: 0.18rem 0.25rem;
+}
+
+/* Color-Coded Structured Journal Entry Cards inside Før / Nu Panels */
+.jgit-structured-entry-card {
+  border-radius: 0.9rem;
+  border: 1.5px solid #e2e8f0;
+  border-left-width: 5px;
+  padding: 0.85rem 1rem;
+  margin-bottom: 0.35rem;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.05);
+  transition: transform 0.16s ease, box-shadow 0.16s ease;
+}
+
+.jgit-structured-entry-card.diff-added {
+  box-shadow: 0 6px 16px rgba(34, 197, 94, 0.12),
+    inset 0 0 0 1px rgba(74, 222, 128, 0.28);
+}
+
+.jgit-structured-entry-card.diff-removed {
+  box-shadow: 0 6px 16px rgba(244, 63, 94, 0.12),
+    inset 0 0 0 1px rgba(251, 113, 133, 0.28);
+}
+
+.jgit-entry-cat-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.2rem 0.65rem;
+  border-radius: 999px;
+}
+
+.jgit-entry-cat-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.jgit-entry-diff-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.16rem 0.58rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+
+.jgit-entry-body-text {
+  background: rgba(255, 255, 255, 0.72);
+  color: #1e293b;
+  padding: 0.45rem 0.7rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spin-animation {
+  display: inline-block;
+  animation: spin 0.8s linear infinite;
+}
+
+/* Teal Utilities for Schedule & Workspace Buttons */
+.btn-teal {
+  background-color: #0f766e !important;
+  border-color: #0f766e !important;
+  color: #ffffff !important;
+}
+
+.btn-teal:hover,
+.btn-teal:focus,
+.btn-teal:active {
+  background-color: #0d9488 !important;
+  border-color: #0d9488 !important;
+  color: #ffffff !important;
+}
+
+.btn-outline-teal {
+  background-color: transparent !important;
+  border-color: #0f766e !important;
+  color: #0f766e !important;
+}
+
+.btn-outline-teal:hover,
+.btn-outline-teal:focus,
+.btn-outline-teal:active {
+  background-color: #0f766e !important;
+  border-color: #0f766e !important;
+  color: #ffffff !important;
+}
+
+.text-teal {
+  color: #0f766e !important;
 }

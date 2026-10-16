@@ -1,10 +1,7 @@
 import NextAuth, { AuthOptions } from "next-auth";
-<<<<<<< HEAD
-import CredentialsProvider from "next-auth/providers/credentials";
-=======
 import KeycloakProvider from "next-auth/providers/keycloak";
 import { sessionCookieName, sessionCookieOptions } from "@/lib/auth-cookies";
->>>>>>> origin/dev
+import CredentialsProvider from "next-auth/providers/credentials";
 
 async function refreshAccessToken(token: any) {
   try {
@@ -46,6 +43,9 @@ async function refreshAccessToken(token: any) {
       accessToken: refreshedTokens.access_token,
       refreshToken: refreshedTokens.refresh_token ?? token.refreshToken, // Fall back to old refresh token
       accessTokenExpires: decoded.exp * 1000,
+      userUuid: decoded.sub || token.userUuid,
+      fullName: decoded.name || token.fullName || decoded.preferred_username,
+      email: decoded.email || token.email,
       roles: decoded.realm_access?.roles || [],
       username: decoded.preferred_username
     };
@@ -60,7 +60,14 @@ async function refreshAccessToken(token: any) {
 
 export const authOptions: AuthOptions = {
   providers: [
-<<<<<<< HEAD
+    KeycloakProvider({
+      clientId: process.env.KEYCLOAK_CLIENT_ID || "",
+      clientSecret: process.env.KEYCLOAK_CLIENT_SECRET || "",
+      issuer: process.env.KEYCLOAK_ISSUER || "",
+      authorization: {
+        params: { scope: "openid profile email roles offline_access" },
+      },
+    }),
     CredentialsProvider({
       name: "Keycloak",
       credentials: {
@@ -112,55 +119,46 @@ export const authOptions: AuthOptions = {
         }
       }
     })
-=======
-    KeycloakProvider({
-      clientId: process.env.KEYCLOAK_CLIENT_ID || "",
-      clientSecret: process.env.KEYCLOAK_CLIENT_SECRET || "",
-      issuer: process.env.KEYCLOAK_ISSUER || "",
-      authorization: {
-        params: { scope: "openid profile email roles offline_access" },
-      },
-    }),
->>>>>>> origin/dev
   ],
   pages: {
     signIn: '/', 
   },
   cookies: {
     sessionToken: {
-<<<<<<< HEAD
-      name: `next-auth.session-token`,
-      options: {
-        httpOnly: true,
-        sameSite: 'lax',
-        path: '/',
-        secure: false, 
-        domain: '.127.0.0.1.nip.io'
-      }
+      name: sessionCookieName,
+      options: sessionCookieOptions,
     }
   },
   callbacks: {
-    async jwt({ token, user, account }) {
-      if (user) {
-        token.accessToken = (user as any).access_token;
-        token.refreshToken = (user as any).refresh_token;
+    async jwt({ token, user, account, trigger }) {
+      console.log("JWT Callback Triggered:", { 
+        hasUser: !!user, 
+        hasAccount: !!account,
+        trigger,
+        isInitialSignIn: !!(account || user),
+        currentExp: token.accessTokenExpires 
+      });
+
+      // 0. Explicit session update (e.g. after Keycloak role assignment on CVR onboarding)
+      if (trigger === "update" && token.refreshToken) {
+        console.log("Session update triggered — refreshing Keycloak token for latest roles...");
+        return refreshAccessToken(token);
+      }
+
+      // 1. Initial Sign In
+      if (account?.access_token || (user && 'access_token' in user)) {
+        console.log("Processing Initial Sign In...");
         
-        try {
-          const base64Url = ((user as any).access_token as string).split('.')[1];
-=======
-      name: sessionCookieName,
-      options: sessionCookieOptions,
-    },
-  },
-  callbacks: {
-    async jwt({ token, user, account }) {
-      if (account?.access_token) {
-        token.accessToken = account.access_token;
-        token.refreshToken = account.refresh_token;
+        token.accessToken = account?.access_token || (user as any).access_token;
+        token.refreshToken = account?.refresh_token || (user as any).refresh_token;
         
+        console.log("Extracted Tokens:", {
+          hasAccessToken: !!token.accessToken,
+          hasRefreshToken: !!token.refreshToken
+        });
+
         try {
-          const base64Url = account.access_token.split('.')[1];
->>>>>>> origin/dev
+          const base64Url = (token.accessToken as string).split('.')[1];
           const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
           const jsonPayload = decodeURIComponent(
             atob(base64)
@@ -169,39 +167,55 @@ export const authOptions: AuthOptions = {
               .join('')
           );
           const decoded = JSON.parse(jsonPayload);
+          token.userUuid = decoded.sub;
           token.roles = decoded.realm_access?.roles || [];
-<<<<<<< HEAD
-          token.username = decoded.preferred_username;
-=======
           token.username = decoded.preferred_username || user?.name || user?.email;
->>>>>>> origin/dev
+          token.fullName = decoded.name || token.username;
+          token.email = decoded.email || user?.email;
           token.accessTokenExpires = decoded.exp * 1000;
+          console.log("Decoded Token Expiry:", new Date(token.accessTokenExpires as number).toISOString());
         } catch (e) {
           console.error("Failed to decode token in JWT callback", e);
           token.roles = [];
         }
-<<<<<<< HEAD
-=======
-        if (!token.accessTokenExpires && account.expires_at) {
-          token.accessTokenExpires = account.expires_at * 1000;
+
+        // Fallback for expiration if decoding fails
+        const expires_at = account?.expires_at || (user as any)?.expires_in;
+        if (!token.accessTokenExpires && expires_at) {
+          token.accessTokenExpires = Date.now() + expires_at * 1000;
         }
->>>>>>> origin/dev
+        
         return token;
       }
 
-      // Return previous token if the access token has not expired yet
-      if (Date.now() < (token.accessTokenExpires as number) - 10 * 1000) { // Check 10 seconds before expiry
+      // 2. Subsequent requests
+      if (!token.accessTokenExpires) {
+        console.log("Token is completely missing an expiration date! (Likely an old broken cookie). Forcing refresh/re-login.");
+        return refreshAccessToken(token);
+      }
+
+      const timeRemaining = (token.accessTokenExpires as number) - Date.now();
+      console.log("Checking Token Expiration:", {
+        expiresAt: new Date(token.accessTokenExpires as number).toISOString(),
+        timeRemainingMs: timeRemaining
+      });
+
+      if (timeRemaining > 10000) {
         return token;
       }
 
-      // Access token has expired, try to update it
+      // 3. Access token has expired, try to update it
+      console.log("Token expired! Attempting to refresh...", { hasRefreshToken: !!token.refreshToken });
       return refreshAccessToken(token);
     },
     async session({ session, token }: any) {
       session.accessToken = token.accessToken;
       session.roles = token.roles || [];
       session.user = session.user || {};
-      session.user.name = token.username;
+      session.user.id = token.userUuid || token.sub;
+      session.user.name = token.fullName || token.username;
+      session.user.username = token.username;
+      session.user.email = token.email;
       session.error = token.error;
       return session;
     },

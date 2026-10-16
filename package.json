@@ -3,12 +3,18 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "node node_modules/next/dist/bin/next dev --webpack -H 0.0.0.0",
+    "dev": "node node_modules/next/dist/bin/next dev -H 0.0.0.0",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:bdd": "node --import tsx node_modules/@cucumber/cucumber/bin/cucumber.js",
+    "test:bdd:api": "node --import tsx node_modules/@cucumber/cucumber/bin/cucumber.js --tags @api",
+    "test:bdd:ui": "node --import tsx node_modules/@cucumber/cucumber/bin/cucumber.js --tags @ui"
   },
   "dependencies": {
+    "@base-ui/react": "^1.9.0",
     "bootstrap": "^5.3.8",
     "bootstrap-icons": "^1.13.1",
     "next": "16.3.7",
@@ -17,15 +23,21 @@
     "react": "19.2.8",
     "react-bootstrap": "^2.10.10",
     "react-dom": "19.2.8",
-    "react-error-boundary": "^6.1.6"
+    "react-error-boundary": "^6.1.6",
+    "uncontrollable": "^9.0.0"
   },
   "devDependencies": {
+    "@cucumber/cucumber": "^12.9.0",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@vitest/coverage-istanbul": "^4.1.11",
     "babel-plugin-react-compiler": "1.0.0",
     "eslint": "^9",
     "eslint-config-next": "16.3.7",
-    "typescript": "^5"
+    "playwright": "^1.64.1",
+    "tsx": "^4.23.15",
+    "typescript": "^5",
+    "vitest": "^4.1.11"
   }
 }
