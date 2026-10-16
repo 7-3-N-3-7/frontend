@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { Tabs } from "@base-ui/react/tabs";
 import { useTranslations } from "next-intl";
+import { Link } from "@/i18n/routing";
 
 export default function ProfileAndClinicSettingsPage() {
   const t = useTranslations();
@@ -76,7 +77,7 @@ export default function ProfileAndClinicSettingsPage() {
       body: JSON.stringify(clientProfile),
     });
     if (res.ok) {
-      setSavedBanner("Dine personlige stamdata (Bilag 5.1.1) er opdateret i PostgreSQL.");
+      setSavedBanner("Dine personlige stamdata er opdateret.");
       setTimeout(() => setSavedBanner(null), 4000);
     }
   };
@@ -89,7 +90,7 @@ export default function ProfileAndClinicSettingsPage() {
       body: JSON.stringify(therapistProfile),
     });
     if (res.ok) {
-      setSavedBanner("Klinik- & CVR-indstillinger (Bilag 5.1.2) er gemt i PostgreSQL.");
+      setSavedBanner("Klinik- & CVR-indstillinger er gemt.");
       setTimeout(() => setSavedBanner(null), 4000);
     }
   };
@@ -98,29 +99,69 @@ export default function ProfileAndClinicSettingsPage() {
     return (
       <div className="text-center py-5 text-muted">
         <div className="spinner-border text-primary mb-2" role="status" />
-        <div>Loading PostgreSQL profile data...</div>
+        <div>Henter profiloplysninger...</div>
       </div>
     );
   }
 
+  const hasCvr = Boolean(therapistProfile.cvrNumber && therapistProfile.cvrNumber.trim().length > 0);
+  const hasOrgName = Boolean(therapistProfile.organisationName && therapistProfile.organisationName.trim().length > 0);
+  const hasWorkingHours = Boolean(therapistProfile.workingHoursJson && therapistProfile.workingHoursJson.trim().length > 0);
+  const hasHomeAddress = Boolean(clientProfile.homeAddress && clientProfile.homeAddress.trim().length > 0);
+  const hasPostalCode = Boolean(clientProfile.postalCode && clientProfile.postalCode.trim().length > 0);
+  const hasPhone = Boolean(clientProfile.phoneNumber && clientProfile.phoneNumber.trim().length > 0);
+
+  const canCreateService = hasCvr && hasOrgName && hasWorkingHours && hasHomeAddress && hasPostalCode && hasPhone;
+
   return (
-    <div className="d-flex flex-column gap-4">
+    <div className="d-flex flex-column gap-4" style={{ maxWidth: "1000px", margin: "0 auto" }}>
       <div className="card border-0 shadow-xs rounded-4 bg-white">
         <div className="card-body p-4">
           <span className="badge bg-primary-subtle text-primary rounded-pill px-3 py-1 mb-2">
-            Bilag 5.1.1 &amp; 5.1.2 • PostgreSQL
+            Personlige Stamdata • Privatperson / Klient
           </span>
           <h1 className="h3 fw-bold text-dark mb-1">
-            {tr("portal.profileSettingsBtn", tr("dashboard.dropdown.settings", "My Profile & Settings"))}
+            {tr("portal.profileSettingsBtn", "Personlige Stamdata")}
           </h1>
           <p className="text-muted small mb-0">
-            PostgreSQL (`client_profiles`, `provider_profiles` &amp; `organisations`).
+            Administrer dine personlige oplysninger og bopælsadresse som privatperson og klient.
           </p>
         </div>
       </div>
 
       {savedBanner && (
         <div className="alert alert-success rounded-4 shadow-xs mb-0">{savedBanner}</div>
+      )}
+
+      {me?.isTherapist && (
+        <div
+          className="card border-0 shadow-xs rounded-4 p-3.5 d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-3 border"
+          style={{ backgroundColor: "#f0fdfa", borderColor: "#99f6e4" }}
+        >
+          <div className="d-flex align-items-center gap-3">
+            <span
+              className="d-inline-flex align-items-center justify-content-center rounded-circle fs-5 text-white"
+              style={{ width: "42px", height: "42px", minWidth: "42px", backgroundColor: "#0f766e" }}
+            >
+              <i className="bi bi-building"></i>
+            </span>
+            <div>
+              <h6 className="fw-bold mb-0.5" style={{ color: "#115e59" }}>
+                Virksomhedsstamdata (CVR &amp; Klinik)
+              </h6>
+              <div className="small text-secondary">
+                Oplysninger om din klinik (CVR, organisationsnavn, praksisadresse og arbejdstider) er adskilt fra dine personlige stamdata.
+              </div>
+            </div>
+          </div>
+          <Link
+            href="/dashboard/clinic"
+            className="btn btn-sm rounded-pill px-4 py-2 fw-semibold text-white text-nowrap shadow-xs"
+            style={{ backgroundColor: "#0f766e" }}
+          >
+            <i className="bi bi-building-gear me-1"></i> Gå til Klinik &amp; CVR &rarr;
+          </Link>
+        </div>
       )}
 
       <Tabs.Root defaultValue="client_details">
@@ -218,7 +259,7 @@ export default function ProfileAndClinicSettingsPage() {
                   </div>
                 </div>
                 <button type="submit" className="btn btn-primary rounded-pill px-4 py-2 fw-semibold">
-                  Gem Personlige Stamdata i PostgreSQL
+                  Gem Personlige Stamdata
                 </button>
               </form>
             </Tabs.Panel>
@@ -274,10 +315,14 @@ export default function ProfileAndClinicSettingsPage() {
                       />
                     </div>
                     <div className="col-md-6">
-                      <label className="form-label small fw-semibold">Arbejdstider</label>
+                      <label className="form-label small fw-semibold">
+                        Arbejdstider <span className="text-danger">*</span>
+                      </label>
                       <input
                         type="text"
                         className="form-control"
+                        required
+                        placeholder="f.eks. Mandag - Fredag 09:00 - 16:00"
                         value={therapistProfile.workingHoursJson}
                         onChange={(e) =>
                           setTherapistProfile({
@@ -303,7 +348,7 @@ export default function ProfileAndClinicSettingsPage() {
                     </div>
                   </div>
                   <button type="submit" className="btn btn-success rounded-pill px-4 py-2 fw-semibold">
-                    Gem Klinik- &amp; CVR-Indstillinger i PostgreSQL
+                    Gem Klinik- &amp; CVR-Indstillinger
                   </button>
                 </form>
               </Tabs.Panel>

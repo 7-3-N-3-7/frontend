@@ -167,6 +167,17 @@ body {
   border-color: #0f766e;
 }
 
+.calendar-day-cell.is-closed {
+  background-color: #f8fafc;
+  border-color: #e2e8f0;
+  opacity: 0.72;
+}
+
+.calendar-day-cell.is-closed:hover {
+  opacity: 0.95;
+  background-color: #f1f5f9;
+}
+
 /* Workspace Window Card */
 .workspace-window-card {
   border: 1px solid #cbd5e1;
@@ -801,17 +812,10 @@ body {
    ========================================================================= */
 
 .jgit-sage-canvas-shell {
-  background: radial-gradient(
-      circle at 48% 22%,
-      rgba(245, 224, 200, 0.52) 0%,
-      rgba(225, 218, 246, 0.32) 38%,
-      transparent 72%
-    ),
-    linear-gradient(160deg, #b8cbbd 0%, #c8d7cb 48%, #bccbc0 100%);
-  padding: 1.25rem 1.35rem 1.4rem;
-  border: 1px solid #a7bdb0;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45),
-    0 10px 28px rgba(15, 23, 42, 0.08);
+  background: #ffffff;
+  padding: 0;
+  border: none;
+  box-shadow: none;
 }
 
 .jgit-branch-horizontal-scroll {
@@ -993,14 +997,14 @@ body {
 }
 
 .jgit-zoom-control-bar {
-  background: rgba(244, 246, 242, 0.85);
+  background: #ffffff;
   border: 1px solid rgba(255, 255, 255, 0.8);
   box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05);
 }
 
 /* 2D Swimlane Timeline Matrix (Y-Axis = Named Client & Therapist Lanes, X-Axis = Time) */
 .jgit-2d-board-wrapper {
-  background: rgba(244, 247, 243, 0.72);
+  background: #ffffff;
   border: 1px solid rgba(255, 255, 255, 0.82);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65),
     0 6px 20px rgba(15, 23, 42, 0.06);
@@ -1010,9 +1014,28 @@ body {
 .jgit-2d-scroll-viewport {
   overflow-x: auto;
   overflow-y: auto;
-  max-height: 440px;
+  min-height: 520px;
+  max-height: 720px;
   cursor: grab;
   user-select: none;
+}
+
+.jgit-hide-native-scrollbar::-webkit-scrollbar {
+  height: 6px;
+  width: 6px;
+}
+
+.jgit-hide-native-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.jgit-hide-native-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 999px;
+}
+
+.jgit-hide-native-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.6);
 }
 
 .jgit-2d-scroll-viewport:active {
@@ -1030,7 +1053,7 @@ body {
   flex-direction: row;
   align-items: stretch;
   border-bottom: 1px dashed rgba(100, 116, 139, 0.22);
-  min-height: 118px;
+  min-height: 125px;
 }
 
 .jgit-2d-lane-row:last-child {
@@ -1039,8 +1062,8 @@ body {
 
 .jgit-2d-time-header-row {
   min-height: 38px;
-  background: rgba(255, 255, 255, 0.86);
-  border-bottom: 1px solid rgba(148, 163, 184, 0.35);
+  background: #ffffff;
+  border-bottom: 1px solid #e2e8f0;
   position: sticky;
   top: 0;
   z-index: 15;
@@ -1054,7 +1077,7 @@ body {
   width: 215px;
   min-width: 215px;
   flex-shrink: 0;
-  background: rgba(249, 251, 249, 0.96);
+  background: #ffffff;
   backdrop-filter: blur(6px);
   border-right: 1px solid rgba(148, 163, 184, 0.35);
   padding: 0.65rem 0.75rem;
@@ -1066,7 +1089,7 @@ body {
 
 .jgit-2d-corner-header {
   z-index: 18;
-  background: rgba(248, 250, 252, 0.98);
+  background: #ffffff;
   padding: 0.4rem 0.75rem;
 }
 
@@ -1137,7 +1160,7 @@ body {
 
 /* Full-width bottom inspector panel */
 .jgit-compare-versions-panel {
-  background: rgba(244, 246, 242, 0.94);
+  background: #ffffff;
   border: 1px solid rgba(255, 255, 255, 0.85);
   border-radius: 1.15rem;
   padding: 1.15rem 1.35rem;
@@ -1181,8 +1204,8 @@ body {
 
 /* Inner Før / Nu Version Cards */
 .jgit-version-box {
-  background: #fbfcfa;
-  border: 1px solid #e4e8e3;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
   border-radius: 0.95rem;
   padding: 1rem 1.15rem;
   box-shadow: 0 3px 10px rgba(15, 23, 42, 0.03);
@@ -1291,7 +1314,49 @@ body {
   line-height: 1.55;
 }
 
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
 
+.spin-animation {
+  display: inline-block;
+  animation: spin 0.8s linear infinite;
+}
 
+/* Teal Utilities for Schedule & Workspace Buttons */
+.btn-teal {
+  background-color: #0f766e !important;
+  border-color: #0f766e !important;
+  color: #ffffff !important;
+}
 
+.btn-teal:hover,
+.btn-teal:focus,
+.btn-teal:active {
+  background-color: #0d9488 !important;
+  border-color: #0d9488 !important;
+  color: #ffffff !important;
+}
 
+.btn-outline-teal {
+  background-color: transparent !important;
+  border-color: #0f766e !important;
+  color: #0f766e !important;
+}
+
+.btn-outline-teal:hover,
+.btn-outline-teal:focus,
+.btn-outline-teal:active {
+  background-color: #0f766e !important;
+  border-color: #0f766e !important;
+  color: #ffffff !important;
+}
+
+.text-teal {
+  color: #0f766e !important;
+}

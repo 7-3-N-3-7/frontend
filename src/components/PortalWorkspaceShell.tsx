@@ -17,7 +17,7 @@ export default function PortalWorkspaceShell({
   const i18nCache = useI18nCache();
   const [me, setMe] = useState<any>(null);
 
-  const isTherapistMode = pathname.startsWith("/dashboard/therapist");
+  const isTherapistRoute = pathname.startsWith("/dashboard/therapist") || pathname.startsWith("/dashboard/clinic");
   const isAdminMode = pathname.startsWith("/dashboard/admin");
   const isSettingsMode = pathname.startsWith("/dashboard/settings");
 
@@ -47,7 +47,7 @@ export default function PortalWorkspaceShell({
         <div className="container-fluid px-0 d-flex align-items-center justify-content-between">
           <div className="d-flex align-items-center gap-4">
             <Link
-              href={isTherapistMode ? "/dashboard/therapist" : "/dashboard/personal"}
+              href={isTherapistRoute ? "/dashboard/therapist" : "/dashboard/personal"}
               className="d-flex align-items-center text-decoration-none gap-2"
             >
               <div
@@ -55,7 +55,7 @@ export default function PortalWorkspaceShell({
                 style={{
                   width: "38px",
                   height: "38px",
-                  backgroundColor: isTherapistMode
+                  backgroundColor: isTherapistRoute
                     ? "#0f766e"
                     : isAdminMode
                     ? "#4338ca"
@@ -64,7 +64,7 @@ export default function PortalWorkspaceShell({
               >
                 <i
                   className={`bi ${
-                    isTherapistMode
+                    isTherapistRoute
                       ? "bi-hospital-fill"
                       : isAdminMode
                       ? "bi-translate"
@@ -77,7 +77,7 @@ export default function PortalWorkspaceShell({
                   {tr("portal.brandTitle", tr("landing.nav.title", "EduJournal"))}
                 </div>
                 <div className="text-muted" style={{ fontSize: "0.72rem" }}>
-                  {isTherapistMode
+                  {isTherapistRoute
                     ? me?.providerProfile?.organisation?.name
                       ? `${me.providerProfile.organisation.name} (CVR: ${me.providerProfile.organisation.cvrNumber})`
                       : tr("portal.therapistPortalSub", "Therapist & Clinic Portal")
@@ -90,60 +90,19 @@ export default function PortalWorkspaceShell({
 
             {/* Role-Specific Navigation Links */}
             <nav className="d-none d-md-flex align-items-center gap-1 ms-2">
-              {!isTherapistMode && !isAdminMode && (
-                <>
-                  <Link
-                    href="/dashboard/personal"
-                    className={`btn btn-sm rounded-pill px-3 fw-medium ${
-                      pathname === "/dashboard/personal"
-                        ? "btn-primary"
-                        : "btn-light text-secondary"
-                    }`}
-                  >
-                    <i className="bi bi-grid-1x2 me-1"></i>{" "}
-                    {tr("portal.navClientOverview", tr("dashboard.layout.home", "My Overview"))}
-                  </Link>
-                  <Link
-                    href="/dashboard/settings"
-                    className={`btn btn-sm rounded-pill px-3 fw-medium ${
-                      isSettingsMode ? "btn-primary" : "btn-light text-secondary"
-                    }`}
-                  >
-                    <i className="bi bi-person-vcard me-1"></i>{" "}
-                    {tr("portal.navClientSettings", tr("dashboard.dropdown.settings", "Settings"))}
-                  </Link>
-                </>
-              )}
-
-              {isTherapistMode && (
-                <>
-                  <Link
-                    href="/dashboard/therapist"
-                    className="btn btn-sm rounded-pill px-3 fw-medium text-white"
-                    style={{ backgroundColor: "#0f766e" }}
-                  >
-                    <i className="bi bi-calendar3 me-1"></i>{" "}
-                    {tr("portal.navTherapistCalendar", "Clinic Calendar & Client Workspaces")}
-                  </Link>
-                  <Link
-                    href="/dashboard/settings"
-                    className={`btn btn-sm rounded-pill px-3 fw-medium ${
-                      isSettingsMode ? "btn-dark" : "btn-light text-secondary"
-                    }`}
-                  >
-                    <i className="bi bi-building-gear me-1"></i>{" "}
-                    {tr("portal.navTherapistSettings", tr("dashboard.dropdown.settings", "Clinic Settings"))}
-                  </Link>
-                </>
+              {!isTherapistRoute && !isAdminMode && isSettingsMode && (
+                <Link
+                  href="/dashboard/personal"
+                  className="btn btn-sm rounded-pill px-3 fw-medium btn-light text-secondary"
+                >
+                  <i className="bi bi-grid-1x2 me-1"></i>{" "}
+                  {tr("portal.navClientOverview", tr("dashboard.layout.home", "My Overview"))}
+                </Link>
               )}
             </nav>
           </div>
 
           <div className="d-flex align-items-center gap-3">
-            <span className="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-3 py-1.5 d-none d-lg-inline-flex align-items-center gap-1">
-              <i className="bi bi-database-check"></i>{" "}
-              {tr("portal.dbLiveBadge", "PostgreSQL & JGit Live")}
-            </span>
             <LanguageSwitcher />
             <UserDropdown />
           </div>

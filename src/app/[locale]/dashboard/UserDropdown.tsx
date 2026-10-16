@@ -43,7 +43,7 @@ export default function UserDropdown() {
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
-  const isTherapistView = pathname.startsWith("/dashboard/therapist");
+  const isTherapistView = pathname.startsWith("/dashboard/therapist") || pathname.startsWith("/dashboard/clinic");
 
   const tr = (key: string, fallback: string) => {
     try {
@@ -218,12 +218,22 @@ export default function UserDropdown() {
             </Dropdown.Item>
           )}
 
+          {me?.isTherapist && (
+            <Dropdown.Item
+              onClick={() => router.push("/dashboard/clinic")}
+              className="rounded-3 py-2 fw-medium text-dark"
+            >
+              <i className="bi bi-building-gear me-2" style={{ color: "#0f766e" }}></i>{" "}
+              {tr("portal.navTherapistSettings", "Clinic CVR & Working Hours")}
+            </Dropdown.Item>
+          )}
+
           <Dropdown.Item
             onClick={() => router.push("/dashboard/settings")}
             className="rounded-3 py-2"
           >
-            <i className="bi bi-gear me-2"></i>{" "}
-            {tr("portal.profileSettingsBtn", tr("dashboard.dropdown.settings", "Account Settings"))}
+            <i className="bi bi-person-gear me-2"></i>{" "}
+            {tr("portal.profileSettingsBtn", "Personlige Stamdata (Klient)")}
           </Dropdown.Item>
 
           <Dropdown.Divider />
