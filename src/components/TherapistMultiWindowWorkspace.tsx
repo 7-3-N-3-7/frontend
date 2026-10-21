@@ -207,7 +207,7 @@ function CommitLinkerSelector({
               ) : (
                 clientApts.map((apt: any) => {
                   const dateStr = apt.startTime
-                    ? String(apt.startTime).replace("T", " kl. ").slice(0, 19)
+                    ? `${String(apt.startTime).slice(0, 10)} ${loc("kl.", "•")} ${String(apt.startTime).slice(11, 16)}`
                     : "";
                   const isSelected =
                     selectedRef?.type === "APPOINTMENT" &&
@@ -369,7 +369,7 @@ function CommitLinkerSelector({
                             </span>
                             {c.timestamp && (
                               <span className="text-muted fw-medium" style={{ fontSize: "0.72rem" }}>
-                                {String(c.timestamp).replace("T", " kl. ").slice(0, 16)}
+                                {String(c.timestamp).slice(0, 10)} {loc("kl.", "•")} {String(c.timestamp).slice(11, 16)}
                               </span>
                             )}
                           </div>
@@ -2850,7 +2850,41 @@ export default function TherapistMultiWindowWorkspace({
                     const clientBundle = effectiveStudioUuid ? clientBundles[effectiveStudioUuid] : null;
 
                     return (
-                      <div className="d-flex flex-column gap-2">
+                      <div className="d-flex flex-column gap-2" data-window-kind="JGIT_TIMELINE">
+                        {/* Side-by-side Client Journal commit badge bar for Multi-Window navigation */}
+                        <div
+                          data-window-kind="CLIENT_JOURNAL"
+                          className="d-flex flex-wrap align-items-center justify-content-between gap-2 px-3 py-1.5 rounded-3 bg-light border small"
+                        >
+                          <span className="fw-semibold text-dark">
+                            <i className="bi bi-journal-medical text-success me-1.5"></i>
+                            {loc("Aktiv Klientjournal:", "Active Client Journal:")}{" "}
+                            <strong>{activeStudioClient?.name || "Anders Sand"}</strong>
+                          </span>
+                          <div className="d-flex flex-wrap align-items-center gap-1.5">
+                            {studioCommits.slice(0, 3).map((c: any) => {
+                              const shortHash = String(c.commitHash || c.shortHash || c.fullHash || "a1b2c3d").slice(0, 7);
+                              return (
+                                <button
+                                  key={shortHash}
+                                  type="button"
+                                  title="Fokuser dette commit i JGit Tidslinje-vinduet"
+                                  onClick={() =>
+                                    setSelectedGitCommitsByClient((prev) => ({
+                                      ...prev,
+                                      [effectiveStudioUuid]: shortHash,
+                                    }))
+                                  }
+                                  className="btn btn-sm btn-outline-secondary rounded-pill px-2 py-0.5 font-monospace"
+                                  style={{ fontSize: "0.72rem" }}
+                                >
+                                  #{shortHash}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
                         {clientBundle?.historyFilterActive && (
                           <div
                             className="alert alert-info py-2 px-3 rounded-3 border-0 small d-flex align-items-center gap-2 mb-1"
@@ -3374,7 +3408,7 @@ export default function TherapistMultiWindowWorkspace({
                                     type: "APPOINTMENT",
                                     appointmentId: apt.id,
                                     appointmentTitle: apt.title,
-                                    appointmentDate: String(apt.startTime).replace("T", " ").slice(0, 16),
+                                    appointmentDate: `${String(apt.startTime).slice(0, 10)} ${loc("kl.", "•")} ${String(apt.startTime).slice(11, 16)}`,
                                   };
                                   setSelectedRefByKey((prev) => ({
                                     ...prev,
@@ -3440,7 +3474,7 @@ export default function TherapistMultiWindowWorkspace({
                           <div className="small fw-semibold text-success mt-2 pt-2 border-top">
                             <i className="bi bi-clock me-1"></i>
                             {loc("Tidspunkt:", "Time:")}{" "}
-                            {String(apt.startTime).replace("T", " kl. ").slice(0, 19)}
+                            {String(apt.startTime).slice(0, 10)} {loc("kl.", "•")} {String(apt.startTime).slice(11, 16)}
                           </div>
                         </div>
 

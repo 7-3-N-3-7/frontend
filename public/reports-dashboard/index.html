@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Quality & Test Reports — Nordic Mind Platform</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --border: #e2e8f0;
+      --text-main: #0f172a;
+      --text-muted: #475569;
+      --accent-teal: #0f766e;
+      --accent-indigo: #4f46e5;
+      --badge-green-bg: #dcfce7;
+      --badge-green-fg: #166534;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg);
+      color: var(--text-main);
+      line-height: 1.6;
+      padding: 3rem 1.5rem;
+    }
+    .container {
+      max-width: 1080px;
+      margin: 0 auto;
+    }
+    header {
+      margin-bottom: 2.5rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 1.5rem;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+    }
+    .title-group h1 {
+      font-size: 1.85rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: var(--text-main);
+    }
+    .title-group p {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      margin-top: 0.25rem;
+    }
+    .gate-pill {
+      background-color: var(--badge-green-bg);
+      color: var(--badge-green-fg);
+      font-weight: 700;
+      font-size: 0.82rem;
+      padding: 0.45rem 0.9rem;
+      border-radius: 9999px;
+      border: 1px solid #86efac;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(440px, 1fr));
+      gap: 1.5rem;
+    }
+    @media (max-width: 520px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 1.75rem;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+      transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+      text-decoration: none;
+      color: inherit;
+    }
+    .card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.08);
+      border-color: #cbd5e1;
+    }
+    .card-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+    .tag {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 0.25rem 0.65rem;
+      border-radius: 999px;
+    }
+    .tag-frontend {
+      background: #e0f2fe;
+      color: #0369a1;
+    }
+    .tag-backend {
+      background: #ede9fe;
+      color: #5b21b6;
+    }
+    .metric-badge {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--badge-green-fg);
+      background: var(--badge-green-bg);
+      padding: 0.2rem 0.6rem;
+      border-radius: 6px;
+    }
+    .card h2 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+    }
+    .card p {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      margin-bottom: 1.5rem;
+    }
+    .card-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-top: 1rem;
+      border-top: 1px solid #f1f5f9;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--accent-teal);
+    }
+    .path-code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.78rem;
+      color: #64748b;
+      background: #f1f5f9;
+      padding: 0.2rem 0.5rem;
+      border-radius: 6px;
+    }
+    footer {
+      margin-top: 3rem;
+      text-align: center;
+      font-size: 0.82rem;
+      color: var(--text-muted);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="title-group">
+        <h1>Verification &amp; Coverage Reports</h1>
+        <p>Automatically generated during Docker image builds and updated live via Watchtower</p>
+      </div>
+      <div class="gate-pill">
+        <span>✓</span>
+        <span>Enforced 98% Unit Coverage Gate (Frontend &amp; Backend)</span>
+      </div>
+    </header>
+
+    <div class="grid">
+      <a class="card" href="/frontend-cucumber/index.html">
+        <div>
+          <div class="card-top">
+            <span class="tag tag-frontend">Frontend • Next.js 16 + Playwright</span>
+            <span class="metric-badge">BDD E2E &amp; API</span>
+          </div>
+          <h2>Frontend Cucumber Report</h2>
+          <p>
+            End-to-end Gherkin feature specifications verifying the Client Portal, Therapist Multi-Window Workspace, JGit 2D Timeline, i18n, and RBAC security boundaries.
+          </p>
+        </div>
+        <div class="card-footer">
+          <span class="path-code">/frontend-cucumber/</span>
+          <span>Open Report →</span>
+        </div>
+      </a>
+
+      <a class="card" href="/frontend-coverage/index.html">
+        <div>
+          <div class="card-top">
+            <span class="tag tag-frontend">Frontend • Vitest + V8</span>
+            <span class="metric-badge">≥ 98% Threshold</span>
+          </div>
+          <h2>Frontend Unit Test Coverage</h2>
+          <p>
+            V8 HTML coverage report enforcing ≥98% across lines, branches, functions, and statements during the frontend container build.
+          </p>
+        </div>
+        <div class="card-footer">
+          <span class="path-code">/frontend-coverage/</span>
+          <span>Open Report →</span>
+        </div>
+      </a>
+
+      <a class="card" href="/backend-coverage/index.html">
+        <div>
+          <div class="card-top">
+            <span class="tag tag-backend">Backend • Spring Boot 3 + JaCoCo</span>
+            <span class="metric-badge">≥ 98% All 6 Metrics</span>
+          </div>
+          <h2>Backend JaCoCo Coverage Report</h2>
+          <p>
+            JaCoCo HTML coverage analysis enforcing ≥98% across Line, Branch, Instruction, Method, Class, and Cyclomatic Complexity counters.
+          </p>
+        </div>
+        <div class="card-footer">
+          <span class="path-code">/backend-coverage/</span>
+          <span>Open Report →</span>
+        </div>
+      </a>
+
+      <a class="card" href="/backend-cucumber/index.html">
+        <div>
+          <div class="card-top">
+            <span class="tag tag-backend">Backend • Cucumber JVM</span>
+            <span class="metric-badge">BDD Integration</span>
+          </div>
+          <h2>Backend Cucumber Report</h2>
+          <p>
+            Spring Boot Cucumber BDD integration test report covering clinical workflows, JGit repositories, appointment conflict detection, and GDPR erasure.
+          </p>
+        </div>
+        <div class="card-footer">
+          <span class="path-code">/backend-cucumber/</span>
+          <span>Open Report →</span>
+        </div>
+      </a>
+    </div>
+
+    <footer>
+      Served from baked container artifacts on <code>reports.157.180.43.151.nip.io</code>
+    </footer>
+  </div>
+</body>
+</html>

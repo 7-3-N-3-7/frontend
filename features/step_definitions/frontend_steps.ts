@@ -447,11 +447,11 @@ When(
   async function (this: FrontendBddWorld, mode: "DELTA" | "SNAPSHOT") {
     this.activeTimelineViewMode = mode;
     if (this.page) {
-      const btnText =
+      const btnSelector =
         mode === "SNAPSHOT"
-          ? "Fuld Journal-Snapshot"
-          : "Ændring i dette commit (Diff)";
-      const btn = this.page.locator(`button:has-text("${btnText}")`).first();
+          ? 'button:has-text("Fuld journaltilstand"), button:has-text("Fuld Journal-Snapshot")'
+          : 'button:has-text("Ændring i denne revision"), button:has-text("Ændring i dette commit (Diff)")';
+      const btn = this.page.locator(btnSelector).first();
       if ((await btn.count()) > 0) {
         await btn.click();
         await this.page.waitForTimeout(200);

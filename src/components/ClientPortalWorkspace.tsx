@@ -2406,9 +2406,7 @@ export default function ClientPortalWorkspace({
                                     <div className="d-flex flex-wrap align-items-center gap-2 mb-1">
                                       <span className="badge bg-primary-subtle text-primary">
                                         {loc("Aftale", "Appointment")} •{" "}
-                                        {String(apt.startTime)
-                                          .replace("T", " • ")
-                                          .slice(0, 18)}
+                                        {String(apt.startTime).slice(0, 10)} {loc("kl.", "•")} {String(apt.startTime).slice(11, 16)}
                                       </span>
                                       {idx === 0 && (
                                         <span className="badge bg-success text-white rounded-pill">
@@ -2507,9 +2505,7 @@ export default function ClientPortalWorkspace({
                                     <div>
                                       <span className="badge bg-secondary-subtle text-secondary mb-1">
                                         {loc("Tidligere aftale", "Past session")} •{" "}
-                                        {String(apt.startTime)
-                                          .replace("T", " • ")
-                                          .slice(0, 18)}
+                                        {String(apt.startTime).slice(0, 10)} {loc("kl.", "•")} {String(apt.startTime).slice(11, 16)}
                                       </span>
                                       <h6 className="fw-bold mb-1 text-dark">{apt.title}</h6>
                                       <div className="small text-muted">
@@ -2883,9 +2879,7 @@ export default function ClientPortalWorkspace({
                                   </span>
                                   {entry.timestamp && (
                                     <span className="text-muted" style={{ fontSize: "0.74rem" }}>
-                                      {String(entry.timestamp)
-                                        .replace("T", isEn ? " • " : " kl. ")
-                                        .slice(0, 20)}
+                                      {String(entry.timestamp).slice(0, 10)} {loc("kl.", "•")} {String(entry.timestamp).slice(11, 16)}
                                     </span>
                                   )}
                                 </div>
@@ -3230,7 +3224,7 @@ export default function ClientPortalWorkspace({
                                   {t.testType} — Score: {t.score} / 80
                                 </div>
                                 <div className="small text-muted">
-                                  {t.timestamp ? String(t.timestamp).replace("T", " ").slice(0, 16) : ""}
+                                  {t.timestamp ? `${String(t.timestamp).slice(0, 10)} ${loc("kl.", "•")} ${String(t.timestamp).slice(11, 16)}` : ""}
                                 </div>
                               </div>
                               <span className="badge bg-warning-subtle text-dark border px-3 py-2">
@@ -3418,7 +3412,7 @@ export default function ClientPortalWorkspace({
                                     {j.title}
                                   </div>
                                   <div className="small text-muted">
-                                    {j.timestamp ? String(j.timestamp).replace("T", " ").slice(0, 16) : ""}
+                                    {j.timestamp ? `${String(j.timestamp).slice(0, 10)} ${loc("kl.", "•")} ${String(j.timestamp).slice(11, 16)}` : ""}
                                   </div>
                                 </div>
                                 <span className="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2.5 py-1 fw-bold">

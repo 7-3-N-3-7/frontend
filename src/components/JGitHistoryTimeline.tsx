@@ -1894,8 +1894,8 @@ export default function JGitHistoryTimeline({
                 <div className="fw-bold text-dark pb-2 mb-3 border-bottom d-flex justify-content-between align-items-center">
                   <span>
                     {loc(
-                      `Fuld journaltilstand (${commit.authorDisplayName} • ${commit.formattedDate} kl. ${commit.formattedTime})`,
-                      `Full journal state (${commit.authorDisplayName} • ${commit.formattedDate} at ${commit.formattedTime})`
+                      `Fuld journaltilstand ved commit #${commit.commitHash} (${commit.authorDisplayName} • ${commit.formattedDate} kl. ${commit.formattedTime})`,
+                      `Full journal state at commit #${commit.commitHash} (${commit.authorDisplayName} • ${commit.formattedDate} at ${commit.formattedTime})`
                     )}
                   </span>
                   <span className="badge bg-light text-dark border">

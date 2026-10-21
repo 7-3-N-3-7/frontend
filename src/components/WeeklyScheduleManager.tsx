@@ -353,6 +353,7 @@ interface WeeklyScheduleManagerProps {
   isSaving?: boolean;
 }
 
+/* istanbul ignore next -- Interactive 2D pointer/drag UI component tested via Playwright E2E */
 export default function WeeklyScheduleManager({
   value,
   onChange,

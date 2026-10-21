@@ -10,6 +10,31 @@ const intlMiddleware = createIntlMiddleware(routing);
 export default async function proxy(request: NextRequest) {
   const url = request.nextUrl;
   const hostname = request.headers.get('host') || '';
+  const isReportsHost = hostname.startsWith('reports.');
+
+  // Serve static HTML reports and the reports landing dashboard directly without locale or auth redirects
+  if (
+    url.pathname === '/frontend-cucumber' ||
+    url.pathname === '/frontend-cucumber/'
+  ) {
+    return NextResponse.rewrite(new URL('/frontend-cucumber/index.html', request.url));
+  }
+  if (
+    url.pathname === '/frontend-coverage' ||
+    url.pathname === '/frontend-coverage/'
+  ) {
+    return NextResponse.rewrite(new URL('/frontend-coverage/index.html', request.url));
+  }
+  if (
+    url.pathname.startsWith('/frontend-cucumber/') ||
+    url.pathname.startsWith('/frontend-coverage/') ||
+    url.pathname.startsWith('/reports-dashboard/')
+  ) {
+    return NextResponse.next();
+  }
+  if (isReportsHost && (url.pathname === '/' || url.pathname === '')) {
+    return NextResponse.rewrite(new URL('/reports-dashboard/index.html', request.url));
+  }
 
   // 1. Run the i18n middleware first to ensure the locale is handled
   const response = intlMiddleware(request);

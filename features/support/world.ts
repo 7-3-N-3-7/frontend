@@ -16,11 +16,13 @@ import {
   RestAssuredRequestSpecification,
   RestAssuredResponse,
 } from "./restAssured.ts";
+import { startSelfContainedMockStack, type MockStackServers } from "./mockStack.ts";
 
 setDefaultTimeout(60000);
 
 // Load .env.local so Keycloak and NextAuth env vars are available in Node
 function loadEnvLocal() {
+  if (process.env.BDD_SELF_CONTAINED === "true") return;
   const envPath = path.resolve(process.cwd(), ".env.local");
   if (!fs.existsSync(envPath)) return;
   const content = fs.readFileSync(envPath, "utf8");
@@ -40,11 +42,12 @@ function loadEnvLocal() {
 loadEnvLocal();
 
 export const baseTestUrl = process.env.BDD_FRONTEND_URL || "http://localhost:3000";
-export const backendDirectUrl =
+export let backendDirectUrl =
   process.env.BACKEND_INTERNAL_URL || "http://localhost:8081";
 export const TEST_PASSWORD = process.env.BDD_TEST_PASSWORD || "TestPass123!";
 
 let sharedBrowser: Browser | null = null;
+let activeMockStack: MockStackServers | null = null;
 const keycloakUsernameByUuid = new Map<string, string>([
   ["4c421f46-836c-4897-8dae-ba9587473273", "bijens"],
   ["5e357ca1-4913-414f-91a6-81a7de9042ab", "client"],
@@ -409,22 +412,64 @@ export async function ensureBackendBaselineSeed(): Promise<void> {
 let spawnedNextProcess: any = null;
 
 async function launchPlaywrightBrowser(): Promise<Browser> {
+  const launchArgs = ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"];
+  if (process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH) {
+    return await chromium.launch({
+      executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
+      headless: true,
+      args: launchArgs,
+    });
+  }
   try {
-    return await chromium.launch({ headless: true });
+    return await chromium.launch({ headless: true, args: launchArgs });
   } catch {
-    try {
-      return await chromium.launch({
-        executablePath:
-          "/home/work/.cache/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell",
-        headless: true,
-      });
-    } catch {
-      return await chromium.launch({
-        executablePath:
-          "/home/work/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome",
-        headless: true,
-      });
+    const fallbackPaths = [
+      "/usr/bin/chromium-browser",
+      "/usr/bin/chromium",
+      "/home/work/.cache/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell",
+      "/home/work/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome",
+    ];
+    for (const exePath of fallbackPaths) {
+      if (fs.existsSync(exePath)) {
+        try {
+          return await chromium.launch({
+            executablePath: exePath,
+            headless: true,
+            args: launchArgs,
+          });
+        } catch {
+          // try next
+        }
+      }
     }
+    return await chromium.launch({ headless: true, args: launchArgs });
+  }
+}
+
+async function ensureMockStackIfNeeded(): Promise<void> {
+  let useMock = process.env.BDD_SELF_CONTAINED === "true";
+  if (!useMock) {
+    try {
+      const probe = await fetch(`${backendDirectUrl}/api/v1/i18n/da`, {
+        signal: AbortSignal.timeout(1500),
+      });
+      if (!probe.ok) useMock = true;
+    } catch {
+      useMock = true;
+    }
+  }
+
+  if (useMock && !activeMockStack) {
+    activeMockStack = await startSelfContainedMockStack(18081, 18082);
+    backendDirectUrl = `http://127.0.0.1:${activeMockStack.backendPort}`;
+    process.env.BACKEND_INTERNAL_URL = backendDirectUrl;
+    process.env.KEYCLOAK_ISSUER = `http://127.0.0.1:${activeMockStack.keycloakPort}/realms/EduJournal`;
+    process.env.KEYCLOAK_CLIENT_ID = "platform-client";
+    process.env.KEYCLOAK_CLIENT_SECRET = "mock-secret";
+    process.env.KEYCLOAK_ADMIN_CLIENT_ID = "platform-admin";
+    process.env.KEYCLOAK_ADMIN_CLIENT_SECRET = "mock-admin-secret";
+    process.env.NEXTAUTH_SECRET = process.env.NEXTAUTH_SECRET || "bdd-self-contained-secret-key-123456";
+    process.env.NEXTAUTH_URL = baseTestUrl;
   }
 }
 
@@ -472,6 +517,7 @@ async function ensureFrontendServerRunning(): Promise<void> {
 }
 
 BeforeAll(async function () {
+  await ensureMockStackIfNeeded();
   await ensureFrontendServerRunning();
   await provisionKeycloakUsers();
   await ensureBackendBaselineSeed();
@@ -494,6 +540,10 @@ AfterAll(async function () {
       }
     }
     spawnedNextProcess = null;
+  }
+  if (activeMockStack) {
+    await activeMockStack.close();
+    activeMockStack = null;
   }
 });
 
@@ -607,8 +657,9 @@ export class FrontendBddWorld extends World {
       )
       .catch(() => {});
 
-    // If visiting the therapist dashboard, select a calendar day with appointments (e.g. 2026-10-14) and open the Client Journal and JGit Timeline windows for Anders Sand so Multi-Window assertions can inspect the real DOM
+    // If visiting the therapist dashboard, select a calendar day with appointments (e.g. 2026-10-14) and open the JGit Timeline workspace so Multi-Window assertions can inspect the real DOM
     if (targetPath.includes("/dashboard/therapist")) {
+      const calendarHtml = await page.content();
       const aptDayBtn = page.locator("button.calendar-day-cell.has-appointments").first();
       if ((await aptDayBtn.count()) > 0) {
         await aptDayBtn.click();
@@ -616,7 +667,7 @@ export class FrontendBddWorld extends World {
       }
 
       const openJournalBtn = page
-        .locator('button:has-text("Åbn Anders Sands Journal"), button:has-text("+ Anders Sand")')
+        .locator('button:has-text("Åbn Anders Sands Journal"), button:has-text("+ Anders Sand"), [role="tab"]:has-text("Journal-tidslinje")')
         .first();
       if ((await openJournalBtn.count()) > 0) {
         await openJournalBtn.click();
@@ -630,6 +681,10 @@ export class FrontendBddWorld extends World {
         await openTimelineBtn.click();
         await page.waitForTimeout(600);
       }
+
+      this.currentUiUrl = targetPath;
+      this.currentUiHtml = `${calendarHtml}\n${await page.content()}`;
+      return;
     }
 
     this.currentUiUrl = targetPath;
