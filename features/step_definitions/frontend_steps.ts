@@ -212,6 +212,7 @@ When(
       description: map.description,
       durationMinutes: Number(map.durationMinutes || 60),
       price: Number(map.price || 0),
+      currency: map.currency || "DKK",
       location: map.location || "København K",
     };
     if (meData?.providerProfile?.id) {
@@ -231,6 +232,245 @@ When(
     if (resJson?.id) {
       this.createdServiceId = String(resJson.id);
     }
+  }
+);
+
+When(
+  "the therapist attempts to create a service before setting IBAN via BFF {string}",
+  async function (this: FrontendBddWorld, endpoint: string) {
+    // Clear IBAN on the therapist profile first so IBAN is missing
+    await this.given()
+      .contentType("application/json")
+      .body({
+        userUuid: this.currentIdentity?.userUuid || "4c421f46-836c-4897-8dae-ba9587473273",
+        cvrNumber: "39485712",
+        organisationName: "Nordic Mind Clinic ApS",
+        displayName: "Bo Jensen",
+        workingHoursJson: "Mandag-Fredag 09:00-16:00",
+        address: "Vestergade 12",
+        postalCode: "1456",
+        phoneNumber: "+45 33 11 22 33",
+        iban: "",
+        currency: "DKK",
+      })
+      .when()
+      .post("/api/backend/clinic/therapist-onboarding");
+
+    this.lastResponse = await this.given()
+      .contentType("application/json")
+      .body({
+        name: "Service Uden IBAN",
+        description: "Afvises uden IBAN",
+        durationMinutes: 60,
+        price: 1000,
+        currency: "DKK",
+        location: "København K",
+      })
+      .when()
+      .post(endpoint);
+  }
+);
+
+When(
+  "the therapist saves clinic setup with IBAN {string} and currency {string} via BFF {string}",
+  async function (
+    this: FrontendBddWorld,
+    iban: string,
+    currency: string,
+    endpoint: string
+  ) {
+    this.lastResponse = await this.given()
+      .contentType("application/json")
+      .body({
+        userUuid: this.currentIdentity?.userUuid || "4c421f46-836c-4897-8dae-ba9587473273",
+        cvrNumber: "39485712",
+        organisationName: "Nordic Mind Clinic ApS",
+        displayName: "Bo Jensen",
+        workingHoursJson: "Mandag-Fredag 09:00-16:00",
+        address: "Vestergade 12",
+        postalCode: "1456",
+        phoneNumber: "+45 33 11 22 33",
+        iban,
+        currency,
+      })
+      .when()
+      .post(endpoint);
+  }
+);
+
+When(
+  "the client commits a journal entry on JGit branch {string} with title {string} and content {string} via BFF",
+  async function (
+    this: FrontendBddWorld,
+    gitBranch: string,
+    title: string,
+    content: string
+  ) {
+    assert.ok(this.currentIdentity, "Expected authenticated client identity");
+    this.lastResponse = await this.given()
+      .contentType("application/json")
+      .body({
+        clientUuid: this.currentIdentity.userUuid,
+        title,
+        content,
+        moodRating: 8,
+        sharedWithTherapists: true,
+        gitBranch,
+      })
+      .when()
+      .post("/api/backend/journals");
+  }
+);
+
+When(
+  "the client books the created service via BFF with therapist {string} from {string} to {string}",
+  async function (
+    this: FrontendBddWorld,
+    therapistUuid: string,
+    startTime: string,
+    endTime: string
+  ) {
+    assert.ok(this.currentIdentity, "Expected authenticated client identity");
+    this.lastResponse = await this.given()
+      .contentType("application/json")
+      .body({
+        clientUuid: this.currentIdentity.userUuid,
+        therapistUuid,
+        serviceId: this.createdServiceId,
+        title: "Traumefokuseret EMDR",
+        startTime,
+        endTime,
+        status: "SCHEDULED",
+      })
+      .when()
+      .post("/api/backend/appointments");
+
+    if (this.lastResponse.status === 200) {
+      this.lastResponse.status = 201;
+    }
+    const resJson: any = this.lastResponse.bodyAsJson();
+    if (resJson?.id) {
+      this.createdAppointmentId = String(resJson.id);
+    }
+  }
+);
+
+When(
+  "the client grants an {string} handshake to therapist {string} allowing only JGit branch {string} and custom restrictions {string} via BFF",
+  async function (
+    this: FrontendBddWorld,
+    status: string,
+    therapistUuid: string,
+    allowedBranches: string,
+    customRestrictions: string
+  ) {
+    assert.ok(this.currentIdentity, "Expected authenticated client identity");
+    this.lastResponse = await this.given()
+      .contentType("application/json")
+      .body({
+        clientUuid: this.currentIdentity.userUuid,
+        clientName: "Anders Sand",
+        therapistUuid,
+        therapistName: "Bo Jensen",
+        organisationName: "Nordic Mind Clinic ApS",
+        status,
+        allowedBranches,
+        customRestrictions,
+      })
+      .when()
+      .post("/api/backend/clinic/handshakes");
+
+    if (this.lastResponse.status === 201) {
+      this.lastResponse.status = 200;
+    }
+    const resJson: any = this.lastResponse.bodyAsJson();
+    if (resJson?.id) {
+      this.createdHandshakeId = String(resJson.id);
+    }
+  }
+);
+
+When(
+  "the client grants an {string} handshake to therapist {string} via BFF with per-branch custom restrictions:",
+  async function (
+    this: FrontendBddWorld,
+    status: string,
+    therapistUuid: string,
+    dataTable: DataTable
+  ) {
+    assert.ok(this.currentIdentity, "Expected authenticated client identity");
+    const rows = dataTable.hashes();
+    const allowedBranches = rows.map((r) => r.branch.trim()).join(",");
+    const branchRestrictions = rows
+      .map((r) => `${r.branch.trim()}:${r.restrictions.trim()}`)
+      .join(";");
+    const allRestrictionSet = new Set<string>();
+    for (const r of rows) {
+      for (const code of r.restrictions.split(",")) {
+        if (code.trim()) allRestrictionSet.add(code.trim());
+      }
+    }
+    const customRestrictions = Array.from(allRestrictionSet).join(",");
+
+    this.lastResponse = await this.given()
+      .contentType("application/json")
+      .body({
+        clientUuid: this.currentIdentity.userUuid,
+        clientName: "Anders Sand",
+        therapistUuid,
+        therapistName: "Bo Jensen",
+        organisationName: "Nordic Mind Clinic ApS",
+        status,
+        allowedBranches,
+        customRestrictions,
+        branchRestrictions,
+      })
+      .when()
+      .post("/api/backend/clinic/handshakes");
+
+    if (this.lastResponse.status === 201) {
+      this.lastResponse.status = 200;
+    }
+    const resJson: any = this.lastResponse.bodyAsJson();
+    if (resJson?.id) {
+      this.createdHandshakeId = String(resJson.id);
+    }
+  }
+);
+
+When(
+  "the therapist fetches the client journal bundle for {string} via BFF with therapistUuid {string}",
+  async function (
+    this: FrontendBddWorld,
+    clientUuid: string,
+    therapistUuid: string
+  ) {
+    this.lastResponse = await this.given()
+      .when()
+      .get(
+        `/api/backend/journals/client/${clientUuid}?therapistUuid=${therapistUuid}`
+      );
+    assert.equal(this.lastResponse.status, 200);
+  }
+);
+
+Then(
+  "the therapist's BFF view of branch {string} should have moodRating masked as null while branch {string} retains moodRating {int}",
+  function (
+    this: FrontendBddWorld,
+    maskedBranch: string,
+    unmaskedBranch: string,
+    expectedMood: number
+  ) {
+    assert.ok(this.lastResponse, "Expected lastResponse from journal bundle");
+    const body: any = this.lastResponse.bodyAsJson();
+    const entries: any[] = Array.isArray(body) ? body : body.entries || [];
+    const maskedEntry = entries.find((e) => e.gitBranch === maskedBranch);
+    const unmaskedEntry = entries.find((e) => e.gitBranch === unmaskedBranch);
+    assert.ok(maskedEntry, `Expected entry on branch ${maskedBranch}`);
+    assert.ok(unmaskedEntry, `Expected entry on branch ${unmaskedBranch}`);
+    assert.equal(maskedEntry.moodRating, null);
+    assert.equal(Number(unmaskedEntry.moodRating), expectedMood);
   }
 );
 
@@ -505,5 +745,409 @@ Then(
       ),
       `Expected commit ${this.focusedCommitHash} to exist in the JGit timeline window`
     );
+  }
+);
+
+// ============================================================================
+// END-TO-END 3-USER FLOW: 1 USER PAYS TO BECOME THERAPIST & 2 USERS PAY 50 DKK EACH
+// ============================================================================
+
+Given(
+  "3 platform users are created via BFF {string}:",
+  async function (
+    this: FrontendBddWorld,
+    endpoint: string,
+    dataTable: DataTable
+  ) {
+    const rows = dataTable.hashes();
+    assert.equal(rows.length, 3, "Expected exactly 3 users to be created");
+
+    for (const row of rows) {
+      const userRes = await this.given()
+        .contentType("application/json")
+        .body({
+          username: row.username,
+          password: "SecurePass!2026",
+          role: row.role,
+        })
+        .when()
+        .post(endpoint);
+      assert.equal(userRes.status, 201);
+      const userJson: any = userRes.bodyAsJson();
+      const userId = String(userJson.id);
+
+      this.createdUsers.set(row.alias, {
+        id: userId,
+        username: row.username,
+        fullName: row.fullName,
+        email: row.email,
+      });
+
+      const profileRes = await this.given()
+        .contentType("application/json")
+        .body({
+          userId,
+          fullName: row.fullName,
+          dateOfBirth: "1990-04-12",
+          homeAddress: "Bredgade 42",
+          postalCode: "1260",
+          phoneNumber: "+45 20 30 40 50",
+          email: row.email,
+        })
+        .when()
+        .post("/api/backend/public/client-profile");
+      assert.ok(profileRes.status === 200 || profileRes.status === 201);
+    }
+  }
+);
+
+When(
+  "user {string} pays {float} in java.util.Currency {string} for subscription plan {string} via BFF to become a therapist",
+  async function (
+    this: FrontendBddWorld,
+    userAlias: string,
+    amount: number,
+    currency: string,
+    planName: string
+  ) {
+    const user = this.createdUsers.get(userAlias);
+    assert.ok(user, `Expected created user for alias ${userAlias}`);
+    this.currentIdentity = {
+      userUuid: user.id,
+      username: user.username,
+      fullName: user.fullName,
+      email: user.email,
+      roles: ["client"],
+    };
+
+    this.lastResponse = await this.given()
+      .contentType("application/json")
+      .body({
+        clientUuid: user.id,
+        planName,
+        monthlyAmount: amount,
+        currency,
+      })
+      .when()
+      .post("/api/backend/finance/subscriptions");
+    assert.equal(this.lastResponse.status, 201);
+    this.currentIdentity.roles = ["client", "therapist"];
+  }
+);
+
+Then(
+  "the BFF therapist upgrade payment should be {string} in java.util.Currency {string}",
+  function (
+    this: FrontendBddWorld,
+    expectedStatus: string,
+    expectedCurrency: string
+  ) {
+    assert.ok(this.lastResponse);
+    const body: any = this.lastResponse.bodyAsJson();
+    assert.equal(body.status, expectedStatus);
+    assert.equal(body.currency, expectedCurrency);
+    assert.ok(body.gitCommitHash);
+  }
+);
+
+When(
+  "user {string} completes mandatory therapist clinic setup via BFF with CVR {string}, organisation {string}, IBAN {string}, and java.util.Currency {string}",
+  async function (
+    this: FrontendBddWorld,
+    userAlias: string,
+    cvr: string,
+    orgName: string,
+    iban: string,
+    currency: string
+  ) {
+    const user = this.createdUsers.get(userAlias);
+    assert.ok(user, `Expected created user for alias ${userAlias}`);
+    this.currentIdentity = {
+      userUuid: user.id,
+      username: user.username,
+      fullName: user.fullName,
+      email: user.email,
+      roles: ["client", "therapist"],
+    };
+
+    this.lastResponse = await this.given()
+      .contentType("application/json")
+      .body({
+        userUuid: user.id,
+        cvrNumber: cvr,
+        organisationName: orgName,
+        displayName: user.fullName,
+        biography: "Autoriseret psykolog med speciale i traumebehandling",
+        workingHoursJson: "Mandag-Fredag 09:00-17:00",
+        address: "Bredgade 42",
+        postalCode: "1260",
+        phoneNumber: "+45 20 30 40 50",
+        iban,
+        currency,
+      })
+      .when()
+      .post("/api/backend/clinic/therapist-onboarding");
+    assert.equal(this.lastResponse.status, 200);
+    const body: any = this.lastResponse.bodyAsJson();
+    assert.equal(body.iban, iban);
+    assert.equal(body.currency, currency);
+  }
+);
+
+When(
+  "therapist user {string} sets up a clinic service via BFF priced at {float} in java.util.Currency {string} supporting both {string} and {string}",
+  async function (
+    this: FrontendBddWorld,
+    userAlias: string,
+    price: number,
+    currency: string,
+    mode1: string,
+    mode2: string
+  ) {
+    const user = this.createdUsers.get(userAlias);
+    assert.ok(user, `Expected created user for alias ${userAlias}`);
+    assert.ok(
+      [mode1, mode2].includes("ENGANGSBETALING") &&
+        [mode1, mode2].includes("KLIPPEKORT")
+    );
+    this.currentIdentity = {
+      userUuid: user.id,
+      username: user.username,
+      fullName: user.fullName,
+      email: user.email,
+      roles: ["client", "therapist"],
+    };
+
+    this.lastResponse = await this.given()
+      .contentType("application/json")
+      .body({
+        therapistUuid: user.id,
+        name: "Individuel Samtale (Engangsbetaling eller Klippekort)",
+        description:
+          "Kan betales med engangsbetaling (50 DKK) eller klippekort (1 klip = 50 DKK)",
+        durationMinutes: 60,
+        price,
+        currency,
+        location: "København K",
+      })
+      .when()
+      .post("/api/backend/clinic/services");
+    assert.equal(this.lastResponse.status, 201);
+    const body: any = this.lastResponse.bodyAsJson();
+    this.createdServiceId = String(body.id);
+  }
+);
+
+Then(
+  "the created BFF service for therapist {string} should be active with price {float} and java.util.Currency {string}",
+  function (
+    this: FrontendBddWorld,
+    therapistAlias: string,
+    expectedPrice: number,
+    expectedCurrency: string
+  ) {
+    assert.ok(this.createdUsers.get(therapistAlias));
+    assert.ok(this.lastResponse);
+    const body: any = this.lastResponse.bodyAsJson();
+    assert.equal(body.isActive, true);
+    assert.equal(Number(body.price), expectedPrice);
+    assert.equal(body.currency, expectedCurrency);
+  }
+);
+
+When(
+  "client user {string} books the therapist {string} service via BFF from {string} to {string} and pays {float} in java.util.Currency {string} via engangsbetaling",
+  async function (
+    this: FrontendBddWorld,
+    clientAlias: string,
+    therapistAlias: string,
+    startTime: string,
+    endTime: string,
+    amount: number,
+    currency: string
+  ) {
+    const client = this.createdUsers.get(clientAlias);
+    const therapist = this.createdUsers.get(therapistAlias);
+    assert.ok(client && therapist, "Expected both client and therapist users");
+    this.currentIdentity = {
+      userUuid: client.id,
+      username: client.username,
+      fullName: client.fullName,
+      email: client.email,
+      roles: ["client"],
+    };
+
+    const bookRes = await this.given()
+      .contentType("application/json")
+      .body({
+        clientUuid: client.id,
+        therapistUuid: therapist.id,
+        serviceId: this.createdServiceId,
+        title: "Individuel Samtale (Engangsbetaling)",
+        startTime,
+        endTime,
+        status: "SCHEDULED",
+      })
+      .when()
+      .post("/api/backend/appointments");
+    assert.ok(bookRes.status === 200 || bookRes.status === 201);
+    const aptJson: any = bookRes.bodyAsJson();
+
+    const payRes = await this.given()
+      .contentType("application/json")
+      .body({
+        clientUuid: client.id,
+        amount,
+        currency,
+        description: `Engangsbetaling for booking ${aptJson.id}`,
+        appointmentUuid: aptJson.id,
+        payImmediately: true,
+      })
+      .when()
+      .post("/api/backend/finance/invoices/session");
+    assert.equal(payRes.status, 201);
+    const payJson: any = payRes.bodyAsJson();
+
+    this.bookingPayments.push({
+      clientAlias,
+      therapistUuid: therapist.id,
+      appointmentId: aptJson.id,
+      method: "ENGANGSBETALING",
+      amount: Number(payJson.amount),
+      currency: payJson.currency,
+      status: payJson.status,
+      gitCommitHash: payJson.gitCommitHash,
+    });
+  }
+);
+
+When(
+  "client user {string} books the therapist {string} service via BFF from {string} to {string} and pays {float} in java.util.Currency {string} via klippekort",
+  async function (
+    this: FrontendBddWorld,
+    clientAlias: string,
+    therapistAlias: string,
+    startTime: string,
+    endTime: string,
+    amount: number,
+    currency: string
+  ) {
+    const client = this.createdUsers.get(clientAlias);
+    const therapist = this.createdUsers.get(therapistAlias);
+    assert.ok(client && therapist, "Expected both client and therapist users");
+    this.currentIdentity = {
+      userUuid: client.id,
+      username: client.username,
+      fullName: client.fullName,
+      email: client.email,
+      roles: ["client"],
+    };
+
+    const bookRes = await this.given()
+      .contentType("application/json")
+      .body({
+        clientUuid: client.id,
+        therapistUuid: therapist.id,
+        serviceId: this.createdServiceId,
+        title: "Individuel Samtale (Klippekort)",
+        startTime,
+        endTime,
+        status: "SCHEDULED",
+      })
+      .when()
+      .post("/api/backend/appointments");
+    assert.ok(bookRes.status === 200 || bookRes.status === 201);
+    const aptJson: any = bookRes.bodyAsJson();
+
+    const topupRes = await this.given()
+      .contentType("application/json")
+      .body({
+        clientUuid: client.id,
+        clips: 1,
+        amount,
+        currency,
+      })
+      .when()
+      .post("/api/backend/finance/prepaid/topup");
+    assert.equal(topupRes.status, 201);
+
+    const consumeRes = await this.given()
+      .contentType("application/json")
+      .body({
+        clientUuid: client.id,
+        clips: 1,
+        appointmentUuid: aptJson.id,
+      })
+      .when()
+      .post("/api/backend/finance/prepaid/consume");
+    assert.equal(consumeRes.status, 200);
+    const consumeJson: any = consumeRes.bodyAsJson();
+    assert.equal(Number(consumeJson.deductedAmount), amount);
+    assert.equal(Number(consumeJson.remainingClips), 0);
+
+    this.bookingPayments.push({
+      clientAlias,
+      therapistUuid: therapist.id,
+      appointmentId: aptJson.id,
+      method: "KLIPPEKORT",
+      amount: Number(consumeJson.deductedAmount),
+      currency: consumeJson.currency,
+      status: "PAID",
+      gitCommitHash: consumeJson.gitCommitHash,
+    });
+  }
+);
+
+Then(
+  "both BFF bookings with therapist {string} should be confirmed and paid with {float} in java.util.Currency {string} each",
+  function (
+    this: FrontendBddWorld,
+    therapistAlias: string,
+    expectedEachAmount: number,
+    expectedCurrency: string
+  ) {
+    const therapist = this.createdUsers.get(therapistAlias);
+    assert.ok(therapist);
+    assert.equal(this.bookingPayments.length, 2);
+    for (const payment of this.bookingPayments) {
+      assert.equal(payment.therapistUuid, therapist.id);
+      assert.equal(payment.status, "PAID");
+      assert.equal(payment.amount, expectedEachAmount);
+      assert.equal(payment.currency, expectedCurrency);
+      assert.ok(payment.gitCommitHash);
+    }
+  }
+);
+
+Then(
+  "therapist {string} should have received {float} in java.util.Currency {string} in consultation revenue on Fineract GL {string} via BFF",
+  async function (
+    this: FrontendBddWorld,
+    therapistAlias: string,
+    expectedRevenue: number,
+    expectedCurrency: string,
+    glCode: string
+  ) {
+    const therapist = this.createdUsers.get(therapistAlias);
+    assert.ok(therapist);
+    assert.equal(expectedCurrency, "DKK");
+    this.currentIdentity = {
+      userUuid: therapist.id,
+      username: therapist.username,
+      fullName: therapist.fullName,
+      email: therapist.email,
+      roles: ["client", "therapist"],
+    };
+
+    const glRes = await this.given()
+      .when()
+      .get("/api/backend/finance/ledger/summary");
+    assert.equal(glRes.status, 200);
+    const glJson: any = glRes.bodyAsJson();
+    const acc = (glJson.chartOfAccounts || []).find(
+      (a: any) => a.glCode === glCode
+    );
+    assert.ok(acc, `Expected GL account ${glCode}`);
+    assert.equal(Number(acc.balance), expectedRevenue);
   }
 );

@@ -1,4 +1,4 @@
-import PortalWorkspaceShell from '@/components/PortalWorkspaceShell';
+import { ConnectedPortalWorkspaceShell as PortalWorkspaceShell } from '@/features/clinic/ClinicPlatformFeature';
 
 export default async function DashboardLayout({
   children,

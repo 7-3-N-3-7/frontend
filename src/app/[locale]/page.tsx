@@ -5,7 +5,7 @@ import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { Modal } from 'react-bootstrap';
 import { useTranslations } from 'next-intl';
-import LanguageSwitcher from '@/components/LanguageSwitcher';
+import { LanguageSwitcher } from '@/features/i18n/I18nFeature';
 
 export default function LandingPage() {
   const t = useTranslations("landing");
@@ -27,6 +27,21 @@ export default function LandingPage() {
   const [postalCode, setPostalCode] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
 
+  const getPlatformDashboardUrl = (locale: string) => {
+    const { protocol, hostname, port } = window.location;
+    const isLocalHost =
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "0.0.0.0" ||
+      hostname === "[::1]";
+    const targetHost =
+      hostname.startsWith("platform.") || isLocalHost
+        ? hostname
+        : `platform.${hostname}`;
+    const portSuffix = port ? `:${port}` : "";
+    return `${protocol}//${targetHost}${portSuffix}/${locale}/dashboard/personal`;
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -43,7 +58,7 @@ export default function LandingPage() {
       setLoading(false);
     } else {
       const locale = window.location.pathname.match(/^\/(en|da|fr|es|de)(?:\/|$)/)?.[1] || 'en';
-      window.location.href = `/${locale}/dashboard/personal`;
+      window.location.href = getPlatformDashboardUrl(locale);
     }
   };
 
@@ -90,7 +105,7 @@ export default function LandingPage() {
         setLoading(false);
       } else {
         const locale = window.location.pathname.match(/^\/(en|da|fr|es|de)(?:\/|$)/)?.[1] || 'en';
-        window.location.href = `/${locale}/dashboard/personal`;
+        window.location.href = getPlatformDashboardUrl(locale);
       }
 
     } catch (err: any) {

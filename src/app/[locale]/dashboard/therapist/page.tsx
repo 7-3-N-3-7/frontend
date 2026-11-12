@@ -1,7 +1,7 @@
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { getTranslations } from "next-intl/server";
-import TherapistMultiWindowWorkspace from "@/components/TherapistMultiWindowWorkspace";
+import { TherapistMultiWindowWorkspace } from "@/features/clinic/ClinicPlatformFeature";
 
 export default async function TherapistDashboard() {
   const session = await getServerSession(authOptions);

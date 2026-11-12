@@ -182,6 +182,14 @@ export async function startSelfContainedMockStack(
   const pcl5Tests: any[] = [];
   const journalEntries: any[] = [];
   const jgitCommits: any[] = [];
+  const savingsAccounts = new Map<string, { balance: number; remainingClips: number; clipUnitPrice: number; currency: string }>();
+  const glBalances: Record<string, number> = {
+    "1100": 0,
+    "1200": 0,
+    "2100": 0,
+    "4100": 0,
+    "4200": 0,
+  };
 
   const i18nStore: Record<string, Record<string, any>> = {
     da: {
@@ -252,11 +260,13 @@ export async function startSelfContainedMockStack(
     addedLine: string;
     dateStr?: string;
     mood?: number;
+    branch?: string;
   }) {
     const fullHash = crypto.randomBytes(8).toString("hex");
     const shortHash = fullHash.slice(0, 7);
     const dateStr = opts.dateStr || "2026-10-14";
     const timestamp = `${dateStr}T10:30:00Z`;
+    const branch = opts.branch || "main";
     const parentSnapshot = jgitCommits[0]?.snapshot || "";
     const newBlock = opts.isConfidential
       ? `## Fortroligt klinisk notat (${dateStr}T10:30:00)\nINTERNAL_MEDICAL_NOTES: ${opts.addedLine}`
@@ -267,6 +277,7 @@ export async function startSelfContainedMockStack(
       commitHash: shortHash,
       fullHash,
       shortHash,
+      branch,
       author: opts.author,
       timestamp,
       date: dateStr,
@@ -326,7 +337,8 @@ export async function startSelfContainedMockStack(
 
   const backendServer = http.createServer(async (req, res) => {
     const url = new URL(req.url || "/", `http://127.0.0.1:${backendPort}`);
-    const pathname = url.pathname;
+    // Support both /api/v1/* and /api/backend/* BFF proxy paths directly when Next.js isn't running
+    const pathname = url.pathname.replace(/^\/api\/backend(\/|$)/, "/api/v1$1");
     const method = req.method || "GET";
     const rawBody = await readRequestBody(req);
     let jsonBody: any = {};
@@ -366,6 +378,20 @@ export async function startSelfContainedMockStack(
       return sendJson(res, 200, { ...jsonBody, id: crypto.randomUUID() });
     }
 
+    if ((pathname === "/api/users" || pathname === "/api/v1/users") && method === "POST") {
+      const id = crypto.randomUUID();
+      const username = String(jsonBody.username || `user_${id.slice(0, 6)}`);
+      const role = String(jsonBody.role || "CLIENT").toUpperCase();
+      usersByUsername.set(username, {
+        id,
+        username,
+        name: username,
+        email: `${username}@klinik.dk`,
+      });
+      userRoles.set(id, new Set([role.toLowerCase()]));
+      return sendJson(res, 201, { id, username, role });
+    }
+
     // Require auth for non-public endpoints
     if (!auth.userUuid) {
       return sendJson(res, 401, { error: "Unauthorized" });
@@ -374,15 +400,35 @@ export async function startSelfContainedMockStack(
     // 2. /api/v1/clinic/therapist-onboarding
     if (pathname === "/api/v1/clinic/therapist-onboarding" && method === "POST") {
       const targetUuid = jsonBody.userUuid || auth.userUuid;
+      const existing = providerProfiles.get(targetUuid) || {};
+      const iban =
+        jsonBody.iban !== undefined
+          ? String(jsonBody.iban).trim()
+          : existing.iban || "";
+      const currency =
+        jsonBody.currency !== undefined && String(jsonBody.currency).trim() !== ""
+          ? String(jsonBody.currency).trim().toUpperCase()
+          : existing.currency || "DKK";
       const profile = {
-        id: crypto.randomUUID(),
+        id: existing.id || crypto.randomUUID(),
         userUuid: targetUuid,
-        displayName: jsonBody.displayName || "Bo Jensen",
-        biography: jsonBody.biography || "",
+        displayName: jsonBody.displayName || existing.displayName || "Bo Jensen",
+        biography: jsonBody.biography || existing.biography || "",
+        iban,
+        currency,
+        workingHoursJson:
+          jsonBody.workingHoursJson !== undefined
+            ? jsonBody.workingHoursJson
+            : existing.workingHoursJson || "Mandag-Fredag 09:00-16:00",
         organisation: {
-          id: crypto.randomUUID(),
-          name: jsonBody.organisationName || "Nordic Mind Clinic ApS",
-          cvrNumber: jsonBody.cvrNumber || "39485712",
+          id: existing.organisation?.id || crypto.randomUUID(),
+          name: jsonBody.organisationName || existing.organisation?.name || "Nordic Mind Clinic ApS",
+          cvrNumber: jsonBody.cvrNumber || existing.organisation?.cvrNumber || "39485712",
+          address: jsonBody.address || existing.organisation?.address || "Vestergade 12",
+          postalCode: jsonBody.postalCode || existing.organisation?.postalCode || "1456",
+          phoneNumber: jsonBody.phoneNumber || existing.organisation?.phoneNumber || "+45 33 11 22 33",
+          iban,
+          currency,
         },
       };
       providerProfiles.set(targetUuid, profile);
@@ -406,13 +452,30 @@ export async function startSelfContainedMockStack(
 
     // 4. /api/v1/clinic/services
     if (pathname === "/api/v1/clinic/services" && method === "POST") {
+      const targetUuid = jsonBody.therapistUuid || jsonBody.userUuid || auth.userUuid;
+      const profile = providerProfiles.get(targetUuid);
+      if (!profile || !profile.iban || String(profile.iban).trim() === "") {
+        return sendJson(res, 400, {
+          error:
+            "Du kan ikke oprette en service/ydelse før du har udfyldt: IBAN",
+          message:
+            "Du kan ikke oprette en service/ydelse før du har udfyldt: IBAN",
+        });
+      }
       const id = crypto.randomUUID();
       const srv = {
         id,
+        therapistUuid: targetUuid,
+        provider: {
+          id: profile.id,
+          userUuid: targetUuid,
+          displayName: profile.displayName,
+        },
         name: jsonBody.name,
         description: jsonBody.description,
         durationMinutes: jsonBody.durationMinutes,
         price: jsonBody.price,
+        currency: jsonBody.currency || profile.currency || "DKK",
         location: jsonBody.location,
         isActive: true,
         organisationName: "Nordic Mind Clinic ApS",
@@ -444,15 +507,33 @@ export async function startSelfContainedMockStack(
         return sendJson(res, 200, Array.from(handshakes.values()));
       }
       if (method === "POST") {
-        const id = crypto.randomUUID();
+        const existing = Array.from(handshakes.values()).find(
+          (h) =>
+            h.clientUuid === jsonBody.clientUuid &&
+            h.therapistUuid === jsonBody.therapistUuid
+        );
+        const id = existing?.id || crypto.randomUUID();
         const hs = {
           id,
           clientUuid: jsonBody.clientUuid,
-          clientName: jsonBody.clientName || "Anders Sand",
+          clientName: jsonBody.clientName || existing?.clientName || "Anders Sand",
           therapistUuid: jsonBody.therapistUuid,
-          therapistName: jsonBody.therapistName || "Bo Jensen",
-          organisationName: jsonBody.organisationName || "Nordic Mind Clinic ApS",
-          status: jsonBody.status || "ACTIVE",
+          therapistName: jsonBody.therapistName || existing?.therapistName || "Bo Jensen",
+          organisationName:
+            jsonBody.organisationName || existing?.organisationName || "Nordic Mind Clinic ApS",
+          status: jsonBody.status || existing?.status || "ACTIVE",
+          allowedBranches:
+            jsonBody.allowedBranches !== undefined
+              ? jsonBody.allowedBranches
+              : existing?.allowedBranches || null,
+          customRestrictions:
+            jsonBody.customRestrictions !== undefined
+              ? jsonBody.customRestrictions
+              : existing?.customRestrictions || null,
+          branchRestrictions:
+            jsonBody.branchRestrictions !== undefined
+              ? jsonBody.branchRestrictions
+              : existing?.branchRestrictions || null,
         };
         handshakes.set(id, hs);
         return sendJson(res, 200, hs);
@@ -463,7 +544,10 @@ export async function startSelfContainedMockStack(
     if (hsStatusMatch && method === "PATCH") {
       const hs = handshakes.get(hsStatusMatch[1]);
       if (!hs) return sendJson(res, 404, { error: "Not found" });
-      hs.status = jsonBody.status;
+      if (jsonBody.status !== undefined) hs.status = jsonBody.status;
+      if (jsonBody.allowedBranches !== undefined) hs.allowedBranches = jsonBody.allowedBranches;
+      if (jsonBody.customRestrictions !== undefined) hs.customRestrictions = jsonBody.customRestrictions;
+      if (jsonBody.branchRestrictions !== undefined) hs.branchRestrictions = jsonBody.branchRestrictions;
       return sendJson(res, 200, hs);
     }
 
@@ -539,19 +623,25 @@ export async function startSelfContainedMockStack(
       const clientHs = Array.from(handshakes.values()).filter(
         (h) => h.clientUuid === clientUuid
       );
+      const ownProviderProfile = providerProfiles.get(clientUuid) || null;
+      const marketplaceServices = Array.from(services.values()).filter(
+        (s: any) =>
+          s.therapistUuid !== clientUuid &&
+          s.provider?.userUuid !== clientUuid
+      );
       return sendJson(res, 200, {
         clientProfile: {
           userUuid: clientUuid,
           fullName: "Anders Sand",
           email: "client@mail.com",
         },
-        providerProfile: null,
+        providerProfile: ownProviderProfile,
         appointments: clientApts,
         handshakes: clientHs,
         journals: clientJournals,
         pcl5Tests: pcl5Tests.filter((t) => t.clientUuid === clientUuid),
         providers: Array.from(providerProfiles.values()),
-        services: Array.from(services.values()),
+        services: marketplaceServices,
       });
     }
 
@@ -621,12 +711,14 @@ export async function startSelfContainedMockStack(
 
     // 10. Journals & JGit History
     if (pathname === "/api/v1/journals" && method === "POST") {
+      const branch = jsonBody.gitBranch || "main";
       const commit = addJGitCommit({
         author: auth.isTherapist ? "Bo Jensen" : "Anders Sand",
         message: jsonBody.title || "Journalopslag",
         isConfidential: false,
         addedLine: jsonBody.content || jsonBody.title || "Journalopslag",
         mood: jsonBody.moodRating ?? 7,
+        branch,
       });
       const entry = {
         id: crypto.randomUUID(),
@@ -635,6 +727,7 @@ export async function startSelfContainedMockStack(
         content: jsonBody.content,
         moodRating: jsonBody.moodRating ?? 7,
         sharedWithTherapists: jsonBody.sharedWithTherapists ?? true,
+        gitBranch: branch,
         createdAt: commit.timestamp,
         timestamp: commit.timestamp,
         commitHash: commit.commitHash,
@@ -666,13 +759,114 @@ export async function startSelfContainedMockStack(
     const clientJournalMatch = pathname.match(/^\/api\/v1\/journals\/client\/([^/]+)$/);
     if (clientJournalMatch && method === "GET") {
       const clientUuid = clientJournalMatch[1];
-      const entries = journalEntries.filter((e) => e.clientUuid === clientUuid);
+      const therapistUuidParam = url.searchParams.get("therapistUuid");
+      let entries = journalEntries.filter((e) => e.clientUuid === clientUuid);
+      if (therapistUuidParam) {
+        const hs = Array.from(handshakes.values()).find(
+          (h) =>
+            h.clientUuid === clientUuid &&
+            h.therapistUuid === therapistUuidParam &&
+            h.status === "ACTIVE"
+        );
+        if (hs) {
+          const branchRestrictionsMap: Record<string, string[]> = {};
+          if (hs.branchRestrictions && String(hs.branchRestrictions).trim() !== "") {
+            for (const row of String(hs.branchRestrictions).split(";")) {
+              const idx = row.indexOf(":");
+              if (idx > 0) {
+                const b = row.slice(0, idx).trim();
+                const codes = row
+                  .slice(idx + 1)
+                  .split(",")
+                  .map((c: string) => c.trim())
+                  .filter(Boolean);
+                if (b) branchRestrictionsMap[b] = codes;
+              } else if (row.trim()) {
+                branchRestrictionsMap[row.trim()] = [];
+              }
+            }
+          }
+          const allowedSet = new Set<string>();
+          if (hs.allowedBranches && String(hs.allowedBranches).trim() !== "") {
+            for (const b of String(hs.allowedBranches).split(",")) {
+              if (b.trim()) allowedSet.add(b.trim());
+            }
+          }
+          for (const b of Object.keys(branchRestrictionsMap)) {
+            allowedSet.add(b);
+          }
+          const globalRestrictions = new Set<string>(
+            hs.customRestrictions
+              ? String(hs.customRestrictions)
+                  .split(",")
+                  .map((c: string) => c.trim())
+                  .filter(Boolean)
+              : []
+          );
+          if (allowedSet.size > 0) {
+            entries = entries.filter((e) => allowedSet.has(e.gitBranch || "main"));
+          }
+          const maskedEntries = entries.map((e) => {
+            const branch = e.gitBranch || "main";
+            const branchSpecific = branchRestrictionsMap[branch] || [];
+            const hideMood =
+              branchSpecific.includes("NO_MOOD_SCORES") ||
+              (Object.keys(branchRestrictionsMap).length === 0 &&
+                globalRestrictions.has("NO_MOOD_SCORES"));
+            return {
+              ...e,
+              moodRating: hideMood ? null : e.moodRating,
+            };
+          });
+          return sendJson(res, 200, {
+            entries: maskedEntries,
+            allowedBranches: Array.from(allowedSet),
+            branchRestrictions: branchRestrictionsMap,
+          });
+        }
+      }
       return sendJson(res, 200, entries);
     }
 
     const historyMatch = pathname.match(/^\/api\/v1\/journals\/history\/([^/]+)$/);
     if (historyMatch && method === "GET") {
+      const clientUuid = historyMatch[1];
+      const therapistUuidParam = url.searchParams.get("therapistUuid");
       if (auth.isTherapist) {
+        if (!therapistUuidParam) {
+          return sendJson(res, 200, jgitCommits);
+        }
+        const hs = Array.from(handshakes.values()).find(
+          (h) =>
+            h.clientUuid === clientUuid &&
+            h.therapistUuid === therapistUuidParam &&
+            h.status === "ACTIVE"
+        );
+        if (hs) {
+          const allowedSet = new Set<string>();
+          if (hs.allowedBranches && String(hs.allowedBranches).trim() !== "") {
+            for (const b of String(hs.allowedBranches).split(",")) {
+              if (b.trim()) allowedSet.add(b.trim());
+            }
+          }
+          if (hs.branchRestrictions && String(hs.branchRestrictions).trim() !== "") {
+            for (const row of String(hs.branchRestrictions).split(";")) {
+              const idx = row.indexOf(":");
+              const b = (idx > 0 ? row.slice(0, idx) : row).trim();
+              if (b) allowedSet.add(b);
+            }
+          }
+          if (allowedSet.size > 0) {
+            const allowed = Array.from(allowedSet);
+            const filteredByBranch = jgitCommits
+              .filter((c) => allowed.includes(c.branch || "main"))
+              .map((c) => ({
+                ...c,
+                snapshot: c.delta || c.snapshot,
+              }));
+            return sendJson(res, 200, filteredByBranch);
+          }
+        }
         return sendJson(res, 200, jgitCommits);
       }
       // Privacy filter for clients: strip confidential commits & INTERNAL_MEDICAL_NOTES
@@ -680,12 +874,117 @@ export async function startSelfContainedMockStack(
         .filter((c) => !c.isConfidential && !String(c.delta || "").includes("INTERNAL_MEDICAL_NOTES"))
         .map((c) => ({
           ...c,
+          parentSnapshot: String(c.parentSnapshot || "")
+            .split("\n\n")
+            .filter((block) => !block.includes("INTERNAL_MEDICAL_NOTES"))
+            .join("\n\n"),
           snapshot: String(c.snapshot)
             .split("\n\n")
             .filter((block) => !block.includes("INTERNAL_MEDICAL_NOTES"))
             .join("\n\n"),
         }));
       return sendJson(res, 200, filtered);
+    }
+
+    // 11. Finance Endpoints (/api/v1/finance/*)
+    if (pathname === "/api/v1/finance/subscriptions" && method === "POST") {
+      const amount = Number(jsonBody.monthlyAmount || 250);
+      const currency = String(jsonBody.currency || "DKK").toUpperCase();
+      glBalances["1100"] = (glBalances["1100"] || 0) + amount;
+      glBalances["4200"] = (glBalances["4200"] || 0) + amount;
+      const clientUuid = String(jsonBody.clientUuid || auth.userUuid);
+      const rolesSet = userRoles.get(clientUuid) || new Set(["client"]);
+      rolesSet.add("therapist");
+      userRoles.set(clientUuid, rolesSet);
+      return sendJson(res, 201, {
+        subscriptionId: `KB-SUB-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
+        initialInvoiceId: `KB-INV-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
+        clientUuid,
+        planName: jsonBody.planName || "therapist-clinic-license",
+        monthlyAmount: amount,
+        currency,
+        status: "ACTIVE",
+        gitCommitHash: crypto.randomBytes(4).toString("hex"),
+      });
+    }
+
+    if (pathname === "/api/v1/finance/invoices/session" && method === "POST") {
+      const amount = Number(jsonBody.amount || 50);
+      const currency = String(jsonBody.currency || "DKK").toUpperCase();
+      glBalances["1100"] = (glBalances["1100"] || 0) + amount;
+      glBalances["4100"] = (glBalances["4100"] || 0) + amount;
+      return sendJson(res, 201, {
+        invoiceId: `KB-INV-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
+        clientUuid: jsonBody.clientUuid || auth.userUuid,
+        amount,
+        currency,
+        status: "PAID",
+        gitCommitHash: crypto.randomBytes(4).toString("hex"),
+      });
+    }
+
+    if (pathname === "/api/v1/finance/prepaid/topup" && method === "POST") {
+      const clientUuid = String(jsonBody.clientUuid || auth.userUuid);
+      const amount = Number(jsonBody.amount || 50);
+      const clips = Number(jsonBody.clips || 1);
+      const currency = String(jsonBody.currency || "DKK").toUpperCase();
+      const existing = savingsAccounts.get(clientUuid) || {
+        balance: 0,
+        remainingClips: 0,
+        clipUnitPrice: 0,
+        currency,
+      };
+      existing.balance += amount;
+      existing.remainingClips += clips;
+      existing.clipUnitPrice = existing.remainingClips > 0 ? existing.balance / existing.remainingClips : 0;
+      savingsAccounts.set(clientUuid, existing);
+      glBalances["1100"] = (glBalances["1100"] || 0) + amount;
+      glBalances["2100"] = (glBalances["2100"] || 0) + amount;
+      return sendJson(res, 201, {
+        savingsAccountId: `FIN-SAV-${clientUuid.slice(0, 8).toUpperCase()}`,
+        clientUuid,
+        balance: existing.balance,
+        remainingClips: existing.remainingClips,
+        clipUnitPrice: existing.clipUnitPrice,
+        currency,
+        gitCommitHash: crypto.randomBytes(4).toString("hex"),
+      });
+    }
+
+    if (pathname === "/api/v1/finance/prepaid/consume" && method === "POST") {
+      const clientUuid = String(jsonBody.clientUuid || auth.userUuid);
+      const clipsToUse = Number(jsonBody.clips || 1);
+      const existing = savingsAccounts.get(clientUuid);
+      if (!existing || existing.remainingClips < clipsToUse || existing.balance <= 0) {
+        return sendJson(res, 400, { error: "Insufficient prepaid clips" });
+      }
+      const deductedAmount =
+        existing.remainingClips === clipsToUse
+          ? existing.balance
+          : existing.clipUnitPrice * clipsToUse;
+      existing.remainingClips -= clipsToUse;
+      existing.balance -= deductedAmount;
+      savingsAccounts.set(clientUuid, existing);
+      glBalances["2100"] = (glBalances["2100"] || 0) - deductedAmount;
+      glBalances["4100"] = (glBalances["4100"] || 0) + deductedAmount;
+      return sendJson(res, 200, {
+        savingsAccountId: `FIN-SAV-${clientUuid.slice(0, 8).toUpperCase()}`,
+        clientUuid,
+        deductedAmount,
+        remainingClips: existing.remainingClips,
+        balance: existing.balance,
+        currency: existing.currency,
+        gitCommitHash: crypto.randomBytes(4).toString("hex"),
+      });
+    }
+
+    if (pathname === "/api/v1/finance/ledger/summary" && method === "GET") {
+      return sendJson(res, 200, {
+        chartOfAccounts: Object.entries(glBalances).map(([glCode, balance]) => ({
+          glCode,
+          balance,
+        })),
+      });
     }
 
     return sendJson(res, 200, {});

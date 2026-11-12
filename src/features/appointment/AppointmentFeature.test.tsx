@@ -1,20 +1,194 @@
-import { describe, it, expect } from "vitest";
+import React from "react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import {
+  AppointmentFeatureView,
+  BookingFeatureView,
   roundTo5Min,
   timeToMinutes,
   minutesToTime,
+  formatMinutes,
   getBreaksForDay,
   checkCollisionWithBreak,
   isDayClosed,
+  getScheduleForDate,
+  recomputeSchedule,
+  getDefaultWeeklySchedule,
   parseWeeklySchedule,
   serializeWeeklySchedule,
-  getDefaultWeeklySchedule,
-  WeeklyScheduleConfig,
   DaySchedule,
-} from "./WeeklyScheduleManager";
+  WeeklyScheduleConfig,
+} from "./AppointmentFeature";
+import { ErrorCode, ProblemDetail } from "../../core/baseDomainCore";
 
-describe("WeeklyScheduleManager logic", () => {
-  it("snaps time to minimum 5-minute intervals accurately", () => {
+describe("AppointmentFeature Vertical Slice (UI + DomainGuard + ProblemDetail)", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("renders initial appointments and creates & deletes a booking (Happy Path)", async () => {
+    const fetchMock = vi.fn();
+    global.fetch = fetchMock;
+
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => [
+        {
+          id: "apt-1",
+          clientName: "Alice",
+          startTime: "2026-05-01T10:00",
+          status: "SCHEDULED",
+        },
+      ],
+    });
+
+    render(<BookingFeatureView />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Alice/)).toBeDefined();
+    });
+
+    fireEvent.change(screen.getByTestId("input-clientName"), {
+      target: { value: "Bob" },
+    });
+    fireEvent.change(screen.getByTestId("input-startTime"), {
+      target: { value: "2026-05-01T12:00" },
+    });
+    fireEvent.change(screen.getByTestId("input-endTime"), {
+      target: { value: "2026-05-01T13:00" },
+    });
+    fireEvent.change(screen.getByTestId("input-title"), {
+      target: { value: "Trauma Session" },
+    });
+
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+      json: async () => ({
+        id: "apt-2",
+        clientName: "Bob",
+        startTime: "2026-05-01T12:00",
+        endTime: "2026-05-01T13:00",
+        title: "Trauma Session",
+        status: "SCHEDULED",
+      }),
+    });
+
+    fireEvent.click(screen.getByTestId("submit-booking"));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Bob/)).toBeDefined();
+    });
+
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 204,
+    });
+    fireEvent.click(screen.getByTestId("delete-booking-apt-2"));
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Bob/)).toBeNull();
+    });
+  });
+
+  it("displays RFC 7807 ProblemDetail error banner when backend returns 409 Conflict", async () => {
+    const fetchMock = vi.fn();
+    global.fetch = fetchMock;
+
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => [],
+    });
+
+    render(<AppointmentFeatureView />);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    const conflictProblem: ProblemDetail = {
+      type: "https://api.platform.com/errors/conflict",
+      title: "Conflict",
+      status: 409,
+      detail: "The selected time slot is already booked.",
+      errorCode: ErrorCode.CONFLICT,
+      timestamp: new Date().toISOString(),
+    };
+
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 409,
+      json: async () => conflictProblem,
+    });
+
+    fireEvent.change(screen.getByTestId("input-clientName"), {
+      target: { value: "Charlie" },
+    });
+    fireEvent.change(screen.getByTestId("input-startTime"), {
+      target: { value: "2026-05-01T10:00" },
+    });
+    fireEvent.click(screen.getByTestId("submit-booking"));
+
+    await waitFor(() => {
+      const errorBanner = screen.getByTestId("error-banner");
+      expect(errorBanner).toBeDefined();
+      expect(errorBanner.getAttribute("data-error-code")).toBe("CONFLICT");
+      expect(screen.getByTestId("error-title").textContent).toBe(
+        "Conflict (409)"
+      );
+      expect(screen.getByTestId("error-detail").textContent).toBe(
+        "The selected time slot is already booked."
+      );
+    });
+  });
+
+  it("enforces client-side DomainGuard before calling backend", async () => {
+    const fetchMock = vi.fn();
+    global.fetch = fetchMock;
+
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => [],
+    });
+
+    render(<AppointmentFeatureView />);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    // 1. Blank clientName
+    fireEvent.click(screen.getByTestId("submit-booking"));
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("error-banner").getAttribute("data-error-code")
+      ).toBe("VALIDATION_FAILED");
+      expect(screen.getByTestId("field-error-clientName").textContent).toContain(
+        "Client name must not be blank"
+      );
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // 2. End time before start time
+    fireEvent.change(screen.getByTestId("input-clientName"), {
+      target: { value: "Dana" },
+    });
+    fireEvent.change(screen.getByTestId("input-startTime"), {
+      target: { value: "2026-05-01T14:00" },
+    });
+    fireEvent.change(screen.getByTestId("input-endTime"), {
+      target: { value: "2026-05-01T13:00" },
+    });
+    fireEvent.click(screen.getByTestId("submit-booking"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("field-error-endTime").textContent).toContain(
+        "End time must be after start time"
+      );
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("WeeklyScheduleManager Domain Logic", () => {
+  it("rounds time strings to 5-minute increments", () => {
     expect(roundTo5Min("08:00")).toBe("08:00");
     expect(roundTo5Min("08:02")).toBe("08:00");
     expect(roundTo5Min("08:03")).toBe("08:05");
@@ -112,11 +286,6 @@ describe("WeeklyScheduleManager logic", () => {
   });
 
   it("covers all edge cases for time conversion, formatting, breaks, dates, and parsing", async () => {
-    const {
-      formatMinutes,
-      getScheduleForDate,
-      recomputeSchedule,
-    } = await import("./WeeklyScheduleManager");
 
     // roundTo5Min edge cases
     expect(roundTo5Min("")).toBe("09:00");

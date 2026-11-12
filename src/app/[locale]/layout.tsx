@@ -5,7 +5,7 @@ import './globals.css';
 import { getMessages } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { routing } from '@/i18n/routing';
-import { CachedI18nProvider } from '@/components/CachedI18nProvider';
+import { CachedI18nProvider } from '@/features/i18n/I18nFeature';
 
 const geistSans = Geist({
   variable: '--font-geist-sans',

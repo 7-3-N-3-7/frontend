@@ -41,7 +41,7 @@ function loadEnvLocal() {
 
 loadEnvLocal();
 
-export const baseTestUrl = process.env.BDD_FRONTEND_URL || "http://localhost:3000";
+export let baseTestUrl = process.env.BDD_FRONTEND_URL || "http://localhost:3000";
 export let backendDirectUrl =
   process.env.BACKEND_INTERNAL_URL || "http://localhost:8081";
 export const TEST_PASSWORD = process.env.BDD_TEST_PASSWORD || "TestPass123!";
@@ -228,7 +228,7 @@ export async function ensureBackendBaselineSeed(): Promise<void> {
     "X-Auth-Roles": "client,therapist,admin",
   };
 
-  // 1. Ensure Therapist ProviderProfile & Organisation exist in PostgreSQL
+  // 1. Ensure Therapist ProviderProfile & Organisation exist in PostgreSQL (with all 7 mandatory fields including IBAN & currency)
   await fetch(`${backendDirectUrl}/api/v1/clinic/therapist-onboarding`, {
     method: "POST",
     headers: therapistHeaders,
@@ -238,6 +238,12 @@ export async function ensureBackendBaselineSeed(): Promise<void> {
       organisationName: "Nordic Mind Clinic ApS",
       displayName: "Bo Jensen",
       biography: "Autoriseret psykolog med speciale i EMDR og traumeterapi.",
+      workingHoursJson: "Mandag-Fredag 09:00-16:00",
+      address: "Vestergade 12",
+      postalCode: "1456",
+      phoneNumber: "+45 33 11 22 33",
+      iban: "DK5000400440116243",
+      currency: "DKK",
     }),
   });
 
@@ -256,7 +262,7 @@ export async function ensureBackendBaselineSeed(): Promise<void> {
     }),
   });
 
-  // 3. Ensure active Handshake between Anders Sand and Bo Jensen
+  // 3. Ensure active Handshake between Anders Sand and Bo Jensen (reset branch/custom restrictions between scenarios)
   await fetch(`${backendDirectUrl}/api/v1/clinic/handshakes`, {
     method: "POST",
     headers: therapistHeaders,
@@ -267,6 +273,8 @@ export async function ensureBackendBaselineSeed(): Promise<void> {
       therapistName: "Bo Jensen",
       organisationName: "Nordic Mind Clinic ApS",
       status: "ACTIVE",
+      allowedBranches: "",
+      customRestrictions: "",
     }),
   });
 
@@ -424,6 +432,15 @@ async function launchPlaywrightBrowser(): Promise<Browser> {
     return await chromium.launch({ headless: true, args: launchArgs });
   } catch {
     const fallbackPaths = [
+      "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+      "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+      path.join(
+        process.env.LOCALAPPDATA || "C:\\Users\\vase_\\AppData\\Local",
+        "ms-playwright",
+        "chromium-1243",
+        "chrome-win",
+        "chrome.exe"
+      ),
       "/usr/bin/chromium-browser",
       "/usr/bin/chromium",
       "/home/work/.cache/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell",
@@ -462,6 +479,9 @@ async function ensureMockStackIfNeeded(): Promise<void> {
   if (useMock && !activeMockStack) {
     activeMockStack = await startSelfContainedMockStack(18081, 18082);
     backendDirectUrl = `http://127.0.0.1:${activeMockStack.backendPort}`;
+    if (!process.env.BDD_FRONTEND_URL && process.env.BDD_SPAWN_NEXT !== "true") {
+      baseTestUrl = backendDirectUrl;
+    }
     process.env.BACKEND_INTERNAL_URL = backendDirectUrl;
     process.env.KEYCLOAK_ISSUER = `http://127.0.0.1:${activeMockStack.keycloakPort}/realms/EduJournal`;
     process.env.KEYCLOAK_CLIENT_ID = "platform-client";
@@ -474,6 +494,9 @@ async function ensureMockStackIfNeeded(): Promise<void> {
 }
 
 async function ensureFrontendServerRunning(): Promise<void> {
+  if (process.env.BDD_SELF_CONTAINED === "true" && process.env.BDD_SPAWN_NEXT !== "true") {
+    return;
+  }
   const checkListening = async () => {
     try {
       const res = await fetch(`${baseTestUrl}/api/backend/i18n/da`, {
@@ -521,7 +544,9 @@ BeforeAll(async function () {
   await ensureFrontendServerRunning();
   await provisionKeycloakUsers();
   await ensureBackendBaselineSeed();
-  sharedBrowser = await launchPlaywrightBrowser();
+  if (process.env.BDD_SELF_CONTAINED !== "true" || process.env.BDD_SPAWN_NEXT === "true") {
+    sharedBrowser = await launchPlaywrightBrowser();
+  }
 });
 
 AfterAll(async function () {
@@ -552,6 +577,8 @@ Before(async function (this: FrontendBddWorld) {
   this.createdServiceId = null;
   this.createdHandshakeId = null;
   this.createdAppointmentId = null;
+  this.createdUsers.clear();
+  this.bookingPayments = [];
 });
 
 export class FrontendBddWorld extends World {
@@ -569,6 +596,8 @@ export class FrontendBddWorld extends World {
   public createdServiceId: string | null = null;
   public createdHandshakeId: string | null = null;
   public createdAppointmentId: string | null = null;
+  public createdUsers: Map<string, { id: string; username: string; fullName: string; email: string }> = new Map();
+  public bookingPayments: Array<Record<string, any>> = [];
 
   constructor(options: IWorldOptions) {
     super(options);

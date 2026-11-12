@@ -130,6 +130,22 @@ export const authOptions: AuthOptions = {
     }
   },
   callbacks: {
+    async redirect({ url, baseUrl }) {
+      if (url.startsWith("/")) {
+        return `${baseUrl}${url}`;
+      }
+      try {
+        const target = new URL(url);
+        const base = new URL(baseUrl);
+        const normalizeHost = (h: string) => h.replace(/^platform\./i, "");
+        if (normalizeHost(target.hostname) === normalizeHost(base.hostname)) {
+          return url;
+        }
+      } catch {
+        // fall through
+      }
+      return baseUrl;
+    },
     async jwt({ token, user, account, trigger }) {
       console.log("JWT Callback Triggered:", { 
         hasUser: !!user, 

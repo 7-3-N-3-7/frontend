@@ -9,8 +9,32 @@ const intlMiddleware = createIntlMiddleware(routing);
 
 export default async function proxy(request: NextRequest) {
   const url = request.nextUrl;
-  const hostname = request.headers.get('host') || '';
+  const rawHost =
+    request.headers.get('x-forwarded-host') ||
+    request.headers.get('host') ||
+    url.host ||
+    '';
+  const hostWithPort = rawHost.split(',')[0].trim();
+  const hostname = hostWithPort.split(':')[0].toLowerCase();
   const isReportsHost = hostname.startsWith('reports.');
+  const isPlatformHost = hostname.startsWith('platform.');
+  const isLocalHost =
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname === '0.0.0.0' ||
+    hostname === '[::1]';
+  const isBareDomain = !isPlatformHost && !isReportsHost && !isLocalHost && Boolean(hostname);
+  const forwardedProto = request.headers
+    .get('x-forwarded-proto')
+    ?.split(',')[0]
+    .trim();
+  const protocol = forwardedProto ? `${forwardedProto}:` : url.protocol;
+  const platformOrigin = isBareDomain
+    ? `${protocol}//platform.${hostWithPort}`
+    : `${protocol}//${hostWithPort}`;
+  const landingOrigin = isPlatformHost
+    ? `${protocol}//${hostWithPort.replace(/^platform\./i, '')}`
+    : `${protocol}//${hostWithPort}`;
 
   // Serve static HTML reports and the reports landing dashboard directly without locale or auth redirects
   if (
@@ -46,7 +70,6 @@ export default async function proxy(request: NextRequest) {
 
   const localeRegex = /^\/(en|da|fr|es|de|sv|no|nl|it|pl|fi|pt|is)(?=\/|$)/;
   const pathWithoutLocale = url.pathname.replace(localeRegex, '') || '/';
-  const isPlatformHost = hostname.startsWith('platform.');
   const isPublicPath =
     pathWithoutLocale.startsWith('/auth') || pathWithoutLocale.startsWith('/api');
   const isDashboardPath = pathWithoutLocale.startsWith('/dashboard');
@@ -72,19 +95,33 @@ export default async function proxy(request: NextRequest) {
   const locale = urlLocale || preferredLocale;
 
   if (!token && requiresAuthentication) {
-    return NextResponse.redirect(new URL(`/${locale}`, request.url));
+    return NextResponse.redirect(new URL(`/${locale}`, landingOrigin));
+  }
+
+  // If an authenticated user accesses a dashboard route on the bare domain (e.g. 157.180.43.151.nip.io),
+  // switch them to the platform.<domain> subdomain
+  if (token && isDashboardPath && isBareDomain) {
+    return NextResponse.redirect(
+      new URL(`${url.pathname}${url.search}`, platformOrigin),
+    );
   }
 
   const roles = Array.isArray(token?.roles) ? (token.roles as string[]) : [];
 
-  // Redirect authenticated users on root /{locale} directly to their dashboard
-  // (Avoids intlMiddleware x-middleware-rewrite header collision on platform.localhost)
+  // Redirect authenticated users on root /{locale} directly to their dashboard on platform.<domain>
   if (token && pathWithoutLocale === '/') {
     const dashboard = roles.includes('therapist')
       ? 'therapist'
       : 'personal';
     return NextResponse.redirect(
-      new URL(`/${preferredLocale}/dashboard/${dashboard}`, request.url),
+      new URL(`/${preferredLocale}/dashboard/${dashboard}`, platformOrigin),
+    );
+  }
+
+  // If an unauthenticated user visits the root landing page via platform.<domain>, redirect to the bare domain
+  if (!token && pathWithoutLocale === '/' && isPlatformHost) {
+    return NextResponse.redirect(
+      new URL(`${url.pathname}${url.search}`, landingOrigin),
     );
   }
 

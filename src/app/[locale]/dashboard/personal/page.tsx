@@ -1,7 +1,7 @@
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { getTranslations } from "next-intl/server";
-import ClientPortalWorkspace from "@/components/ClientPortalWorkspace";
+import { ClientPortalWorkspace } from "@/features/clinic/ClinicPlatformFeature";
 
 export default async function PersonalDashboard() {
   const session = await getServerSession(authOptions);
