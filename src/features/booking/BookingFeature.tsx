@@ -21,13 +21,43 @@ import {
   AppointmentDto,
   AppointmentFeatureView,
 } from "../appointment/AppointmentFeature";
+import { SupportedUiLocale, useUiLocale } from "../i18n/I18nFeature";
 
 export type BookingDto = AppointmentDto;
+
+const BOOKING_FORBIDDEN_COPY: Record<
+  SupportedUiLocale,
+  { title: string; detail: string }
+> = {
+  da: {
+    title: "Adgang begrænset",
+    detail: "Kun klienter og terapeuter har adgang til booking og kalender.",
+  },
+  en: {
+    title: "Access restricted",
+    detail: "Only clients and therapists have access to booking and calendar.",
+  },
+  fr: {
+    title: "Accès restreint",
+    detail: "Seuls les clients et praticiens ont accès aux réservations et au calendrier.",
+  },
+  es: {
+    title: "Acceso restringido",
+    detail: "Solo clientes y terapeutas tienen acceso a reservas y calendario.",
+  },
+  de: {
+    title: "Zugriff eingeschränkt",
+    detail: "Nur Klienten und Therapeuten haben Zugriff auf Buchung und Kalender.",
+  },
+};
 
 /**
  * Role-Guarded Booking Vertical Slice (Shared between CLIENT and PROVIDER / THERAPIST).
  */
 export const BookingFeatureView: React.FC = () => {
+  const locale = useUiLocale();
+  const copy = BOOKING_FORBIDDEN_COPY[locale];
+
   return (
     <RoleGuard
       allowed={["CLIENT", "PROVIDER"]}
@@ -38,10 +68,8 @@ export const BookingFeatureView: React.FC = () => {
         >
           <i className="bi bi-shield-lock text-lg text-amber-700 mt-0.5" aria-hidden="true" />
           <div>
-            <p className="text-sm font-semibold m-0">Adgang begrænset</p>
-            <p className="text-sm text-amber-800 mt-1 mb-0">
-              Kun klienter og terapeuter har adgang til booking og kalender.
-            </p>
+            <p className="text-sm font-semibold m-0">{copy.title}</p>
+            <p className="text-sm text-amber-800 mt-1 mb-0">{copy.detail}</p>
           </div>
         </div>
       }

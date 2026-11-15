@@ -7,6 +7,7 @@ import {
   PCL5_QUESTIONS_DA,
   PCL5_QUESTIONS_EN,
 } from "./PsychotraumatologyFeature";
+import { AuthProvider } from "../../core/baseUiCore";
 import { ErrorCode, ProblemDetail } from "../../core/baseDomainCore";
 
 describe("PsychotraumatologyFeature Vertical Slice", () => {
@@ -143,6 +144,77 @@ describe("PsychotraumatologyFeature Vertical Slice", () => {
       expect(
         screen.getByTestId("error-banner").getAttribute("data-error-code")
       ).toBe("ACCESS_DENIED");
+    });
+  });
+
+  it("renders self-service screening view for CLIENT role using own UUID and hiding delete buttons", async () => {
+    const fetchMock = vi.fn();
+    global.fetch = fetchMock;
+
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => [
+        {
+          id: "pt-own",
+          clientUuid: "client-self-1",
+          testType: "PCL-5",
+          score: 18,
+          severity: "Minimal",
+          answersJson: "[18]",
+        },
+        {
+          id: "pt-other",
+          clientUuid: "someone-else",
+          testType: "ITQ",
+          score: 52,
+          severity: "Severe",
+          answersJson: "[52]",
+        },
+      ],
+    });
+
+    render(
+      <AuthProvider
+        user={{
+          id: "client-self-1",
+          name: "Anders Sand",
+          email: "anders@sand.dk",
+          roles: ["CLIENT"],
+        }}
+      >
+        <PsychotraumatologyFeatureView />
+      </AuthProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("pcl5-questions-reference")).toBeDefined();
+      expect(screen.getByText(/Score: 18/)).toBeDefined();
+    });
+    expect(screen.queryByTestId("input-clientUuid")).toBeNull();
+    expect(screen.queryByText(/Score: 52/)).toBeNull();
+    expect(screen.queryByTestId("delete-test-pt-own")).toBeNull();
+
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+      json: async () => ({
+        id: "pt-new",
+        clientUuid: "client-self-1",
+        testType: "PCL-5",
+        score: 35,
+        severity: "Moderate (Probable PTSD)",
+        answersJson: "[35]",
+      }),
+    });
+
+    fireEvent.change(screen.getByTestId("input-score"), {
+      target: { value: "35" },
+    });
+    fireEvent.click(screen.getByTestId("submit-psychotraumatology"));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Score: 35/)).toBeDefined();
     });
   });
 });

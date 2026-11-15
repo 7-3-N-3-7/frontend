@@ -38,6 +38,7 @@ import {
   HasId,
 } from "../../core/baseDomainCore";
 import { ProblemAlert, RoleGuard, useBaseCrud } from "../../core/baseUiCore";
+import { SupportedUiLocale, useUiLocale } from "../i18n/I18nFeature";
 
 // ============================================================================
 // 1. DTO CONTRACTS & PRIVACY FILTER (1:1 med JournalFeature.java)
@@ -141,7 +142,91 @@ const journalApi = new JournalApiService();
 // 3. EXPORTED FEATURE VIEW (Beskyttet af <RoleGuard allowed={["PROVIDER"]}>)
 // ============================================================================
 
-export const JournalFeatureView: React.FC = () => {
+interface JournalCopy {
+  badge: string;
+  heading: string;
+  titlePlaceholder: string;
+  contentPlaceholder: string;
+  moodPlaceholder: string;
+  shareWithTherapist: string;
+  saveBtn: string;
+  loadingText: string;
+  moodLabel: string;
+  deleteBtn: string;
+  forbiddenNotice: string;
+}
+
+const JOURNAL_COPY: Record<SupportedUiLocale, JournalCopy> = {
+  da: {
+    badge: "Klinisk Journal",
+    heading: "Klinisk & Personlig Journal",
+    titlePlaceholder: "Titel på notat",
+    contentPlaceholder: "Journalindhold",
+    moodPlaceholder: "Humør (1-10)",
+    shareWithTherapist: "Del med behandler",
+    saveBtn: "Gem Notat",
+    loadingText: "Indlæser...",
+    moodLabel: "Humør",
+    deleteBtn: "Slet",
+    forbiddenNotice: "Kun terapeuter har adgang til klientjournaler.",
+  },
+  en: {
+    badge: "Clinical Journal",
+    heading: "Clinical & Personal Journal",
+    titlePlaceholder: "Entry Title",
+    contentPlaceholder: "Journal Content",
+    moodPlaceholder: "Mood (1-10)",
+    shareWithTherapist: "Share with Therapist",
+    saveBtn: "Save Entry",
+    loadingText: "Loading...",
+    moodLabel: "Mood",
+    deleteBtn: "Delete",
+    forbiddenNotice: "Only therapists have access to client journals.",
+  },
+  fr: {
+    badge: "Dossier Clinique",
+    heading: "Journal Clinique & Personnel",
+    titlePlaceholder: "Titre de la note",
+    contentPlaceholder: "Contenu du journal",
+    moodPlaceholder: "Humeur (1-10)",
+    shareWithTherapist: "Partager avec le praticien",
+    saveBtn: "Enregistrer",
+    loadingText: "Chargement...",
+    moodLabel: "Humeur",
+    deleteBtn: "Supprimer",
+    forbiddenNotice: "Seuls les praticiens ont accès aux dossiers des clients.",
+  },
+  es: {
+    badge: "Diario Clínico",
+    heading: "Diario Clínico y Personal",
+    titlePlaceholder: "Título de la entrada",
+    contentPlaceholder: "Contenido del diario",
+    moodPlaceholder: "Estado de ánimo (1-10)",
+    shareWithTherapist: "Compartir con el terapeuta",
+    saveBtn: "Guardar Entrada",
+    loadingText: "Cargando...",
+    moodLabel: "Ánimo",
+    deleteBtn: "Eliminar",
+    forbiddenNotice: "Solo los terapeutas tienen acceso a los diarios clínicos de los clientes.",
+  },
+  de: {
+    badge: "Klinisches Journal",
+    heading: "Klinisches & Persönliches Journal",
+    titlePlaceholder: "Eintragstitel",
+    contentPlaceholder: "Journalinhalt",
+    moodPlaceholder: "Stimmung (1-10)",
+    shareWithTherapist: "Mit Therapeut teilen",
+    saveBtn: "Eintrag speichern",
+    loadingText: "Wird geladen...",
+    moodLabel: "Stimmung",
+    deleteBtn: "Löschen",
+    forbiddenNotice: "Nur Therapeuten haben Zugriff auf Klientenjournale.",
+  },
+};
+
+const JournalFeatureAuthorizedContent: React.FC = () => {
+  const locale = useUiLocale();
+  const copy = JOURNAL_COPY[locale];
   const { items, loading, error, create, remove, clearError } =
     useBaseCrud(journalApi);
   const [title, setTitle] = useState("");
@@ -165,98 +250,117 @@ export const JournalFeatureView: React.FC = () => {
   };
 
   return (
-    <RoleGuard
-      allowed={["PROVIDER"]}
-      fallback={
-        <p data-testid="forbidden-notice">
-          Kun terapeuter har adgang til klientjournaler.
-        </p>
-      }
+    <div
+      className="space-y-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-xs"
+      data-testid="journal-feature-view"
     >
-      <div
-        className="p-4 max-w-4xl mx-auto"
-        data-testid="journal-feature-view"
-      >
-        <h2 className="text-xl font-bold mb-4">Clinical &amp; Personal Journal</h2>
-
-        <ProblemAlert error={error} onDismiss={clearError} />
-
-        <form onSubmit={handleSubmit} className="mb-6 flex flex-wrap gap-2">
-          <input
-            type="text"
-            placeholder="Entry Title"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            className="border p-2 rounded"
-            data-testid="input-journal-title"
-          />
-          <input
-            type="text"
-            placeholder="Journal Content"
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            className="border p-2 rounded"
-            data-testid="input-journal-content"
-          />
-          <input
-            type="number"
-            placeholder="Mood (1-10)"
-            value={moodRating}
-            onChange={(e) => setMoodRating(e.target.value)}
-            className="border p-2 rounded w-24"
-            data-testid="input-journal-mood"
-          />
-          <label className="flex items-center gap-1 text-sm">
-            <input
-              type="checkbox"
-              checked={sharedWithTherapist}
-              onChange={(e) => setSharedWithTherapist(e.target.checked)}
-              data-testid="input-journal-shared"
-            />
-            Share with Therapist
-          </label>
-          <button
-            type="submit"
-            disabled={loading}
-            className="bg-blue-600 text-white px-4 py-2 rounded"
-            data-testid="submit-journal"
-          >
-            Save Entry
-          </button>
-        </form>
-
-        {loading && <p data-testid="loading-indicator">Loading...</p>}
-
-        <ul className="space-y-2" data-testid="journal-list">
-          {items.map((item) => (
-            <li
-              key={item.id}
-              className="border p-3 rounded flex justify-between items-center"
-            >
-              <div>
-                <strong>{item.title}</strong> —{" "}
-                <span>{filterInternalNotes(item.content, false)}</span>{" "}
-                {item.moodRating !== undefined && (
-                  <span className="text-sm text-gray-500">
-                    (Mood: {item.moodRating}/10)
-                  </span>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={() => item.id && remove(item.id)}
-                className="text-red-600 hover:underline"
-                data-testid={`delete-journal-${item.id}`}
-              >
-                Delete
-              </button>
-            </li>
-          ))}
-        </ul>
+      <div>
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-teal-200 bg-teal-50 px-3 py-1 text-xs font-semibold text-teal-800">
+          <i className="bi bi-journal-medical" aria-hidden="true" />
+          {copy.badge}
+        </span>
+        <h2 className="mt-1.5 text-xl font-bold tracking-tight text-slate-900">
+          {copy.heading}
+        </h2>
       </div>
-    </RoleGuard>
+
+      <ProblemAlert error={error} onDismiss={clearError} />
+
+      <form onSubmit={handleSubmit} className="flex flex-wrap items-center gap-2.5">
+        <input
+          type="text"
+          placeholder={copy.titlePlaceholder}
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
+          data-testid="input-journal-title"
+        />
+        <input
+          type="text"
+          placeholder={copy.contentPlaceholder}
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+          className="min-w-48 flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
+          data-testid="input-journal-content"
+        />
+        <input
+          type="number"
+          placeholder={copy.moodPlaceholder}
+          value={moodRating}
+          onChange={(e) => setMoodRating(e.target.value)}
+          className="w-28 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
+          data-testid="input-journal-mood"
+        />
+        <label className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-700">
+          <input
+            type="checkbox"
+            checked={sharedWithTherapist}
+            onChange={(e) => setSharedWithTherapist(e.target.checked)}
+            data-testid="input-journal-shared"
+          />
+          {copy.shareWithTherapist}
+        </label>
+        <button
+          type="submit"
+          disabled={loading}
+          className="rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-50"
+          data-testid="submit-journal"
+        >
+          {copy.saveBtn}
+        </button>
+      </form>
+
+      {loading && (
+        <p data-testid="loading-indicator" className="text-sm text-slate-500">
+          {copy.loadingText}
+        </p>
+      )}
+
+      <ul className="space-y-2" data-testid="journal-list">
+        {items.map((item) => (
+          <li
+            key={item.id}
+            className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-3 text-sm"
+          >
+            <div>
+              <strong className="text-slate-900">{item.title}</strong> —{" "}
+              <span className="text-slate-700">
+                {filterInternalNotes(item.content, false)}
+              </span>{" "}
+              {item.moodRating !== undefined && (
+                <span className="ml-1 rounded-full bg-teal-50 px-2 py-0.5 text-xs font-semibold text-teal-800">
+                  ({copy.moodLabel}: {item.moodRating}/10)
+                </span>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => item.id && remove(item.id)}
+              className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-100"
+              data-testid={`delete-journal-${item.id}`}
+            >
+              {copy.deleteBtn}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 };
+
+const JournalForbiddenNotice: React.FC = () => {
+  const locale = useUiLocale();
+  return <p data-testid="forbidden-notice">{JOURNAL_COPY[locale].forbiddenNotice}</p>;
+};
+
+export const JournalFeatureView: React.FC = () => (
+  <RoleGuard
+    allowed={["PROVIDER"]}
+    fallback={<JournalForbiddenNotice />}
+  >
+    <JournalFeatureAuthorizedContent />
+  </RoleGuard>
+);
 
 // ============================================================================
 // 4. PURE JGIT COMMIT HISTORY & DIFF DOMAIN HELPERS

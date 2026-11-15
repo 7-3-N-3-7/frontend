@@ -10,6 +10,8 @@ import {
   setLocaleCookie,
   getCookieValue,
   useI18nCache,
+  resolveUiLocale,
+  useUiLocale,
 } from "./I18nFeature";
 import { ErrorCode, ProblemDetail } from "../../core/baseDomainCore";
 
@@ -131,6 +133,72 @@ describe("I18nFeature Vertical Slice", () => {
     await waitFor(() => {
       expect(screen.queryByText("Common.cancel")).toBeNull();
     });
+
+    // Also test inside CachedI18nProvider where create & delete trigger invalidateI18nCache(locale)
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => [
+          {
+            id: "k-10",
+            locale: "da",
+            translationKey: "Common.title",
+            translationValue: "Titel",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        json: async () => ({
+          id: "k-11",
+          locale: "da",
+          translationKey: "Common.ok",
+          translationValue: "OK",
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ Common: { ok: "OK" } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 204,
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ Common: { title: "Titel" } }),
+      });
+
+    render(
+      <CachedI18nProvider initialLocale="da" initialMessages={{ Common: { title: "Titel" } }}>
+        <I18nFeatureView />
+      </CachedI18nProvider>
+    );
+    await waitFor(() => {
+      expect(screen.getByText("Common.title")).toBeDefined();
+    });
+    const keyInputs = screen.getAllByTestId("input-i18n-key");
+    const valInputs = screen.getAllByTestId("input-i18n-value");
+    const submitBtns = screen.getAllByTestId("submit-i18n");
+    fireEvent.change(keyInputs[keyInputs.length - 1], {
+      target: { value: "Common.ok" },
+    });
+    fireEvent.change(valInputs[valInputs.length - 1], {
+      target: { value: "OK" },
+    });
+    fireEvent.click(submitBtns[submitBtns.length - 1]);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("delete-i18n-k-11")).toBeDefined();
+    });
+    fireEvent.click(screen.getByTestId("delete-i18n-k-11"));
+    await waitFor(() => {
+      expect(screen.queryByTestId("delete-i18n-k-11")).toBeNull();
+    });
   });
 
   it("enforces DomainGuard on invalid locale codes and renders ProblemDetail", async () => {
@@ -193,11 +261,47 @@ describe("I18nFeature Vertical Slice", () => {
   });
 
   it("switches locale and invalidates cache via CachedI18nProvider and LanguageSwitcher", async () => {
+    const fetchMock = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/backend/i18n/en")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ Common: { save: "Save" } }),
+        };
+      }
+      if (url.includes("/api/backend/i18n/da")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ Common: { save: "Gem", cancel: "Annuller" } }),
+        };
+      }
+      if (url.includes("/api/backend/i18n/de")) {
+        return { ok: false, status: 500 };
+      }
+      if (url.includes("/api/backend/i18n/fr")) {
+        throw new Error("network down");
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ Common: { save: "Guardar" } }),
+      };
+    });
+    global.fetch = fetchMock;
+
     const CacheActionsTester = () => {
       const cache = useI18nCache();
       return (
         <div>
           <span data-testid="active-locale">{cache?.locale}</span>
+          <span data-testid="active-save-msg">
+            {cache?.messages?.Common?.save}
+          </span>
+          <span data-testid="active-cancel-msg">
+            {cache?.messages?.Common?.cancel}
+          </span>
           <button
             type="button"
             data-testid="btn-invalid-locale"
@@ -218,10 +322,10 @@ describe("I18nFeature Vertical Slice", () => {
 
     const onLocaleNavigate = vi.fn();
 
-    render(
+    const { rerender } = render(
       <CachedI18nProvider
         initialLocale="da"
-        initialMessages={{ Common: { save: "Gem" } }}
+        initialMessages={{ Common: { save: "Gem", cancel: "Annuller" } }}
       >
         <LanguageSwitcher onLocaleNavigate={onLocaleNavigate} />
         <CacheActionsTester />
@@ -239,6 +343,7 @@ describe("I18nFeature Vertical Slice", () => {
       "de",
     ]);
     expect(screen.getByTestId("active-locale").textContent).toBe("da");
+    expect(screen.getByTestId("active-save-msg").textContent).toBe("Gem");
 
     fireEvent.change(select, {
       target: { value: "en" },
@@ -246,16 +351,63 @@ describe("I18nFeature Vertical Slice", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("active-locale").textContent).toBe("en");
+      expect(screen.getByTestId("active-save-msg").textContent).toBe("Save");
+      expect(screen.getByTestId("active-cancel-msg").textContent).toBe("Annuller");
     });
     expect(onLocaleNavigate).toHaveBeenCalledWith("en");
 
+    // Switching back to da uses direct dictionary without extra fallback fetch
+    fireEvent.change(select, { target: { value: "da" } });
+    await waitFor(() => {
+      expect(screen.getByTestId("active-save-msg").textContent).toBe("Gem");
+    });
+
+    // Non-ok response and thrown fetch both degrade gracefully without wiping existing messages
+    fireEvent.change(select, { target: { value: "de" } });
+    await waitFor(() => {
+      expect(screen.getByTestId("active-locale").textContent).toBe("de");
+    });
+    fireEvent.change(select, { target: { value: "fr" } });
+    await waitFor(() => {
+      expect(screen.getByTestId("active-locale").textContent).toBe("fr");
+    });
+
+    // es when fallback /da returns non-ok skips fallback merge gracefully
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ Common: { save: "Guardar" } }),
+    });
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 503 });
+    fireEvent.change(select, { target: { value: "es" } });
+    await waitFor(() => {
+      expect(screen.getByTestId("active-save-msg").textContent).toBe("Guardar");
+    });
+
     // Invalid locale is ignored
     fireEvent.click(screen.getByTestId("btn-invalid-locale"));
-    expect(screen.getByTestId("active-locale").textContent).toBe("en");
+    expect(screen.getByTestId("active-locale").textContent).toBe("es");
 
-    // Invalidate cache refreshes cookie
+    // Invalidate cache refreshes cookie & fetches current locale dictionary
     fireEvent.click(screen.getByTestId("btn-invalidate-cache"));
-    expect(getCookieValue("NEXT_LOCALE")).toBe("en");
+    expect(getCookieValue("NEXT_LOCALE")).toBe("es");
+
+    // Rerendering CachedI18nProvider with new Next.js server props syncs locale & messages
+    rerender(
+      <CachedI18nProvider
+        initialLocale="en"
+        initialMessages={{ Common: { save: "SaveSynced", cancel: "Cancel" } }}
+      >
+        <LanguageSwitcher onLocaleNavigate={onLocaleNavigate} />
+        <CacheActionsTester />
+      </CachedI18nProvider>
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("active-locale").textContent).toBe("en");
+      expect(screen.getByTestId("active-save-msg").textContent).toBe(
+        "SaveSynced"
+      );
+    });
 
     // Standalone LanguageSwitcher driven by explicit currentLocale prop
     const standaloneNavigate = vi.fn();
@@ -273,5 +425,37 @@ describe("I18nFeature Vertical Slice", () => {
     expect(standaloneSelect.value).toBe("fr");
     fireEvent.change(standaloneSelect, { target: { value: "es" } });
     expect(standaloneNavigate).toHaveBeenCalledWith("es");
+  });
+
+  it("resolves supported UI locales with resolveUiLocale and useUiLocale across defaults, context, and overrides", () => {
+    expect(resolveUiLocale(undefined)).toBe("da");
+    expect(resolveUiLocale("")).toBe("da");
+    expect(resolveUiLocale("da")).toBe("da");
+    expect(resolveUiLocale("es-ES")).toBe("es");
+    expect(resolveUiLocale("FR_ca")).toBe("fr");
+    expect(resolveUiLocale("de")).toBe("de");
+    expect(resolveUiLocale("sv")).toBe("en");
+
+    const LocaleProbe: React.FC<{ override?: string | null }> = ({ override }) => {
+      const resolved = useUiLocale(override);
+      return <span data-testid="resolved-ui-locale">{resolved}</span>;
+    };
+
+    const { rerender } = render(<LocaleProbe />);
+    expect(screen.getByTestId("resolved-ui-locale").textContent).toBe("da");
+
+    rerender(
+      <CachedI18nProvider initialLocale="es" initialMessages={{}}>
+        <LocaleProbe />
+      </CachedI18nProvider>
+    );
+    expect(screen.getByTestId("resolved-ui-locale").textContent).toBe("es");
+
+    rerender(
+      <CachedI18nProvider initialLocale="es" initialMessages={{}}>
+        <LocaleProbe override="de-AT" />
+      </CachedI18nProvider>
+    );
+    expect(screen.getByTestId("resolved-ui-locale").textContent).toBe("de");
   });
 });

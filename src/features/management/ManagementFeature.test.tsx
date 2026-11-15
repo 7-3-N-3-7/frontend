@@ -155,14 +155,21 @@ describe("ManagementFeature Vertical Slice (RoleGuard + BaseApiService)", () => 
     });
   });
 
-  it("blocks CLIENT and PROVIDER roles from ManagementFeatureView via RoleGuard", async () => {
-    global.fetch = vi.fn().mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: async () => [],
-    });
+  it("blocks CLIENT and PROVIDER roles and pending AuthProvider from ManagementFeatureView without calling fetch", async () => {
+    const fetchMock = vi.fn();
+    global.fetch = fetchMock;
 
-    render(
+    const { rerender } = render(
+      <AuthProvider user={null}>
+        <ManagementFeatureView />
+      </AuthProvider>
+    );
+
+    expect(screen.queryByTestId("management-feature-view")).toBeNull();
+    expect(screen.queryByTestId("forbidden-notice")).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    rerender(
       <AuthProvider
         user={{
           id: "c-1",
@@ -179,5 +186,6 @@ describe("ManagementFeature Vertical Slice (RoleGuard + BaseApiService)", () => 
       expect(screen.queryByTestId("management-feature-view")).toBeNull();
       expect(screen.getByTestId("forbidden-notice")).toBeDefined();
     });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

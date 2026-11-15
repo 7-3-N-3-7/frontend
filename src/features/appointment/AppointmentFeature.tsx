@@ -42,6 +42,7 @@ import {
   useBaseCrud,
   useOptionalAuth,
 } from "../../core/baseUiCore";
+import { SupportedUiLocale, useUiLocale } from "../i18n/I18nFeature";
 
 // ============================================================================
 // 1. DTO CONTRACTS & DOMAIN TYPES (1:1 med AppointmentFeature.java)
@@ -143,25 +144,104 @@ export interface ClinicDirectoryDto {
 }
 
 // ============================================================================
-// 1B. PURE BOOKING & DATE HELPERS
+// 1B. PURE BOOKING, CALENDAR & LOCALIZATION HELPERS
 // ============================================================================
 
-const DA_MONTHS_SHORT = [
-  "JAN",
-  "FEB",
-  "MAR",
-  "APR",
-  "MAJ",
-  "JUN",
-  "JUL",
-  "AUG",
-  "SEP",
-  "OKT",
-  "NOV",
-  "DEC",
-];
-
-const DA_WEEKDAYS_SHORT = ["søn", "man", "tir", "ons", "tor", "fre", "lør"];
+const CALENDAR_LABELS_BY_LOCALE: Record<
+  SupportedUiLocale,
+  { months: readonly string[]; weekdays: readonly string[]; dayDot: string }
+> = {
+  da: {
+    months: [
+      "JAN",
+      "FEB",
+      "MAR",
+      "APR",
+      "MAJ",
+      "JUN",
+      "JUL",
+      "AUG",
+      "SEP",
+      "OKT",
+      "NOV",
+      "DEC",
+    ],
+    weekdays: ["søn", "man", "tir", "ons", "tor", "fre", "lør"],
+    dayDot: ".",
+  },
+  en: {
+    months: [
+      "JAN",
+      "FEB",
+      "MAR",
+      "APR",
+      "MAY",
+      "JUN",
+      "JUL",
+      "AUG",
+      "SEP",
+      "OCT",
+      "NOV",
+      "DEC",
+    ],
+    weekdays: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+    dayDot: "",
+  },
+  fr: {
+    months: [
+      "JAN",
+      "FÉV",
+      "MAR",
+      "AVR",
+      "MAI",
+      "JUN",
+      "JUL",
+      "AOÛ",
+      "SEP",
+      "OCT",
+      "NOV",
+      "DÉC",
+    ],
+    weekdays: ["dim", "lun", "mar", "mer", "jeu", "ven", "sam"],
+    dayDot: "",
+  },
+  es: {
+    months: [
+      "ENE",
+      "FEB",
+      "MAR",
+      "ABR",
+      "MAY",
+      "JUN",
+      "JUL",
+      "AGO",
+      "SEP",
+      "OCT",
+      "NOV",
+      "DIC",
+    ],
+    weekdays: ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"],
+    dayDot: "",
+  },
+  de: {
+    months: [
+      "JAN",
+      "FEB",
+      "MÄR",
+      "APR",
+      "MAI",
+      "JUN",
+      "JUL",
+      "AUG",
+      "SEP",
+      "OKT",
+      "NOV",
+      "DEZ",
+    ],
+    weekdays: ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"],
+    dayDot: ".",
+  },
+};
 
 /**
  * Normaliserer en ISO-dato/tid-streng til `<input type="datetime-local">` format (`YYYY-MM-DDTHH:mm`).
@@ -202,11 +282,12 @@ export function addMinutesToIsoLocal(
 }
 
 /**
- * Udtrækker danske kalenderbadge-dele og tidsinterval fra `startTime` og `endTime`.
+ * Udtrækker lokaliserede kalenderbadge-dele og tidsinterval fra `startTime` og `endTime`.
  */
 export function formatAppointmentDateParts(
   startTime?: string,
-  endTime?: string
+  endTime?: string,
+  locale: SupportedUiLocale = "da"
 ): {
   monthShort: string;
   dayNumber: string;
@@ -226,19 +307,20 @@ export function formatAppointmentDateParts(
       fullDate: startTime || "",
     };
   }
+  const cal = CALENDAR_LABELS_BY_LOCALE[locale];
   const [, yStr, mStr, dStr, hStr, minStr] = startMatch;
   const monthIdx = Math.max(0, Math.min(11, Number(mStr) - 1));
   const dt = new Date(Number(yStr), monthIdx, Number(dStr), Number(hStr), Number(minStr));
-  const weekdayShort = DA_WEEKDAYS_SHORT[dt.getDay()];
+  const weekdayShort = cal.weekdays[dt.getDay()];
   const startClock = `${hStr}:${minStr}`;
   const endMatch = endTime?.match(/T(\d{2}):(\d{2})/);
   const endClock = endMatch ? `${endMatch[1]}:${endMatch[2]}` : "";
   return {
-    monthShort: DA_MONTHS_SHORT[monthIdx],
+    monthShort: cal.months[monthIdx],
     dayNumber: dStr,
     weekdayShort,
     timeRange: endClock ? `${startClock} – ${endClock}` : startClock,
-    fullDate: `${Number(dStr)}. ${DA_MONTHS_SHORT[monthIdx].toLowerCase()} ${yStr}`,
+    fullDate: `${Number(dStr)}${cal.dayDot} ${cal.months[monthIdx].toLowerCase()} ${yStr}`,
   };
 }
 
@@ -283,35 +365,537 @@ function getTomorrowIsoDate(): string {
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
 }
 
-function getStatusPresentation(status?: AppointmentStatus): {
+interface AppointmentCopy {
+  activeBadgeSuffix: string;
+  cancelledBadgeSuffix: string;
+  heading: string;
+  timefoldBtn: string;
+  scheduleBtn: string;
+  timefoldTitle: string;
+  timefoldDesc: string;
+  openingHoursPrefix: string;
+  therapistLabel: string;
+  therapistUuidPlaceholder: string;
+  dateLabel: string;
+  durationLabel: string;
+  minutesUnit: string;
+  preferredTimeLabel: string;
+  searchingSlots: string;
+  findSlotsBtn: string;
+  feasibleSolution: string;
+  noFullSolution: string;
+  useRecommendedPrefix: string;
+  weeklyScheduleTitle: string;
+  activeWorkSuffix: string;
+  breakWorkSuffix: string;
+  savingSchedule: string;
+  saveScheduleBtn: string;
+  scheduleSavedPrefix: string;
+  perWeekSuffix: string;
+  removeIntervalTitle: string;
+  breakBadgePrefix: string;
+  addIntervalBtn: string;
+  closedLabel: string;
+  weekendClosed: string;
+  allWeekdaysSuffix: string;
+  weekdays: Record<WeekdayKey, string>;
+  clientNameLabel: string;
+  clientNamePlaceholder: string;
+  selectTherapistOption: string;
+  serviceLabel: string;
+  selectServiceOption: string;
+  sessionTitleLabel: string;
+  sessionTitlePlaceholder: string;
+  defaultConsultationTitle: string;
+  startTimeLabel: string;
+  endTimeLabel: string;
+  bookBtn: string;
+  filterActive: string;
+  filterCancelled: string;
+  filterAll: string;
+  dateFromAria: string;
+  dateToConnector: string;
+  dateToAria: string;
+  applyFilterBtn: string;
+  resetFilterBtn: string;
+  refreshTitle: string;
+  loadingAppointments: string;
+  emptyTitle: string;
+  emptySubtitle: string;
+  statusConfirmed: string;
+  statusCompleted: string;
+  statusCancelled: string;
+  statusNoShow: string;
+  statusScheduled: string;
+  fallbackCardTitle: string;
+  historyBtn: string;
+  rescheduleBtn: string;
+  cancelBtn: string;
+  newStartLabel: string;
+  newEndLabel: string;
+  saveNewTimeBtn: string;
+  cancelRescheduleBtn: string;
+  gitHistoryTitle: string;
+  loadingHistory: string;
+  emptyHistory: string;
+}
+
+const APPOINTMENT_COPY: Record<SupportedUiLocale, AppointmentCopy> = {
+  da: {
+    activeBadgeSuffix: "aktive",
+    cancelledBadgeSuffix: "aflyste",
+    heading: "Aftaler & Tidsbestilling",
+    timefoldBtn: "Timefold AI Ledige Tider",
+    scheduleBtn: "Arbejdstider & Pauser",
+    timefoldTitle: "Timefold AI — Konfliktfri Tidsoptimering",
+    timefoldDesc: "Finder ledige konsultationstider uden overlap eller pauser.",
+    openingHoursPrefix: "Åbningstid",
+    therapistLabel: "Behandler",
+    therapistUuidPlaceholder: "Behandler UUID",
+    dateLabel: "Dato",
+    durationLabel: "Varighed",
+    minutesUnit: "minutter",
+    preferredTimeLabel: "Foretrukket tid",
+    searchingSlots: "Søger...",
+    findSlotsBtn: "Find ledige tider",
+    feasibleSolution: "Mulig løsning fundet",
+    noFullSolution: "Ingen fuld løsning",
+    useRecommendedPrefix: "Brug anbefalet",
+    weeklyScheduleTitle: "Arbejdstider & Frokostpauser (Multi-Vindue)",
+    activeWorkSuffix: "aktiv",
+    breakWorkSuffix: "pause",
+    savingSchedule: "Gemmer...",
+    saveScheduleBtn: "Gem arbejdstider",
+    scheduleSavedPrefix: "Arbejdstider gemt",
+    perWeekSuffix: "pr. uge",
+    removeIntervalTitle: "Fjern interval",
+    breakBadgePrefix: "Pause",
+    addIntervalBtn: "+ Tilføj vindue",
+    closedLabel: "Lukket",
+    weekendClosed: "Weekend: Lukket",
+    allWeekdaysSuffix: "(Alle hverdage)",
+    weekdays: {
+      monday: "Mandag",
+      tuesday: "Tirsdag",
+      wednesday: "Onsdag",
+      thursday: "Torsdag",
+      friday: "Fredag",
+      saturday: "Lørdag",
+      sunday: "Søndag",
+    },
+    clientNameLabel: "Klientnavn",
+    clientNamePlaceholder: "Klientnavn",
+    selectTherapistOption: "Vælg behandler",
+    serviceLabel: "Ydelse / Forløb",
+    selectServiceOption: "Vælg ydelse",
+    sessionTitleLabel: "Sessionstitel",
+    sessionTitlePlaceholder: "Sessionstitel",
+    defaultConsultationTitle: "Klinisk konsultation",
+    startTimeLabel: "Starttidspunkt",
+    endTimeLabel: "Sluttidspunkt",
+    bookBtn: "Book aftale",
+    filterActive: "Aktive",
+    filterCancelled: "Aflyste",
+    filterAll: "Alle",
+    dateFromAria: "Fra dato",
+    dateToConnector: "til",
+    dateToAria: "Til dato",
+    applyFilterBtn: "Anvend",
+    resetFilterBtn: "Nulstil",
+    refreshTitle: "Opdater aftaleliste",
+    loadingAppointments: "Henter aftaler...",
+    emptyTitle: "Ingen aftaler matcher dit filter",
+    emptySubtitle: "Book en ny tid ovenfor, eller skift mellem Aktive, Aflyste og Alle.",
+    statusConfirmed: "Bekræftet",
+    statusCompleted: "Afholdt",
+    statusCancelled: "Aflyst",
+    statusNoShow: "Udeblevet",
+    statusScheduled: "Planlagt",
+    fallbackCardTitle: "Klinisk aftale",
+    historyBtn: "Historik",
+    rescheduleBtn: "Ombook",
+    cancelBtn: "Aflys",
+    newStartLabel: "Ny starttid",
+    newEndLabel: "Ny sluttid",
+    saveNewTimeBtn: "Gem ny tid",
+    cancelRescheduleBtn: "Annuller",
+    gitHistoryTitle: "JGit Audit-historik",
+    loadingHistory: "Henter revisionshistorik...",
+    emptyHistory: "Ingen Git-commits registreret endnu for denne aftale.",
+  },
+  en: {
+    activeBadgeSuffix: "active",
+    cancelledBadgeSuffix: "cancelled",
+    heading: "Appointments & Booking",
+    timefoldBtn: "Timefold AI Open Slots",
+    scheduleBtn: "Working Hours & Breaks",
+    timefoldTitle: "Timefold AI — Conflict-Free Scheduling",
+    timefoldDesc: "Finds available consultation slots without overlaps or breaks.",
+    openingHoursPrefix: "Opening hours",
+    therapistLabel: "Therapist",
+    therapistUuidPlaceholder: "Therapist UUID",
+    dateLabel: "Date",
+    durationLabel: "Duration",
+    minutesUnit: "minutes",
+    preferredTimeLabel: "Preferred time",
+    searchingSlots: "Searching...",
+    findSlotsBtn: "Find open slots",
+    feasibleSolution: "Feasible solution found",
+    noFullSolution: "No full solution",
+    useRecommendedPrefix: "Use recommended",
+    weeklyScheduleTitle: "Working Hours & Lunch Breaks (Multi-Window)",
+    activeWorkSuffix: "active",
+    breakWorkSuffix: "break",
+    savingSchedule: "Saving...",
+    saveScheduleBtn: "Save working hours",
+    scheduleSavedPrefix: "Working hours saved",
+    perWeekSuffix: "per week",
+    removeIntervalTitle: "Remove interval",
+    breakBadgePrefix: "Break",
+    addIntervalBtn: "+ Add window",
+    closedLabel: "Closed",
+    weekendClosed: "Weekend: Closed",
+    allWeekdaysSuffix: "(All weekdays)",
+    weekdays: {
+      monday: "Monday",
+      tuesday: "Tuesday",
+      wednesday: "Wednesday",
+      thursday: "Thursday",
+      friday: "Friday",
+      saturday: "Saturday",
+      sunday: "Sunday",
+    },
+    clientNameLabel: "Client Name",
+    clientNamePlaceholder: "Client Name",
+    selectTherapistOption: "Select therapist",
+    serviceLabel: "Service / Program",
+    selectServiceOption: "Select service",
+    sessionTitleLabel: "Session Title",
+    sessionTitlePlaceholder: "Session Title",
+    defaultConsultationTitle: "Clinical consultation",
+    startTimeLabel: "Start Time",
+    endTimeLabel: "End Time",
+    bookBtn: "Book appointment",
+    filterActive: "Active",
+    filterCancelled: "Cancelled",
+    filterAll: "All",
+    dateFromAria: "From date",
+    dateToConnector: "to",
+    dateToAria: "To date",
+    applyFilterBtn: "Apply",
+    resetFilterBtn: "Reset",
+    refreshTitle: "Refresh appointments",
+    loadingAppointments: "Loading appointments...",
+    emptyTitle: "No appointments match your filter",
+    emptySubtitle: "Book a new session above, or switch between Active, Cancelled, and All.",
+    statusConfirmed: "Confirmed",
+    statusCompleted: "Completed",
+    statusCancelled: "Cancelled",
+    statusNoShow: "No show",
+    statusScheduled: "Scheduled",
+    fallbackCardTitle: "Clinical appointment",
+    historyBtn: "History",
+    rescheduleBtn: "Reschedule",
+    cancelBtn: "Cancel",
+    newStartLabel: "New start time",
+    newEndLabel: "New end time",
+    saveNewTimeBtn: "Save new time",
+    cancelRescheduleBtn: "Dismiss",
+    gitHistoryTitle: "JGit Audit History",
+    loadingHistory: "Loading revision history...",
+    emptyHistory: "No Git commits recorded yet for this appointment.",
+  },
+  fr: {
+    activeBadgeSuffix: "actifs",
+    cancelledBadgeSuffix: "annulés",
+    heading: "Rendez-vous & Réservation",
+    timefoldBtn: "Créneaux IA Timefold",
+    scheduleBtn: "Horaires & Pauses",
+    timefoldTitle: "Timefold AI — Optimisation sans Conflit",
+    timefoldDesc: "Trouve des créneaux disponibles sans chevauchement ni pause.",
+    openingHoursPrefix: "Heures d'ouverture",
+    therapistLabel: "Praticien",
+    therapistUuidPlaceholder: "UUID du praticien",
+    dateLabel: "Date",
+    durationLabel: "Durée",
+    minutesUnit: "minutes",
+    preferredTimeLabel: "Heure souhaitée",
+    searchingSlots: "Recherche...",
+    findSlotsBtn: "Trouver des créneaux",
+    feasibleSolution: "Solution trouvée",
+    noFullSolution: "Aucune solution complète",
+    useRecommendedPrefix: "Utiliser le créneau recommandé",
+    weeklyScheduleTitle: "Horaires de Travail & Pauses (Multi-Créneaux)",
+    activeWorkSuffix: "actif",
+    breakWorkSuffix: "pause",
+    savingSchedule: "Enregistrement...",
+    saveScheduleBtn: "Enregistrer les horaires",
+    scheduleSavedPrefix: "Horaires enregistrés",
+    perWeekSuffix: "par semaine",
+    removeIntervalTitle: "Supprimer la plage",
+    breakBadgePrefix: "Pause",
+    addIntervalBtn: "+ Ajouter une plage",
+    closedLabel: "Fermé",
+    weekendClosed: "Week-end : Fermé",
+    allWeekdaysSuffix: "(Tous les jours ouvrés)",
+    weekdays: {
+      monday: "Lundi",
+      tuesday: "Mardi",
+      wednesday: "Mercredi",
+      thursday: "Jeudi",
+      friday: "Vendredi",
+      saturday: "Samedi",
+      sunday: "Dimanche",
+    },
+    clientNameLabel: "Nom du client",
+    clientNamePlaceholder: "Nom du client",
+    selectTherapistOption: "Choisir un praticien",
+    serviceLabel: "Prestation / Parcours",
+    selectServiceOption: "Choisir une prestation",
+    sessionTitleLabel: "Titre de la séance",
+    sessionTitlePlaceholder: "Titre de la séance",
+    defaultConsultationTitle: "Consultation clinique",
+    startTimeLabel: "Heure de début",
+    endTimeLabel: "Heure de fin",
+    bookBtn: "Réserver",
+    filterActive: "Actifs",
+    filterCancelled: "Annulés",
+    filterAll: "Tous",
+    dateFromAria: "Date de début",
+    dateToConnector: "au",
+    dateToAria: "Date de fin",
+    applyFilterBtn: "Appliquer",
+    resetFilterBtn: "Réinitialiser",
+    refreshTitle: "Actualiser la liste",
+    loadingAppointments: "Chargement des rendez-vous...",
+    emptyTitle: "Aucun rendez-vous ne correspond à ce filtre",
+    emptySubtitle: "Réservez un créneau ci-dessus ou basculez entre Actifs, Annulés et Tous.",
+    statusConfirmed: "Confirmé",
+    statusCompleted: "Terminé",
+    statusCancelled: "Annulé",
+    statusNoShow: "Absent",
+    statusScheduled: "Planifié",
+    fallbackCardTitle: "Rendez-vous clinique",
+    historyBtn: "Historique",
+    rescheduleBtn: "Reprogrammer",
+    cancelBtn: "Annuler",
+    newStartLabel: "Nouveau début",
+    newEndLabel: "Nouvelle fin",
+    saveNewTimeBtn: "Enregistrer l'horaire",
+    cancelRescheduleBtn: "Fermer",
+    gitHistoryTitle: "Historique d'Audit JGit",
+    loadingHistory: "Chargement de l'historique...",
+    emptyHistory: "Aucun commit Git enregistré pour ce rendez-vous.",
+  },
+  es: {
+    activeBadgeSuffix: "activas",
+    cancelledBadgeSuffix: "canceladas",
+    heading: "Citas y Reservas",
+    timefoldBtn: "Horarios IA Timefold",
+    scheduleBtn: "Horarios y Pausas",
+    timefoldTitle: "Timefold AI — Optimización sin Conflictos",
+    timefoldDesc: "Encuentra horarios disponibles sin solapamientos ni pausas.",
+    openingHoursPrefix: "Horario de apertura",
+    therapistLabel: "Terapeuta",
+    therapistUuidPlaceholder: "UUID del terapeuta",
+    dateLabel: "Fecha",
+    durationLabel: "Duración",
+    minutesUnit: "minutos",
+    preferredTimeLabel: "Hora preferida",
+    searchingSlots: "Buscando...",
+    findSlotsBtn: "Buscar horarios",
+    feasibleSolution: "Solución factible encontrada",
+    noFullSolution: "Sin solución completa",
+    useRecommendedPrefix: "Usar recomendado",
+    weeklyScheduleTitle: "Horarios Laborales y Pausas (Multi-Franja)",
+    activeWorkSuffix: "activo",
+    breakWorkSuffix: "pausa",
+    savingSchedule: "Guardando...",
+    saveScheduleBtn: "Guardar horarios",
+    scheduleSavedPrefix: "Horarios guardados",
+    perWeekSuffix: "por semana",
+    removeIntervalTitle: "Eliminar franja",
+    breakBadgePrefix: "Pausa",
+    addIntervalBtn: "+ Añadir franja",
+    closedLabel: "Cerrado",
+    weekendClosed: "Fin de semana: Cerrado",
+    allWeekdaysSuffix: "(Todos los días laborables)",
+    weekdays: {
+      monday: "Lunes",
+      tuesday: "Martes",
+      wednesday: "Miércoles",
+      thursday: "Jueves",
+      friday: "Viernes",
+      saturday: "Sábado",
+      sunday: "Domingo",
+    },
+    clientNameLabel: "Nombre del cliente",
+    clientNamePlaceholder: "Nombre del cliente",
+    selectTherapistOption: "Seleccionar terapeuta",
+    serviceLabel: "Servicio / Tratamiento",
+    selectServiceOption: "Seleccionar servicio",
+    sessionTitleLabel: "Título de la sesión",
+    sessionTitlePlaceholder: "Título de la sesión",
+    defaultConsultationTitle: "Consulta clínica",
+    startTimeLabel: "Hora de inicio",
+    endTimeLabel: "Hora de fin",
+    bookBtn: "Reservar cita",
+    filterActive: "Activas",
+    filterCancelled: "Canceladas",
+    filterAll: "Todas",
+    dateFromAria: "Fecha desde",
+    dateToConnector: "a",
+    dateToAria: "Fecha hasta",
+    applyFilterBtn: "Aplicar",
+    resetFilterBtn: "Restablecer",
+    refreshTitle: "Actualizar lista de citas",
+    loadingAppointments: "Cargando citas...",
+    emptyTitle: "No hay citas que coincidan con tu filtro",
+    emptySubtitle: "Reserva una nueva cita arriba o cambia entre Activas, Canceladas y Todas.",
+    statusConfirmed: "Confirmada",
+    statusCompleted: "Completada",
+    statusCancelled: "Cancelada",
+    statusNoShow: "No asistió",
+    statusScheduled: "Programada",
+    fallbackCardTitle: "Cita clínica",
+    historyBtn: "Historial",
+    rescheduleBtn: "Reprogramar",
+    cancelBtn: "Cancelar",
+    newStartLabel: "Nuevo inicio",
+    newEndLabel: "Nuevo fin",
+    saveNewTimeBtn: "Guardar horario",
+    cancelRescheduleBtn: "Cerrar",
+    gitHistoryTitle: "Historial de Auditoría JGit",
+    loadingHistory: "Cargando historial de revisiones...",
+    emptyHistory: "Aún no hay commits Git registrados para esta cita.",
+  },
+  de: {
+    activeBadgeSuffix: "aktiv",
+    cancelledBadgeSuffix: "storniert",
+    heading: "Termine & Buchung",
+    timefoldBtn: "Timefold KI Freie Termine",
+    scheduleBtn: "Arbeitszeiten & Pausen",
+    timefoldTitle: "Timefold KI — Konfliktfreie Terminoptimierung",
+    timefoldDesc: "Findet freie Konsultationszeiten ohne Überschneidungen oder Pausen.",
+    openingHoursPrefix: "Öffnungszeiten",
+    therapistLabel: "Therapeut",
+    therapistUuidPlaceholder: "Therapeut UUID",
+    dateLabel: "Datum",
+    durationLabel: "Dauer",
+    minutesUnit: "Minuten",
+    preferredTimeLabel: "Wunschzeit",
+    searchingSlots: "Suche...",
+    findSlotsBtn: "Freie Zeiten finden",
+    feasibleSolution: "Machbare Lösung gefunden",
+    noFullSolution: "Keine vollständige Lösung",
+    useRecommendedPrefix: "Empfehlung übernehmen",
+    weeklyScheduleTitle: "Arbeitszeiten & Mittagspausen (Mehrfachfenster)",
+    activeWorkSuffix: "aktiv",
+    breakWorkSuffix: "Pause",
+    savingSchedule: "Speichert...",
+    saveScheduleBtn: "Arbeitszeiten speichern",
+    scheduleSavedPrefix: "Arbeitszeiten gespeichert",
+    perWeekSuffix: "pro Woche",
+    removeIntervalTitle: "Zeitfenster entfernen",
+    breakBadgePrefix: "Pause",
+    addIntervalBtn: "+ Zeitfenster hinzufügen",
+    closedLabel: "Geschlossen",
+    weekendClosed: "Wochenende: Geschlossen",
+    allWeekdaysSuffix: "(Alle Werktage)",
+    weekdays: {
+      monday: "Montag",
+      tuesday: "Dienstag",
+      wednesday: "Mittwoch",
+      thursday: "Donnerstag",
+      friday: "Freitag",
+      saturday: "Samstag",
+      sunday: "Sonntag",
+    },
+    clientNameLabel: "Klientenname",
+    clientNamePlaceholder: "Klientenname",
+    selectTherapistOption: "Therapeut wählen",
+    serviceLabel: "Leistung / Verlauf",
+    selectServiceOption: "Leistung wählen",
+    sessionTitleLabel: "Sitzungstitel",
+    sessionTitlePlaceholder: "Sitzungstitel",
+    defaultConsultationTitle: "Klinische Konsultation",
+    startTimeLabel: "Startzeit",
+    endTimeLabel: "Endzeit",
+    bookBtn: "Termin buchen",
+    filterActive: "Aktiv",
+    filterCancelled: "Storniert",
+    filterAll: "Alle",
+    dateFromAria: "Datum von",
+    dateToConnector: "bis",
+    dateToAria: "Datum bis",
+    applyFilterBtn: "Anwenden",
+    resetFilterBtn: "Zurücksetzen",
+    refreshTitle: "Terminliste aktualisieren",
+    loadingAppointments: "Lade Termine...",
+    emptyTitle: "Keine Termine entsprechen dem Filter",
+    emptySubtitle: "Buchen Sie oben einen Termin oder wechseln Sie zwischen Aktiv, Storniert und Alle.",
+    statusConfirmed: "Bestätigt",
+    statusCompleted: "Abgeschlossen",
+    statusCancelled: "Storniert",
+    statusNoShow: "Nicht erschienen",
+    statusScheduled: "Geplant",
+    fallbackCardTitle: "Klinischer Termin",
+    historyBtn: "Verlauf",
+    rescheduleBtn: "Umbuchen",
+    cancelBtn: "Stornieren",
+    newStartLabel: "Neue Startzeit",
+    newEndLabel: "Neue Endzeit",
+    saveNewTimeBtn: "Neue Zeit speichern",
+    cancelRescheduleBtn: "Abbrechen",
+    gitHistoryTitle: "JGit Audit-Verlauf",
+    loadingHistory: "Lade Revisionsverlauf...",
+    emptyHistory: "Noch keine Git-Commits für diesen Termin erfasst.",
+  },
+};
+
+function localizeScheduleSummary(summaryText: string, copy: AppointmentCopy): string {
+  let localized = summaryText;
+  for (const key of WEEKDAY_ORDER) {
+    localized = localized.replaceAll(WEEKDAY_LABELS[key].da, copy.weekdays[key]);
+  }
+  return localized
+    .replaceAll("Weekend: Lukket", copy.weekendClosed)
+    .replaceAll("Lukket", copy.closedLabel)
+    .replaceAll("(Alle hverdage)", copy.allWeekdaysSuffix);
+}
+
+function getStatusPresentation(
+  status: AppointmentStatus | undefined,
+  copy: AppointmentCopy
+): {
   label: string;
   badgeClass: string;
 } {
   switch (status) {
     case "CONFIRMED":
       return {
-        label: "Bekræftet",
+        label: copy.statusConfirmed,
         badgeClass: "bg-emerald-50 text-emerald-800 border-emerald-200",
       };
     case "COMPLETED":
       return {
-        label: "Afholdt",
+        label: copy.statusCompleted,
         badgeClass: "bg-sky-50 text-sky-800 border-sky-200",
       };
     case "CANCELLED":
       return {
-        label: "Aflyst",
+        label: copy.statusCancelled,
         badgeClass: "bg-rose-50 text-rose-700 border-rose-200",
       };
     case "NO_SHOW":
       return {
-        label: "Udeblevet",
+        label: copy.statusNoShow,
         badgeClass: "bg-amber-50 text-amber-800 border-amber-200",
       };
     case "SCHEDULED":
     default:
       return {
-        label: "Planlagt",
+        label: copy.statusScheduled,
         badgeClass: "bg-teal-50 text-teal-800 border-teal-200",
       };
   }
@@ -456,6 +1040,8 @@ function toProblemDetail(err: unknown): ProblemDetail {
 
 export const AppointmentFeatureView: React.FC = () => {
   const auth = useOptionalAuth();
+  const locale = useUiLocale();
+  const copy = APPOINTMENT_COPY[locale];
   const hasLiveUuid = Boolean(
     auth?.user.id && UUID_PATTERN.test(auth.user.id)
   );
@@ -632,7 +1218,7 @@ export const AppointmentFeatureView: React.FC = () => {
       serviceId: selectedServiceId || undefined,
       startTime,
       endTime: endTime || undefined,
-      title: title || "Klinisk konsultation",
+      title: title || copy.defaultConsultationTitle,
       status: "SCHEDULED",
     });
     if (created) {
@@ -858,7 +1444,7 @@ export const AppointmentFeatureView: React.FC = () => {
       const serialized = serializeWeeklySchedule(weeklySchedule);
       await appointmentApi.saveWorkingHours(serialized);
       setScheduleSavedMsg(
-        `Arbejdstider gemt (${formatMinutes(weeklySchedule.totalWorkMinutes)} pr. uge)`
+        `${copy.scheduleSavedPrefix} (${formatMinutes(weeklySchedule.totalWorkMinutes, locale !== "da")} ${copy.perWeekSuffix})`
       );
     } catch (err) {
       setError(toProblemDetail(err));
@@ -881,16 +1467,16 @@ export const AppointmentFeatureView: React.FC = () => {
             <div className="flex flex-wrap items-center gap-2 mb-1">
               <span className="inline-flex items-center gap-1.5 rounded-full bg-teal-50 border border-teal-200 px-2.5 py-0.5 text-xs font-semibold text-teal-800">
                 <i className="bi bi-calendar2-check" aria-hidden="true" />
-                {activeCount} aktive
+                {activeCount} {copy.activeBadgeSuffix}
               </span>
               {cancelledCount > 0 && (
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 border border-slate-200 px-2.5 py-0.5 text-xs font-medium text-slate-600">
-                  {cancelledCount} aflyste
+                  {cancelledCount} {copy.cancelledBadgeSuffix}
                 </span>
               )}
             </div>
             <h2 className="text-xl font-bold tracking-tight text-slate-900 m-0">
-              Aftaler &amp; Tidsbestilling
+              {copy.heading}
             </h2>
           </div>
 
@@ -906,7 +1492,7 @@ export const AppointmentFeatureView: React.FC = () => {
               }`}
             >
               <i className="bi bi-stars text-teal-600" aria-hidden="true" />
-              Timefold AI Ledige Tider
+              {copy.timefoldBtn}
             </button>
 
             {canEditWeeklySchedule && (
@@ -921,7 +1507,7 @@ export const AppointmentFeatureView: React.FC = () => {
                 }`}
               >
                 <i className="bi bi-clock-history text-sky-600" aria-hidden="true" />
-                Arbejdstider &amp; Pauser
+                {copy.scheduleBtn}
               </button>
             )}
           </div>
@@ -939,15 +1525,15 @@ export const AppointmentFeatureView: React.FC = () => {
               <div>
                 <h3 className="text-sm font-bold text-slate-900 m-0 flex items-center gap-1.5">
                   <i className="bi bi-cpu text-teal-700" aria-hidden="true" />
-                  Timefold AI — Konfliktfri Tidsoptimering
+                  {copy.timefoldTitle}
                 </h3>
                 <p className="text-xs text-slate-600 mt-0.5 mb-0">
-                  Finder ledige konsultationstider uden overlap eller pauser.
+                  {copy.timefoldDesc}
                 </p>
               </div>
               {timefoldResult?.workingHoursWindow && (
                 <span className="rounded-full bg-white border border-teal-200 px-2.5 py-1 text-xs font-medium text-teal-800">
-                  Åbningstid: {timefoldResult.workingHoursWindow}
+                  {copy.openingHoursPrefix}: {timefoldResult.workingHoursWindow}
                 </span>
               )}
             </div>
@@ -955,7 +1541,7 @@ export const AppointmentFeatureView: React.FC = () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-semibold text-slate-600">
-                  Behandler
+                  {copy.therapistLabel}
                 </label>
                 {providers.length > 0 ? (
                   <select
@@ -973,7 +1559,7 @@ export const AppointmentFeatureView: React.FC = () => {
                 ) : (
                   <input
                     type="text"
-                    placeholder="Behandler UUID"
+                    placeholder={copy.therapistUuidPlaceholder}
                     value={timefoldTherapistUuid}
                     onChange={(e) => setTimefoldTherapistUuid(e.target.value)}
                     data-testid="timefold-therapist"
@@ -984,7 +1570,7 @@ export const AppointmentFeatureView: React.FC = () => {
 
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-semibold text-slate-600">
-                  Dato
+                  {copy.dateLabel}
                 </label>
                 <input
                   type="date"
@@ -997,7 +1583,7 @@ export const AppointmentFeatureView: React.FC = () => {
 
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-semibold text-slate-600">
-                  Varighed
+                  {copy.durationLabel}
                 </label>
                 <select
                   value={timefoldDuration}
@@ -1005,16 +1591,16 @@ export const AppointmentFeatureView: React.FC = () => {
                   data-testid="timefold-duration"
                   className="w-full"
                 >
-                  <option value={30}>30 minutter</option>
-                  <option value={45}>45 minutter</option>
-                  <option value={60}>60 minutter</option>
-                  <option value={90}>90 minutter</option>
+                  <option value={30}>30 {copy.minutesUnit}</option>
+                  <option value={45}>45 {copy.minutesUnit}</option>
+                  <option value={60}>60 {copy.minutesUnit}</option>
+                  <option value={90}>90 {copy.minutesUnit}</option>
                 </select>
               </div>
 
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-semibold text-slate-600">
-                  Foretrukket tid
+                  {copy.preferredTimeLabel}
                 </label>
                 <input
                   type="time"
@@ -1033,7 +1619,7 @@ export const AppointmentFeatureView: React.FC = () => {
                 className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-teal-700 hover:bg-teal-800 text-white px-4 py-2.5 text-xs font-semibold shadow-xs transition-colors"
               >
                 <i className="bi bi-search" aria-hidden="true" />
-                {timefoldLoading ? "Søger..." : "Find ledige tider"}
+                {timefoldLoading ? copy.searchingSlots : copy.findSlotsBtn}
               </button>
             </div>
 
@@ -1042,7 +1628,7 @@ export const AppointmentFeatureView: React.FC = () => {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-xs font-medium text-slate-700">
                     {timefoldResult.solver || "Timefold Solver"} ·{" "}
-                    {timefoldResult.feasible ? "Mulig løsning fundet" : "Ingen fuld løsning"}
+                    {timefoldResult.feasible ? copy.feasibleSolution : copy.noFullSolution}
                   </span>
                   {timefoldResult.recommendedSlot && (
                     <button
@@ -1058,7 +1644,7 @@ export const AppointmentFeatureView: React.FC = () => {
                       className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1 text-xs font-semibold shadow-xs"
                     >
                       <i className="bi bi-check2-circle" aria-hidden="true" />
-                      Brug anbefalet: {timefoldResult.recommendedSlot.replace("T", " ")}
+                      {copy.useRecommendedPrefix}: {timefoldResult.recommendedSlot.replace("T", " ")}
                     </button>
                   )}
                 </div>
@@ -1110,12 +1696,14 @@ export const AppointmentFeatureView: React.FC = () => {
               <div>
                 <h3 className="text-sm font-bold text-slate-900 m-0 flex items-center gap-1.5">
                   <i className="bi bi-calendar-week text-sky-700" aria-hidden="true" />
-                  Arbejdstider &amp; Frokostpauser (Multi-Vindue)
+                  {copy.weeklyScheduleTitle}
                 </h3>
                 <p className="text-xs text-slate-600 mt-0.5 mb-0">
-                  {weeklySchedule.summaryText} ·{" "}
-                  <strong>{formatMinutes(weeklySchedule.totalWorkMinutes)}</strong> aktiv /{" "}
-                  {formatMinutes(weeklySchedule.totalBreakMinutes)} pause
+                  {localizeScheduleSummary(weeklySchedule.summaryText, copy)} ·{" "}
+                  <strong>{formatMinutes(weeklySchedule.totalWorkMinutes, locale !== "da")}</strong>{" "}
+                  {copy.activeWorkSuffix} /{" "}
+                  {formatMinutes(weeklySchedule.totalBreakMinutes, locale !== "da")}{" "}
+                  {copy.breakWorkSuffix}
                 </p>
               </div>
               <button
@@ -1126,7 +1714,7 @@ export const AppointmentFeatureView: React.FC = () => {
                 className="inline-flex items-center gap-1.5 rounded-xl bg-sky-700 hover:bg-sky-800 text-white px-4 py-2 text-xs font-semibold shadow-xs transition-colors"
               >
                 <i className="bi bi-cloud-check" aria-hidden="true" />
-                {scheduleSaving ? "Gemmer..." : "Gem arbejdstider"}
+                {scheduleSaving ? copy.savingSchedule : copy.saveScheduleBtn}
               </button>
             </div>
 
@@ -1155,7 +1743,7 @@ export const AppointmentFeatureView: React.FC = () => {
                         data-testid={`day-enabled-${day.day}`}
                         className="h-4 w-4 accent-teal-700 rounded"
                       />
-                      <span>{day.labelDa}</span>
+                      <span>{copy.weekdays[day.day]}</span>
                     </label>
 
                     {day.enabled ? (
@@ -1191,7 +1779,7 @@ export const AppointmentFeatureView: React.FC = () => {
                                 type="button"
                                 onClick={() => removeDayInterval(day.day, intv.id)}
                                 className="rounded-md px-1.5 py-0.5 text-xs text-rose-600 hover:bg-rose-50"
-                                title="Fjern interval"
+                                title={copy.removeIntervalTitle}
                               >
                                 ×
                               </button>
@@ -1204,7 +1792,7 @@ export const AppointmentFeatureView: React.FC = () => {
                             key={idx}
                             className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 px-2.5 py-0.5 text-[11px] font-medium text-amber-800"
                           >
-                            Pause {br.start}–{br.end} ({br.durationMinutes}m)
+                            {copy.breakBadgePrefix} {br.start}–{br.end} ({br.durationMinutes}m)
                           </span>
                         ))}
 
@@ -1214,11 +1802,11 @@ export const AppointmentFeatureView: React.FC = () => {
                           data-testid={`add-interval-${day.day}`}
                           className="inline-flex items-center gap-1 rounded-lg border border-dashed border-sky-300 bg-sky-50/70 hover:bg-sky-100 text-sky-800 px-2.5 py-1 text-xs font-medium"
                         >
-                          + Tilføj vindue
+                          {copy.addIntervalBtn}
                         </button>
                       </div>
                     ) : (
-                      <span className="text-xs italic text-slate-400">Lukket</span>
+                      <span className="text-xs italic text-slate-400">{copy.closedLabel}</span>
                     )}
                   </div>
                 );
@@ -1235,11 +1823,11 @@ export const AppointmentFeatureView: React.FC = () => {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <div className="flex flex-col gap-1">
               <label className="text-xs font-semibold text-slate-600">
-                Klientnavn
+                {copy.clientNameLabel}
               </label>
               <input
                 type="text"
-                placeholder="Client Name"
+                placeholder={copy.clientNamePlaceholder}
                 value={clientName}
                 onChange={(e) => setClientName(e.target.value)}
                 data-testid="input-clientName"
@@ -1249,7 +1837,7 @@ export const AppointmentFeatureView: React.FC = () => {
 
             <div className="flex flex-col gap-1">
               <label className="text-xs font-semibold text-slate-600">
-                Behandler
+                {copy.therapistLabel}
               </label>
               <select
                 value={selectedTherapistUuid}
@@ -1257,7 +1845,7 @@ export const AppointmentFeatureView: React.FC = () => {
                 data-testid="select-therapist"
                 className="w-full h-[42px]"
               >
-                <option value="">Vælg behandler</option>
+                <option value="">{copy.selectTherapistOption}</option>
                 {providers.map((p) => (
                   <option key={p.userUuid} value={p.userUuid}>
                     {p.displayName}
@@ -1269,7 +1857,7 @@ export const AppointmentFeatureView: React.FC = () => {
 
             <div className="flex flex-col gap-1">
               <label className="text-xs font-semibold text-slate-600">
-                Ydelse / Forløb
+                {copy.serviceLabel}
               </label>
               <select
                 value={selectedServiceId}
@@ -1277,7 +1865,7 @@ export const AppointmentFeatureView: React.FC = () => {
                 data-testid="select-service"
                 className="w-full h-[42px]"
               >
-                <option value="">Vælg ydelse</option>
+                <option value="">{copy.selectServiceOption}</option>
                 {filteredServices.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name}
@@ -1289,11 +1877,11 @@ export const AppointmentFeatureView: React.FC = () => {
 
             <div className="flex flex-col gap-1">
               <label className="text-xs font-semibold text-slate-600">
-                Sessionstitel
+                {copy.sessionTitleLabel}
               </label>
               <input
                 type="text"
-                placeholder="Session Title"
+                placeholder={copy.sessionTitlePlaceholder}
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 data-testid="input-title"
@@ -1305,7 +1893,7 @@ export const AppointmentFeatureView: React.FC = () => {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 items-end">
             <div className="flex flex-col gap-1 lg:col-span-4">
               <label className="min-h-[24px] flex items-center text-xs font-semibold text-slate-600">
-                Starttidspunkt
+                {copy.startTimeLabel}
               </label>
               <input
                 type="datetime-local"
@@ -1319,7 +1907,7 @@ export const AppointmentFeatureView: React.FC = () => {
             <div className="flex flex-col gap-1 lg:col-span-5">
               <div className="min-h-[24px] flex items-center justify-between gap-2">
                 <label className="text-xs font-semibold text-slate-600 whitespace-nowrap">
-                  Sluttidspunkt
+                  {copy.endTimeLabel}
                 </label>
                 <div className="flex items-center gap-1 shrink-0">
                   {[45, 60, 90].map((mins) => (
@@ -1352,7 +1940,7 @@ export const AppointmentFeatureView: React.FC = () => {
                 className="w-full h-[42px] inline-flex items-center justify-center gap-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white px-5 text-sm font-semibold shadow-sm transition-colors whitespace-nowrap"
               >
                 <i className="bi bi-calendar-plus" aria-hidden="true" />
-                Book aftale
+                {copy.bookBtn}
               </button>
             </div>
           </div>
@@ -1363,9 +1951,9 @@ export const AppointmentFeatureView: React.FC = () => {
           <div className="flex flex-wrap items-center gap-1.5">
             {(
               [
-                { id: "active", label: `Aktive (${activeCount})` },
-                { id: "cancelled", label: `Aflyste (${cancelledCount})` },
-                { id: "all", label: `Alle (${activeSourceItems.length})` },
+                { id: "active", label: `${copy.filterActive} (${activeCount})` },
+                { id: "cancelled", label: `${copy.filterCancelled} (${cancelledCount})` },
+                { id: "all", label: `${copy.filterAll} (${activeSourceItems.length})` },
               ] as const
             ).map((tab) => (
               <button
@@ -1387,16 +1975,16 @@ export const AppointmentFeatureView: React.FC = () => {
           <div className="flex flex-wrap items-center gap-2">
             <input
               type="date"
-              aria-label="Fra dato"
+              aria-label={copy.dateFromAria}
               value={dateFrom}
               onChange={(e) => setDateFrom(e.target.value)}
               data-testid="filter-date-from"
               className="!py-1.5 !px-2.5 !text-xs"
             />
-            <span className="text-xs text-slate-400">til</span>
+            <span className="text-xs text-slate-400">{copy.dateToConnector}</span>
             <input
               type="date"
-              aria-label="Til dato"
+              aria-label={copy.dateToAria}
               value={dateTo}
               onChange={(e) => setDateTo(e.target.value)}
               data-testid="filter-date-to"
@@ -1408,7 +1996,7 @@ export const AppointmentFeatureView: React.FC = () => {
               data-testid="apply-date-filter"
               className="rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700"
             >
-              Anvend
+              {copy.applyFilterBtn}
             </button>
             {(dateFrom || dateTo || windowItems) && (
               <button
@@ -1417,14 +2005,14 @@ export const AppointmentFeatureView: React.FC = () => {
                 data-testid="reset-date-filter"
                 className="rounded-xl px-2.5 py-1.5 text-xs font-semibold text-teal-700 hover:bg-teal-50"
               >
-                Nulstil
+                {copy.resetFilterBtn}
               </button>
             )}
             <button
               type="button"
               onClick={() => void fetchAll()}
               className="rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-2.5 py-1.5 text-xs text-slate-600"
-              title="Opdater aftaleliste"
+              title={copy.refreshTitle}
             >
               <i className="bi bi-arrow-clockwise" aria-hidden="true" />
             </button>
@@ -1437,7 +2025,7 @@ export const AppointmentFeatureView: React.FC = () => {
             data-testid="loading-indicator"
           >
             <i className="bi bi-hourglass-split animate-pulse" aria-hidden="true" />
-            Henter aftaler...
+            {copy.loadingAppointments}
           </p>
         )}
 
@@ -1451,10 +2039,10 @@ export const AppointmentFeatureView: React.FC = () => {
               <i className="bi bi-calendar3" aria-hidden="true" />
             </div>
             <p className="text-sm font-semibold text-slate-800 m-0">
-              Ingen aftaler matcher dit filter
+              {copy.emptyTitle}
             </p>
             <p className="text-xs text-slate-500 mt-1 mb-0">
-              Book en ny tid ovenfor, eller skift mellem Aktive, Aflyste og Alle.
+              {copy.emptySubtitle}
             </p>
           </div>
         ) : (
@@ -1462,9 +2050,10 @@ export const AppointmentFeatureView: React.FC = () => {
             {displayedAppointments.map((item) => {
               const dateParts = formatAppointmentDateParts(
                 item.startTime,
-                item.endTime
+                item.endTime,
+                locale
               );
-              const badge = getStatusPresentation(item.status);
+              const badge = getStatusPresentation(item.status, copy);
               const isCancelled = item.status === "CANCELLED";
               const isRescheduling = Boolean(item.id && rescheduleId === item.id);
               const isHistoryOpen = Boolean(item.id && openHistoryId === item.id);
@@ -1512,7 +2101,7 @@ export const AppointmentFeatureView: React.FC = () => {
                             </>
                           ) : (
                             <strong className="text-sm font-bold text-slate-900">
-                              {item.title || "Klinisk aftale"}
+                              {item.title || copy.fallbackCardTitle}
                             </strong>
                           )}
                           <span
@@ -1564,7 +2153,7 @@ export const AppointmentFeatureView: React.FC = () => {
                           }`}
                         >
                           <i className="bi bi-git" aria-hidden="true" />
-                          Historik
+                          {copy.historyBtn}
                         </button>
 
                         {!isCancelled && (
@@ -1579,7 +2168,7 @@ export const AppointmentFeatureView: React.FC = () => {
                             className="inline-flex items-center gap-1.5 rounded-xl border border-teal-200 bg-teal-50 hover:bg-teal-100 text-teal-800 px-3 py-1.5 text-xs font-semibold transition-colors"
                           >
                             <i className="bi bi-calendar-event" aria-hidden="true" />
-                            Ombook
+                            {copy.rescheduleBtn}
                           </button>
                         )}
 
@@ -1590,7 +2179,7 @@ export const AppointmentFeatureView: React.FC = () => {
                           className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 px-3 py-1.5 text-xs font-semibold transition-colors"
                         >
                           <i className="bi bi-x-circle" aria-hidden="true" />
-                          Aflys
+                          {copy.cancelBtn}
                         </button>
                       </div>
                     )}
@@ -1604,7 +2193,7 @@ export const AppointmentFeatureView: React.FC = () => {
                     >
                       <div className="flex flex-col gap-1">
                         <label className="text-[11px] font-semibold text-slate-600">
-                          Ny starttid
+                          {copy.newStartLabel}
                         </label>
                         <input
                           type="datetime-local"
@@ -1616,7 +2205,7 @@ export const AppointmentFeatureView: React.FC = () => {
                       </div>
                       <div className="flex flex-col gap-1">
                         <label className="text-[11px] font-semibold text-slate-600">
-                          Ny sluttid
+                          {copy.newEndLabel}
                         </label>
                         <input
                           type="datetime-local"
@@ -1632,14 +2221,14 @@ export const AppointmentFeatureView: React.FC = () => {
                         data-testid={`reschedule-save-${item.id}`}
                         className="rounded-xl bg-teal-700 hover:bg-teal-800 text-white px-3.5 py-2 text-xs font-semibold"
                       >
-                        Gem ny tid
+                        {copy.saveNewTimeBtn}
                       </button>
                       <button
                         type="button"
                         onClick={() => setRescheduleId(null)}
                         className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50"
                       >
-                        Annuller
+                        {copy.cancelRescheduleBtn}
                       </button>
                     </div>
                   )}
@@ -1652,17 +2241,17 @@ export const AppointmentFeatureView: React.FC = () => {
                     >
                       <div className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
                         <i className="bi bi-journal-code" aria-hidden="true" />
-                        JGit Audit-historik
+                        {copy.gitHistoryTitle}
                       </div>
                       {historyLoadingId === item.id && (
                         <p className="text-xs text-slate-500 m-0">
-                          Henter revisionshistorik...
+                          {copy.loadingHistory}
                         </p>
                       )}
                       {historyLoadingId !== item.id &&
                         (!historyEntries || historyEntries.length === 0) && (
                           <p className="text-xs text-slate-500 m-0">
-                            Ingen Git-commits registreret endnu for denne aftale.
+                            {copy.emptyHistory}
                           </p>
                         )}
                       {historyEntries && historyEntries.length > 0 && (

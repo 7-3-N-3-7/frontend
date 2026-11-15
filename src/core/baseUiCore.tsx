@@ -58,6 +58,7 @@ export interface AuthContextValue {
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+const AuthProviderPresenceContext = createContext<boolean>(false);
 
 /**
  * [Component: <AuthProvider />]
@@ -75,9 +76,11 @@ export const AuthProvider: React.FC<{
   );
 
   return (
-    <AuthContext.Provider value={user ? { user, hasRole } : null}>
-      {children}
-    </AuthContext.Provider>
+    <AuthProviderPresenceContext.Provider value={true}>
+      <AuthContext.Provider value={user ? { user, hasRole } : null}>
+        {children}
+      </AuthContext.Provider>
+    </AuthProviderPresenceContext.Provider>
   );
 };
 
@@ -109,15 +112,21 @@ export function useOptionalAuth(): AuthContextValue | null {
  * Synkroniserer automatisk `PROVIDER <-> THERAPIST` og `MANAGEMENT <-> ADMIN`.
  * Hvis den renderes uden for en [Component: <AuthProvider />] i en isoleret komponenttest,
  * tillades rendering som fallback, så enkelte komponenter kan enhedstestes direkte.
+ * Hvis den renderes inde i `<AuthProvider user={null}>` mens brugersessionen indlæses,
+ * returneres `null`, så beskyttede komponenter og API-kald ikke monteres før auth er afklaret.
  */
 export const RoleGuard: React.FC<{
   allowed: UserRole[];
   fallback?: React.ReactNode;
   children: React.ReactNode;
 }> = ({ allowed, fallback = null, children }) => {
+  const isInsideAuthProvider = useContext(AuthProviderPresenceContext);
   const ctx = useContext(AuthContext);
-  if (!ctx) {
+  if (!isInsideAuthProvider) {
     return <>{children}</>;
+  }
+  if (!ctx) {
+    return null;
   }
   return ctx.hasRole(...allowed) ? <>{children}</> : <>{fallback}</>;
 };
@@ -427,6 +436,8 @@ export interface PortalWorkspaceShellProps {
   settingsLabel?: string;
   logoutLabel?: string;
   accountSettingsHeader?: string;
+  workspaceSwitcherLabel?: string;
+  featuresHeaderLabel?: string;
   profileSubtext?: string;
   roleBadge?: string;
   roleLabel?: string;
@@ -463,6 +474,8 @@ export const PortalWorkspaceShell: React.FC<PortalWorkspaceShellProps> = ({
   settingsLabel = "Indstillinger",
   logoutLabel = "Log ud",
   accountSettingsHeader = "Konto",
+  workspaceSwitcherLabel = "Skift arbejdsområde",
+  featuresHeaderLabel = "Funktioner",
   profileSubtext,
   roleBadge,
   roleLabel,
@@ -521,7 +534,7 @@ export const PortalWorkspaceShell: React.FC<PortalWorkspaceShellProps> = ({
         >
           {!isCollapsed && (
             <div className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-              Skift arbejdsområde
+              {workspaceSwitcherLabel}
             </div>
           )}
           <div className="space-y-1">
@@ -560,7 +573,7 @@ export const PortalWorkspaceShell: React.FC<PortalWorkspaceShellProps> = ({
         >
           {!isCollapsed && (
             <div className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-              Funktioner
+              {featuresHeaderLabel}
             </div>
           )}
           {navItems.map((item, idx) => (

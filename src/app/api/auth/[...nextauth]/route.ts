@@ -137,7 +137,10 @@ export const authOptions: AuthOptions = {
       try {
         const target = new URL(url);
         const base = new URL(baseUrl);
-        const normalizeHost = (h: string) => h.replace(/^platform\./i, "");
+        const normalizeHost = (h: string) => {
+          const stripped = h.toLowerCase().replace(/^platform\./, "");
+          return stripped === "127.0.0.1" ? "localhost" : stripped;
+        };
         if (normalizeHost(target.hostname) === normalizeHost(base.hostname)) {
           return url;
         }

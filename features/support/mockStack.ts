@@ -136,12 +136,43 @@ export async function startSelfContainedMockStack(
   const invoicesById = new Map<string, any>();
   const installmentLoans = new Map<string, any>();
   const ledgerCommits = new Map<string, any>();
+  const vippsAgreementsById = new Map<string, any>();
+  const grantedAccessByUser = new Map<string, Set<string>>();
   const glBalances: Record<string, number> = {
     "1100": 0,
     "1200": 0,
     "2100": 0,
     "4100": 0,
     "4200": 0,
+    "4300": 0,
+  };
+
+  const VIPPS_MOCK_CONFIG = {
+    bundleSymbolicName: "com.platform.killbill.vipps-mobilepay-plugin",
+    bundleVersion: "1.0.0",
+    pluginName: "killbill-vipps-mobilepay",
+    clinicPayoutIban: "DK5000400440116243",
+    clinicVippsMsn: "700000",
+    tiers: {
+      THERAPIST_ACCESS: {
+        productType: "THERAPIST_ACCESS",
+        planName: "Therapist Access",
+        amountDkk: 799,
+        payoutIban: "DK8130000012345678",
+        vippsMsn: "700101",
+        glAccount: "4300",
+        grantedRole: "THERAPIST",
+      },
+      MANAGEMENT_ACCESS: {
+        productType: "MANAGEMENT_ACCESS",
+        planName: "Management Access",
+        amountDkk: 1499,
+        payoutIban: "DK9230000087654321",
+        vippsMsn: "700202",
+        glAccount: "4300",
+        grantedRole: "ADMIN",
+      },
+    },
   };
   let i18nStore = buildBaselineI18n();
 
@@ -204,11 +235,14 @@ export async function startSelfContainedMockStack(
     invoicesById.clear();
     installmentLoans.clear();
     ledgerCommits.clear();
+    vippsAgreementsById.clear();
+    grantedAccessByUser.clear();
     glBalances["1100"] = 0;
     glBalances["1200"] = 0;
     glBalances["2100"] = 0;
     glBalances["4100"] = 0;
     glBalances["4200"] = 0;
+    glBalances["4300"] = 0;
     i18nStore = buildBaselineI18n();
 
     const seedUsers = [
@@ -298,8 +332,10 @@ export async function startSelfContainedMockStack(
       });
     }
 
-    if (url.pathname.includes("/roles/therapist")) {
-      return sendJson(res, 200, { id: "role-therapist-id", name: "therapist" });
+    const roleLookupMatch = url.pathname.match(/\/roles\/([^/]+)$/);
+    if (roleLookupMatch && req.method === "GET") {
+      const roleName = decodeURIComponent(roleLookupMatch[1]);
+      return sendJson(res, 200, { id: `role-${roleName}-id`, name: roleName });
     }
 
     const roleMappingMatch = url.pathname.match(/\/users\/([^/]+)\/role-mappings\/realm$/);
@@ -317,11 +353,23 @@ export async function startSelfContainedMockStack(
         );
       }
       if (req.method === "POST") {
-        set.add("therapist");
+        try {
+          const parsed = JSON.parse(body || "[]");
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            for (const item of parsed) {
+              if (item?.name) set.add(String(item.name).toLowerCase());
+            }
+          } else {
+            set.add("therapist");
+          }
+        } catch {
+          set.add("therapist");
+        }
         return sendJson(res, 204, {});
       }
       if (req.method === "DELETE") {
         set.delete("therapist");
+        set.delete("admin");
         return sendJson(res, 204, {});
       }
     }
@@ -1248,18 +1296,222 @@ export async function startSelfContainedMockStack(
         prepaidSavings: savings,
         subscriptions: subscriptionsByClient.get(targetUuid) || [],
         installmentPlans: plans,
+        vippsConfig: VIPPS_MOCK_CONFIG,
+        vippsAgreements: Array.from(vippsAgreementsById.values()).filter(
+          (a) => a.clientUuid === targetUuid
+        ),
       });
     }
 
+    if (pathname === "/api/v1/finance/vipps/config" && method === "GET") {
+      return sendJson(res, 200, {
+        ...VIPPS_MOCK_CONFIG,
+        grantedRoles: Array.from(grantedAccessByUser.get(auth.userUuid) || []),
+      });
+    }
+
+    if (pathname === "/api/v1/finance/vipps/checkout" && method === "POST") {
+      if (!auth.userUuid) {
+        return sendJson(res, 401, { error: "Unauthorized" });
+      }
+      const targetClientUuid = String(jsonBody.clientUuid || auth.userUuid);
+      const productType = String(jsonBody.productType || "SUBSCRIPTION").toUpperCase();
+      const paymentMethod = String(jsonBody.paymentMethod || "MOBILEPAY").toUpperCase();
+      if (paymentMethod === "CREDIT_CARD" && (!jsonBody.cardToken || !jsonBody.cardLast4)) {
+        return sendJson(res, 400, { error: "Tokenized credit card metadata is required" });
+      }
+      const maskedInstrument =
+        paymentMethod === "MOBILEPAY"
+          ? `MobilePay ${String(jsonBody.phoneNumber || "+4520123456")}`
+          : `${String(jsonBody.cardBrand || "VISA")} •••• ${String(jsonBody.cardLast4 || "4242")}`;
+
+      let amountDkk = Number(jsonBody.amount || 0);
+      let planName = String(jsonBody.planName || productType);
+      let payoutIban = VIPPS_MOCK_CONFIG.clinicPayoutIban;
+      let vippsMsn = VIPPS_MOCK_CONFIG.clinicVippsMsn;
+      let glCredit = "4200";
+      let grantedRole: string | null = null;
+      let keycloakRealmRole: string | null = null;
+      let isRecurring = false;
+
+      if (productType === "THERAPIST_ACCESS") {
+        const tier = VIPPS_MOCK_CONFIG.tiers.THERAPIST_ACCESS;
+        amountDkk = tier.amountDkk;
+        planName = String(jsonBody.planName || tier.planName);
+        payoutIban = tier.payoutIban;
+        vippsMsn = tier.vippsMsn;
+        glCredit = tier.glAccount;
+        grantedRole = "THERAPIST";
+        keycloakRealmRole = "therapist";
+        isRecurring = true;
+      } else if (productType === "MANAGEMENT_ACCESS") {
+        const tier = VIPPS_MOCK_CONFIG.tiers.MANAGEMENT_ACCESS;
+        amountDkk = tier.amountDkk;
+        planName = String(jsonBody.planName || tier.planName);
+        payoutIban = tier.payoutIban;
+        vippsMsn = tier.vippsMsn;
+        glCredit = tier.glAccount;
+        grantedRole = "ADMIN";
+        keycloakRealmRole = "admin";
+        isRecurring = true;
+      } else if (productType === "CLIP_CARD") {
+        amountDkk = amountDkk > 0 ? amountDkk : 5000;
+        glCredit = "2100";
+        const clips = Number(jsonBody.clips || 5);
+        const existingSavings = savingsAccounts.get(targetClientUuid) || {
+          savingsAccountId: `sav-${targetClientUuid.slice(0, 8)}`,
+          balance: 0,
+          remainingClips: 0,
+          currency: "DKK",
+        };
+        existingSavings.balance = Number(existingSavings.balance || 0) + amountDkk;
+        existingSavings.remainingClips = Number(existingSavings.remainingClips || 0) + clips;
+        existingSavings.clipUnitPrice =
+          existingSavings.remainingClips > 0
+            ? existingSavings.balance / existingSavings.remainingClips
+            : 0;
+        savingsAccounts.set(targetClientUuid, existingSavings);
+      } else {
+        amountDkk = amountDkk > 0 ? amountDkk : 499;
+        glCredit = "4200";
+        isRecurring = true;
+      }
+
+      glBalances["1100"] = (glBalances["1100"] || 0) + amountDkk;
+      glBalances[glCredit] = (glBalances[glCredit] || 0) + amountDkk;
+
+      if (grantedRole) {
+        if (!userRoles.has(targetClientUuid)) {
+          userRoles.set(targetClientUuid, new Set(["client"]));
+        }
+        userRoles.get(targetClientUuid)!.add(keycloakRealmRole!);
+        if (!grantedAccessByUser.has(targetClientUuid)) {
+          grantedAccessByUser.set(targetClientUuid, new Set());
+        }
+        grantedAccessByUser.get(targetClientUuid)!.add(productType);
+      }
+
+      const invoiceId = `inv-${crypto.randomUUID().slice(0, 8)}`;
+      const gitCommitHash = crypto.randomBytes(4).toString("hex");
+      const vippsReferenceId = `vipps-ref-${crypto.randomUUID().slice(0, 8)}`;
+      const agreementId = isRecurring ? `agr-${crypto.randomUUID().slice(0, 8)}` : null;
+
+      if (agreementId) {
+        vippsAgreementsById.set(agreementId, {
+          agreementId,
+          clientUuid: targetClientUuid,
+          productType,
+          planName,
+          amountDkk,
+          currency: "DKK",
+          paymentMethod,
+          maskedInstrument,
+          payoutIban,
+          vippsMsn,
+          glAccount: glCredit,
+          grantedRole,
+          status: "ACTIVE",
+          chargeCount: 1,
+          gitCommitHash,
+        });
+      }
+
+      const commitSnapshot = {
+        commitHash: gitCommitHash,
+        shortHash: gitCommitHash.slice(0, 7),
+        invoiceId,
+        clientUuid: targetClientUuid,
+        productType,
+        amountDkk,
+        payoutIban,
+        vippsMsn,
+        message: `Vipps OSGi ${productType} (${amountDkk} DKK) -> ${payoutIban}`,
+        authorName: auth.fullName || auth.username,
+      };
+      ledgerCommits.set(gitCommitHash, commitSnapshot);
+      addJGitCommit({
+        clientUuid: targetClientUuid,
+        author: auth.fullName || auth.username,
+        message: commitSnapshot.message,
+        isConfidential: false,
+        addedLine: commitSnapshot.message,
+      });
+
+      return sendJson(res, 201, {
+        status: isRecurring ? "ACTIVE" : "CAPTURED",
+        productType,
+        planName,
+        amountDkk,
+        currency: "DKK",
+        paymentMethod,
+        maskedInstrument,
+        payoutIban,
+        vippsMsn,
+        grantedRole,
+        keycloakRealmRole,
+        agreementId,
+        invoiceId,
+        vippsReferenceId,
+        gitCommitHash,
+      });
+    }
+
+    const vippsChargeMatch = pathname.match(/^\/api\/v1\/finance\/vipps\/agreements\/([^/]+)\/charge$/);
+    if (vippsChargeMatch && method === "POST") {
+      if (!auth.userUuid) {
+        return sendJson(res, 401, { error: "Unauthorized" });
+      }
+      const agreement = vippsAgreementsById.get(decodeURIComponent(vippsChargeMatch[1]));
+      if (!agreement) {
+        return sendJson(res, 404, { error: "Vipps agreement not found" });
+      }
+      if (agreement.status !== "ACTIVE") {
+        return sendJson(res, 400, { error: "Vipps agreement is not active" });
+      }
+      glBalances["1100"] = (glBalances["1100"] || 0) + Number(agreement.amountDkk);
+      glBalances[agreement.glAccount] = (glBalances[agreement.glAccount] || 0) + Number(agreement.amountDkk);
+      agreement.chargeCount = Number(agreement.chargeCount || 1) + 1;
+      agreement.gitCommitHash = crypto.randomBytes(4).toString("hex");
+      return sendJson(res, 200, agreement);
+    }
+
+    const vippsCancelMatch = pathname.match(/^\/api\/v1\/finance\/vipps\/agreements\/([^/]+)\/cancel$/);
+    if (vippsCancelMatch && method === "POST") {
+      if (!auth.userUuid) {
+        return sendJson(res, 401, { error: "Unauthorized" });
+      }
+      const agreement = vippsAgreementsById.get(decodeURIComponent(vippsCancelMatch[1]));
+      if (!agreement) {
+        return sendJson(res, 404, { error: "Vipps agreement not found" });
+      }
+      agreement.status = "STOPPED";
+      agreement.gitCommitHash = crypto.randomBytes(4).toString("hex");
+      return sendJson(res, 200, agreement);
+    }
+
     if (pathname === "/api/v1/finance/ledger/summary" && method === "GET") {
-      if (!auth.isTherapist && !auth.isAdmin) {
+      const dynamicRoles = Array.from(userRoles.get(auth.userUuid) || []);
+      const dynamicAccess = grantedAccessByUser.get(auth.userUuid);
+      const hasFinanceAccess =
+        auth.isTherapist ||
+        auth.isAdmin ||
+        dynamicRoles.includes("therapist") ||
+        dynamicRoles.includes("admin") ||
+        Boolean(dynamicAccess?.has("THERAPIST_ACCESS") || dynamicAccess?.has("MANAGEMENT_ACCESS"));
+      if (!hasFinanceAccess) {
         return sendJson(res, 403, { error: "Forbidden: requires therapist or admin role" });
       }
       return sendJson(res, 200, {
         chartOfAccounts: Object.entries(glBalances).map(([glCode, balance]) => ({
+          code: glCode,
           glCode,
           balance,
         })),
+        vippsConfig: {
+          ...VIPPS_MOCK_CONFIG,
+          grantedRoles: Array.from(dynamicAccess || []),
+        },
+        vippsAgreements: Array.from(vippsAgreementsById.values()),
       });
     }
 
@@ -1275,6 +1527,8 @@ export async function startSelfContainedMockStack(
     keycloakPort,
     backendPort,
     close: async () => {
+      keycloakServer.closeAllConnections?.();
+      backendServer.closeAllConnections?.();
       await new Promise<void>((resolve) => keycloakServer.close(() => resolve()));
       await new Promise<void>((resolve) => backendServer.close(() => resolve()));
     },

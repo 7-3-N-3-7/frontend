@@ -3,9 +3,14 @@ import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { getTranslations } from "next-intl/server";
 import { SyncedClientPortalWorkspace } from "../DashboardShellBridge";
 
-export default async function PersonalDashboard() {
+export default async function PersonalDashboard({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { locale } = await params;
   const session = await getServerSession(authOptions);
-  const t = await getTranslations("dashboard.personal");
+  const t = await getTranslations({ locale, namespace: "dashboard.personal" });
 
   let secureData = null;
 
@@ -31,6 +36,7 @@ export default async function PersonalDashboard() {
 
   return (
     <SyncedClientPortalWorkspace
+      locale={locale}
       userName={userName}
       secureStatus={secureData?.data || null}
     />

@@ -106,15 +106,57 @@ export default async function proxy(request: NextRequest) {
     );
   }
 
-  const roles = Array.isArray(token?.roles) ? (token.roles as string[]) : [];
+  const normalizedRoles = Array.isArray(token?.roles)
+    ? (token.roles as unknown[]).map((r) =>
+        String(r).toLowerCase().replace(/^role_/, '')
+      )
+    : [];
+  const hasAdminRole =
+    normalizedRoles.includes('admin') || normalizedRoles.includes('management');
+  const hasTherapistRole =
+    normalizedRoles.includes('therapist') ||
+    normalizedRoles.includes('provider') ||
+    hasAdminRole;
+
+  if (token) {
+    if (
+      (pathWithoutLocale === '/dashboard/admin' ||
+        pathWithoutLocale.startsWith('/dashboard/admin/')) &&
+      !hasAdminRole
+    ) {
+      return NextResponse.redirect(
+        new URL(
+          `/${locale}/dashboard/${hasTherapistRole ? 'therapist' : 'personal'}`,
+          platformOrigin,
+        ),
+      );
+    }
+
+    if (
+      (pathWithoutLocale === '/dashboard/therapist' ||
+        pathWithoutLocale.startsWith('/dashboard/therapist/')) &&
+      !hasTherapistRole
+    ) {
+      return NextResponse.redirect(
+        new URL(`/${locale}/dashboard/personal`, platformOrigin),
+      );
+    }
+
+    if (pathWithoutLocale === '/dashboard') {
+      return NextResponse.redirect(
+        new URL(
+          `/${locale}/dashboard/${hasTherapistRole ? 'therapist' : 'personal'}`,
+          platformOrigin,
+        ),
+      );
+    }
+  }
 
   // Redirect authenticated users on root /{locale} directly to their dashboard on platform.<domain>
   if (token && pathWithoutLocale === '/') {
-    const dashboard = roles.includes('therapist')
-      ? 'therapist'
-      : 'personal';
+    const dashboard = hasTherapistRole ? 'therapist' : 'personal';
     return NextResponse.redirect(
-      new URL(`/${preferredLocale}/dashboard/${dashboard}`, platformOrigin),
+      new URL(`/${locale}/dashboard/${dashboard}`, platformOrigin),
     );
   }
 

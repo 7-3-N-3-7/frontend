@@ -64,9 +64,7 @@ export default getRequestConfig(async ({ requestLocale }) => {
     }
   }
 
-  const fetchCacheOptions: RequestInit = previewHighlight
-    ? { cache: 'no-store' }
-    : { next: { revalidate: 300, tags: [`i18n-${locale}`, 'i18n'] } };
+  const fetchCacheOptions: RequestInit = { cache: 'no-store' };
 
   const [res, fallbackRes] = await Promise.all([
     fetch(`${backendUrl}/api/v1/i18n/${locale}`, fetchCacheOptions),

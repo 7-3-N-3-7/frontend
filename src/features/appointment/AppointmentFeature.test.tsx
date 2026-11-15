@@ -26,6 +26,7 @@ import {
 } from "./AppointmentFeature";
 import { ErrorCode, ProblemDetail } from "../../core/baseDomainCore";
 import { AuthProvider } from "../../core/baseUiCore";
+import { CachedI18nProvider } from "../i18n/I18nFeature";
 
 describe("AppointmentFeature Vertical Slice (UI + DomainGuard + ProblemDetail)", () => {
   beforeEach(() => {
@@ -109,7 +110,10 @@ describe("AppointmentFeature Vertical Slice (UI + DomainGuard + ProblemDetail)",
     });
 
     render(<AppointmentFeatureView />);
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId("booking-empty-state")).toBeDefined();
+    });
 
     const conflictProblem: ProblemDetail = {
       type: "https://api.platform.com/errors/conflict",
@@ -158,7 +162,10 @@ describe("AppointmentFeature Vertical Slice (UI + DomainGuard + ProblemDetail)",
     });
 
     render(<AppointmentFeatureView />);
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId("booking-empty-state")).toBeDefined();
+    });
 
     // 1. Blank clientName
     fireEvent.click(screen.getByTestId("submit-booking"));
@@ -1053,6 +1060,134 @@ describe("AppointmentFeature Trin 1 UI (Timefold AI, Reschedule, JGit, Filters &
     await waitFor(() => {
       expect(screen.getByTestId("error-banner")).toBeDefined();
     });
+  });
+
+  it("renders Spanish appointment chrome and localized Oct date parts without Danish fallback", async () => {
+    expect(
+      formatAppointmentDateParts("2026-10-14T10:00:00", "2026-10-14T11:00:00", "es")
+    ).toEqual({
+      monthShort: "OCT",
+      dayNumber: "14",
+      weekdayShort: "mié",
+      timeRange: "10:00 – 11:00",
+      fullDate: "14 oct 2026",
+    });
+
+    const therapistUuid = "11111111-1111-1111-1111-111111111111";
+    const fetchMock = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/backend/appointments")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            {
+              id: "es-appt-1",
+              clientName: "Lucía Gómez",
+              title: "Sesión clínica",
+              startTime: "2026-10-14T10:00:00",
+              endTime: "2026-10-14T11:00:00",
+              status: "CONFIRMED",
+              therapistUuid,
+              serviceCode: "INITIAL_60",
+            },
+            {
+              id: "es-appt-2",
+              clientName: "Carlos Ruiz",
+              title: "Seguimiento",
+              startTime: "2026-10-15T12:00:00",
+              endTime: "2026-10-15T13:00:00",
+              status: "CANCELLED",
+              therapistUuid,
+            },
+          ],
+        } as Response;
+      }
+      if (url === "/api/backend/clinic/directory") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            {
+              therapistUuid,
+              fullName: "Bo Jensen",
+              specialty: "Traumaterapi",
+              weeklyScheduleJson: JSON.stringify(getDefaultWeeklySchedule()),
+              services: [
+                {
+                  code: "INITIAL_60",
+                  title: "Sesión individual (60 min)",
+                  durationMinutes: 60,
+                  priceDkk: 950,
+                },
+              ],
+            },
+          ],
+        } as Response;
+      }
+      return { ok: true, status: 200, json: async () => ({}) } as Response;
+    });
+    global.fetch = fetchMock;
+
+    render(
+      <CachedI18nProvider initialLocale="es" initialMessages={{}}>
+        <AuthProvider
+          user={{
+            id: therapistUuid,
+            name: "Bo Jensen",
+            email: "bo@clinic.dk",
+            roles: ["THERAPIST"],
+          }}
+        >
+          <AppointmentFeatureView />
+        </AuthProvider>
+      </CachedI18nProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Lucía Gómez")).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByTestId("toggle-timefold-panel"));
+    fireEvent.click(screen.getByTestId("toggle-weekly-schedule"));
+
+    const bodyText = document.body.textContent ?? "";
+    for (const expectedSpanish of [
+      "Citas y Reservas",
+      "Terapeuta",
+      "Servicio / Tratamiento",
+      "Seleccionar servicio",
+      "Título de la sesión",
+      "Hora de inicio",
+      "Hora de fin",
+      "Reservar cita",
+      "Aplicar",
+      "Horarios IA Timefold",
+      "Horarios y Pausas",
+      "Confirmada",
+      "Historial",
+      "Reprogramar",
+      "Cancelar",
+      "OCT",
+      "mié 14 oct 2026",
+      "Lunes",
+    ]) {
+      expect(bodyText).toContain(expectedSpanish);
+    }
+
+    for (const unexpectedDanish of [
+      "Aftaler & Tidsbestilling",
+      "Behandler",
+      "Ydelse / Forløb",
+      "Vælg ydelse",
+      "Starttidspunkt",
+      "Sluttidspunkt",
+      "Anvend",
+      "Bekræftet",
+      "OKT",
+    ]) {
+      expect(bodyText).not.toContain(unexpectedDanish);
+    }
   });
 });
 

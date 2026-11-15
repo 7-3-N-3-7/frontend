@@ -23,7 +23,8 @@
 
 import React, { useState } from 'react';
 import { BaseApiService, DomainGuard, HasId } from '../../core/baseDomainCore';
-import { ProblemAlert, useBaseCrud } from '../../core/baseUiCore';
+import { ProblemAlert, RoleGuard, useBaseCrud } from '../../core/baseUiCore';
+import { SupportedUiLocale, useUiLocale } from '../i18n/I18nFeature';
 
 // ============================================================================
 // 1. DTO CONTRACTS (1:1 mirror of UserFeature.UserDto Java Record)
@@ -75,7 +76,73 @@ const userService = new UserApiService();
 // 3. FEATURE VIEW (Exported React Entrypoint for this Vertical Slice)
 // ============================================================================
 
-export const UserFeatureView: React.FC = () => {
+interface UserCopy {
+  badge: string;
+  heading: string;
+  usernamePlaceholder: string;
+  passwordPlaceholder: string;
+  createUserBtn: string;
+  loadingText: string;
+  deleteBtn: string;
+  forbiddenNotice: string;
+}
+
+const USER_COPY: Record<SupportedUiLocale, UserCopy> = {
+  da: {
+    badge: 'Brugeradministration',
+    heading: 'Brugere & Roller',
+    usernamePlaceholder: 'Brugernavn',
+    passwordPlaceholder: 'Adgangskode',
+    createUserBtn: 'Opret Bruger',
+    loadingText: 'Indlæser...',
+    deleteBtn: 'Slet',
+    forbiddenNotice: 'Adgang nægtet: Brugeradministration kræver administratorrettigheder (ADMIN).',
+  },
+  en: {
+    badge: 'User Administration',
+    heading: 'Users & Roles',
+    usernamePlaceholder: 'Username',
+    passwordPlaceholder: 'Password',
+    createUserBtn: 'Create User',
+    loadingText: 'Loading...',
+    deleteBtn: 'Delete',
+    forbiddenNotice: 'Access denied: User administration requires administrator privileges (ADMIN).',
+  },
+  fr: {
+    badge: 'Administration des Utilisateurs',
+    heading: 'Utilisateurs & Rôles',
+    usernamePlaceholder: "Nom d'utilisateur",
+    passwordPlaceholder: 'Mot de passe',
+    createUserBtn: 'Créer un Utilisateur',
+    loadingText: 'Chargement...',
+    deleteBtn: 'Supprimer',
+    forbiddenNotice: "Accès refusé : l'administration des utilisateurs nécessite les droits ADMIN.",
+  },
+  es: {
+    badge: 'Administración de Usuarios',
+    heading: 'Usuarios y Roles',
+    usernamePlaceholder: 'Nombre de usuario',
+    passwordPlaceholder: 'Contraseña',
+    createUserBtn: 'Crear Usuario',
+    loadingText: 'Cargando...',
+    deleteBtn: 'Eliminar',
+    forbiddenNotice: 'Acceso denegado: la administración de usuarios requiere permisos de administrador (ADMIN).',
+  },
+  de: {
+    badge: 'Benutzerverwaltung',
+    heading: 'Benutzer & Rollen',
+    usernamePlaceholder: 'Benutzername',
+    passwordPlaceholder: 'Passwort',
+    createUserBtn: 'Benutzer erstellen',
+    loadingText: 'Wird geladen...',
+    deleteBtn: 'Löschen',
+    forbiddenNotice: 'Zugriff verweigert: Die Benutzerverwaltung erfordert Administratorrechte (ADMIN).',
+  },
+};
+
+const UserFeatureAuthorizedContent: React.FC = () => {
+  const locale = useUiLocale();
+  const copy = USER_COPY[locale];
   const { items: users, loading, error, createItem, deleteItem, clearError } =
     useBaseCrud(userService);
 
@@ -94,32 +161,47 @@ export const UserFeatureView: React.FC = () => {
   };
 
   return (
-    <section data-testid="user-feature-view" className="p-4 card border-0 shadow-xs rounded-4 bg-white">
-      <h2 className="h5 fw-bold mb-3">Brugere (UserFeature)</h2>
+    <section
+      data-testid="user-feature-view"
+      className="space-y-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-xs"
+    >
+      <div>
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
+          <i className="bi bi-people" aria-hidden="true" />
+          {copy.badge}
+        </span>
+        <h2 className="mt-1.5 text-xl font-bold tracking-tight text-slate-900">
+          {copy.heading}
+        </h2>
+      </div>
 
       <ProblemAlert problem={error} onDismiss={clearError} />
 
-      <form onSubmit={handleSubmit} data-testid="user-form" className="mb-4 d-flex flex-wrap gap-2">
+      <form
+        onSubmit={handleSubmit}
+        data-testid="user-form"
+        className="flex flex-wrap items-center gap-2.5"
+      >
         <input
           data-testid="input-username"
-          placeholder="Brugernavn"
+          placeholder={copy.usernamePlaceholder}
           value={username}
           onChange={(e) => setUsername(e.target.value)}
-          className="form-control w-auto"
+          className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
         />
         <input
           data-testid="input-password"
           type="password"
-          placeholder="Adgangskode"
+          placeholder={copy.passwordPlaceholder}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="form-control w-auto"
+          className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
         />
         <select
           data-testid="select-role"
           value={role}
           onChange={(e) => setRole(e.target.value)}
-          className="form-select w-auto"
+          className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
         >
           <option value="CLIENT">CLIENT</option>
           <option value="THERAPIST">THERAPIST</option>
@@ -129,33 +211,38 @@ export const UserFeatureView: React.FC = () => {
         <button
           type="submit"
           data-testid="submit-user"
-          className="btn btn-primary px-4"
+          className="rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800"
         >
-          Opret Bruger
+          {copy.createUserBtn}
         </button>
       </form>
 
       {loading ? (
-        <p data-testid="loading-indicator">Indlæser...</p>
+        <p data-testid="loading-indicator" className="text-sm text-slate-500">
+          {copy.loadingText}
+        </p>
       ) : (
-        <ul data-testid="user-list" className="list-group">
+        <ul data-testid="user-list" className="space-y-2">
           {users.map((user) => (
             <li
               key={user.id}
               data-testid={`user-item-${user.id}`}
-              className="list-group-item d-flex justify-content-between align-items-center"
+              className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-3 text-sm"
             >
-              <span>
-                <strong>{user.username}</strong> — <span className="badge bg-secondary">{user.role}</span>
+              <span className="flex items-center gap-2">
+                <strong className="text-slate-900">{user.username}</strong> —{" "}
+                <span className="rounded-full bg-slate-200/80 px-2.5 py-0.5 text-xs font-semibold text-slate-800">
+                  {user.role}
+                </span>
               </span>
               {user.id && (
                 <button
                   type="button"
                   data-testid={`delete-user-${user.id}`}
                   onClick={() => void deleteItem(user.id!)}
-                  className="btn btn-sm btn-outline-danger"
+                  className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-100"
                 >
-                  Slet
+                  {copy.deleteBtn}
                 </button>
               )}
             </li>
@@ -165,3 +252,25 @@ export const UserFeatureView: React.FC = () => {
     </section>
   );
 };
+
+const UserForbiddenNotice: React.FC = () => {
+  const locale = useUiLocale();
+  return (
+    <div
+      role="alert"
+      data-testid="forbidden-notice"
+      className="rounded border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"
+    >
+      {USER_COPY[locale].forbiddenNotice}
+    </div>
+  );
+};
+
+export const UserFeatureView: React.FC = () => (
+  <RoleGuard
+    allowed={["ADMIN"]}
+    fallback={<UserForbiddenNotice />}
+  >
+    <UserFeatureAuthorizedContent />
+  </RoleGuard>
+);

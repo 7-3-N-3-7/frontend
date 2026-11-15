@@ -234,13 +234,21 @@ describe("JournalFeature Vertical Slice", () => {
       });
     });
 
-    it("enforces RoleGuard allowed=['PROVIDER'] when rendered inside AuthProvider", async () => {
-      global.fetch = vi.fn().mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => [],
-      });
-      render(
+    it("enforces RoleGuard allowed=['PROVIDER'] and pending AuthProvider without calling fetch", async () => {
+      const fetchMock = vi.fn();
+      global.fetch = fetchMock;
+
+      const { rerender } = render(
+        <AuthProvider user={null}>
+          <JournalFeatureView />
+        </AuthProvider>
+      );
+
+      expect(screen.queryByTestId("journal-feature-view")).toBeNull();
+      expect(screen.queryByTestId("forbidden-notice")).toBeNull();
+      expect(fetchMock).not.toHaveBeenCalled();
+
+      rerender(
         <AuthProvider
           user={{
             id: "c-1",
@@ -256,6 +264,7 @@ describe("JournalFeature Vertical Slice", () => {
         expect(screen.queryByTestId("journal-feature-view")).toBeNull();
         expect(screen.getByTestId("forbidden-notice")).toBeDefined();
       });
+      expect(fetchMock).not.toHaveBeenCalled();
     });
   });
 });

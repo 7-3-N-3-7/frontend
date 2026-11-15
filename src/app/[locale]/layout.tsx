@@ -3,7 +3,7 @@ import { Geist, Geist_Mono } from 'next/font/google';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import 'bootstrap-icons/font/bootstrap-icons.css';
 import './globals.css';
-import { getMessages } from 'next-intl/server';
+import { getMessages, setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { routing } from '@/i18n/routing';
 import { CachedI18nProvider } from '@/features/i18n/I18nFeature';
@@ -37,8 +37,10 @@ export default async function RootLayout({
     notFound();
   }
 
-  // Providing all messages to the client (cached via Next.js data cache + NEXT_LOCALE cookie)
-  const messages = await getMessages();
+  setRequestLocale(locale);
+
+  // Providing all messages to the client (fetched live from backend MongoDB i18n dictionary)
+  const messages = await getMessages({ locale });
 
   return (
     <html lang={locale} data-scroll-behavior="smooth" className={`${geistSans.variable} ${geistMono.variable}`}>

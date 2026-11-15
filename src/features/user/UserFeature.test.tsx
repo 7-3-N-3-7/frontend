@@ -2,6 +2,7 @@ import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { UserFeatureView } from "./UserFeature";
+import { AuthProvider } from "../../core/baseUiCore";
 import { ErrorCode, ProblemDetail } from "../../core/baseDomainCore";
 
 describe("UserFeature Vertical Slice", () => {
@@ -127,5 +128,66 @@ describe("UserFeature Vertical Slice", () => {
         "Username already exists"
       );
     });
+  });
+
+  it("blocks non-ADMIN roles and pending AuthProvider while allowing ADMIN via RoleGuard", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => [{ id: "u-admin", username: "admin_user", role: "ADMIN" }],
+    });
+    global.fetch = fetchMock;
+
+    const { rerender } = render(
+      <AuthProvider user={null}>
+        <UserFeatureView />
+      </AuthProvider>
+    );
+
+    expect(screen.queryByTestId("user-feature-view")).toBeNull();
+    expect(screen.queryByTestId("forbidden-notice")).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    rerender(
+      <AuthProvider
+        user={{
+          id: "c-1",
+          name: "Anders Sand",
+          email: "anders@sand.dk",
+          roles: ["CLIENT"],
+        }}
+      >
+        <UserFeatureView />
+      </AuthProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("user-feature-view")).toBeNull();
+      expect(screen.getByTestId("forbidden-notice")).toBeDefined();
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    rerender(
+      <AuthProvider
+        user={{
+          id: "a-1",
+          name: "System Admin",
+          email: "admin@platform.dk",
+          roles: ["ADMIN"],
+        }}
+      >
+        <UserFeatureView />
+      </AuthProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("user-feature-view")).toBeDefined();
+      expect(screen.getByText("admin_user")).toBeDefined();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/backend/users",
+      expect.any(Object)
+    );
   });
 });

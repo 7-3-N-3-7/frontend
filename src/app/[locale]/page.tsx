@@ -4,11 +4,89 @@ import { useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { Modal } from 'react-bootstrap';
-import { useTranslations } from 'next-intl';
-import { LanguageSwitcher } from '@/features/i18n/I18nFeature';
+import { useTranslations, useLocale } from 'next-intl';
+import { LanguageSwitcher, SupportedUiLocale, resolveUiLocale } from '@/features/i18n/I18nFeature';
+
+interface RegisterModalCopy {
+  intro: string;
+  dobLabel: string;
+  dobPlaceholder: string;
+  phoneLabel: string;
+  addressLabel: string;
+  addressPlaceholder: string;
+  postalLabel: string;
+  postalPlaceholder: string;
+  createdNotice: string;
+  failedRegisterError: string;
+}
+
+const REGISTER_MODAL_COPY: Record<SupportedUiLocale, RegisterModalCopy> = {
+  da: {
+    intro: "Klientregistrering (Bilag 5.1.1): Indtast dine personlige oplysninger for at oprette din krypterede klientprofil.",
+    dobLabel: "Fødselsdato",
+    dobPlaceholder: "Fødselsdato",
+    phoneLabel: "Telefonnummer",
+    addressLabel: "Adresse",
+    addressPlaceholder: "Adresse",
+    postalLabel: "Postnummer",
+    postalPlaceholder: "Postnummer",
+    createdNotice: "Din bruger blev oprettet! Tjek din e-mail for at bekræfte kontoen, før du logger ind.",
+    failedRegisterError: "Kunne ikke oprette bruger",
+  },
+  en: {
+    intro: "Client Registration (Bilag 5.1.1): Enter your personal details to create your encrypted client profile.",
+    dobLabel: "Date of Birth (DoB)",
+    dobPlaceholder: "Date of Birth",
+    phoneLabel: "Phone Number",
+    addressLabel: "Home Address",
+    addressPlaceholder: "Home Address",
+    postalLabel: "Postal Code",
+    postalPlaceholder: "Postal Code",
+    createdNotice: "Your user was created successfully! Check your email to verify it before signing in.",
+    failedRegisterError: "Failed to register",
+  },
+  fr: {
+    intro: "Inscription Client (Bilag 5.1.1) : Saisissez vos coordonnées personnelles pour créer votre profil chiffré.",
+    dobLabel: "Date de naissance",
+    dobPlaceholder: "Date de naissance",
+    phoneLabel: "Numéro de téléphone",
+    addressLabel: "Adresse postale",
+    addressPlaceholder: "Adresse postale",
+    postalLabel: "Code postal",
+    postalPlaceholder: "Code postal",
+    createdNotice: "Votre compte a été créé avec succès ! Vérifiez votre e-mail avant de vous connecter.",
+    failedRegisterError: "Échec de l'inscription",
+  },
+  es: {
+    intro: "Registro de Cliente (Bilag 5.1.1): Introduce tus datos personales para crear tu perfil cifrado.",
+    dobLabel: "Fecha de nacimiento",
+    dobPlaceholder: "Fecha de nacimiento",
+    phoneLabel: "Número de teléfono",
+    addressLabel: "Dirección",
+    addressPlaceholder: "Dirección",
+    postalLabel: "Código postal",
+    postalPlaceholder: "Código postal",
+    createdNotice: "¡Tu usuario se ha creado correctamente! Revisa tu correo para verificarlo antes de iniciar sesión.",
+    failedRegisterError: "Error al registrar la cuenta",
+  },
+  de: {
+    intro: "Klientenregistrierung (Bilag 5.1.1): Geben Sie Ihre persönlichen Daten ein, um Ihr verschlüsseltes Klientenprofil anzulegen.",
+    dobLabel: "Geburtsdatum",
+    dobPlaceholder: "Geburtsdatum",
+    phoneLabel: "Telefonnummer",
+    addressLabel: "Wohnadresse",
+    addressPlaceholder: "Wohnadresse",
+    postalLabel: "Postleitzahl",
+    postalPlaceholder: "Postleitzahl",
+    createdNotice: "Ihr Benutzerkonto wurde erfolgreich erstellt! Prüfen Sie Ihre E-Mails zur Bestätigung vor der Anmeldung.",
+    failedRegisterError: "Registrierung fehlgeschlagen",
+  },
+};
 
 export default function LandingPage() {
   const t = useTranslations("landing");
+  const activeLocale = useLocale();
+  const registerCopy = REGISTER_MODAL_COPY[resolveUiLocale(activeLocale)];
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [isLogin, setIsLogin] = useState(true);
   const [error, setError] = useState("");
@@ -57,7 +135,10 @@ export default function LandingPage() {
       setError(t("auth.invalidLogin"));
       setLoading(false);
     } else {
-      const locale = window.location.pathname.match(/^\/(en|da|fr|es|de)(?:\/|$)/)?.[1] || 'en';
+      const locale =
+        activeLocale ||
+        window.location.pathname.match(/^\/(en|da|fr|es|de)(?:\/|$)/)?.[1] ||
+        'da';
       window.location.href = getPlatformDashboardUrl(locale);
     }
   };
@@ -87,11 +168,11 @@ export default function LandingPage() {
 
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.error || "Failed to register");
+        throw new Error(data.error || registerCopy.failedRegisterError);
       }
 
       setIsLogin(true);
-      setNotice("Your user was created successfully! Check your email to verify it before signing in.");
+      setNotice(registerCopy.createdNotice);
       setLoading(false);
       const loginRes = await signIn("credentials", {
         username,
@@ -104,7 +185,10 @@ export default function LandingPage() {
         setIsLogin(true);
         setLoading(false);
       } else {
-        const locale = window.location.pathname.match(/^\/(en|da|fr|es|de)(?:\/|$)/)?.[1] || 'en';
+        const locale =
+          activeLocale ||
+          window.location.pathname.match(/^\/(en|da|fr|es|de)(?:\/|$)/)?.[1] ||
+          'da';
         window.location.href = getPlatformDashboardUrl(locale);
       }
 
@@ -130,7 +214,13 @@ export default function LandingPage() {
             <span className="fs-5 fw-bold" style={{ color: '#1a1d2e' }}>{t("nav.title")}</span>
           </div>
           <div className="d-flex align-items-center gap-3">
-            <LanguageSwitcher />
+            <LanguageSwitcher
+              currentLocale={activeLocale}
+              onLocaleNavigate={(nextLocale) => {
+                router.push(`/${nextLocale}`);
+                router.refresh();
+              }}
+            />
             <button className="btn btn-dark fw-semibold px-4" style={{ backgroundColor: '#111827' }} onClick={openModal}>
               {t("nav.loginButton")}
             </button>
@@ -248,7 +338,7 @@ export default function LandingPage() {
               <form onSubmit={handleRegister}>
                 <p className="text-muted small mb-3">
                   <i className="bi bi-shield-lock me-1 text-primary"></i>
-                  Client Registration (Bilag 5.1.1): Enter your personal details to create your encrypted client profile.
+                  {registerCopy.intro}
                 </p>
                 <div className="row g-2 mb-3">
                   <div className="col-md-6 form-floating">
@@ -262,22 +352,22 @@ export default function LandingPage() {
                 </div>
                 <div className="row g-2 mb-3">
                   <div className="col-md-6 form-floating">
-                    <input type="date" className="form-control" id="regDob" placeholder="Date of Birth" value={dateOfBirth} onChange={e => setDateOfBirth(e.target.value)} required />
-                    <label htmlFor="regDob">Date of Birth (DoB)</label>
+                    <input type="date" className="form-control" id="regDob" placeholder={registerCopy.dobPlaceholder} value={dateOfBirth} onChange={e => setDateOfBirth(e.target.value)} required />
+                    <label htmlFor="regDob">{registerCopy.dobLabel}</label>
                   </div>
                   <div className="col-md-6 form-floating">
                     <input type="tel" className="form-control" id="regPhone" placeholder="+45 12 34 56 78" value={phoneNumber} onChange={e => setPhoneNumber(e.target.value)} required />
-                    <label htmlFor="regPhone">Phone Number</label>
+                    <label htmlFor="regPhone">{registerCopy.phoneLabel}</label>
                   </div>
                 </div>
                 <div className="row g-2 mb-3">
                   <div className="col-md-8 form-floating">
-                    <input type="text" className="form-control" id="regAddress" placeholder="Home Address" value={homeAddress} onChange={e => setHomeAddress(e.target.value)} required />
-                    <label htmlFor="regAddress">Home Address</label>
+                    <input type="text" className="form-control" id="regAddress" placeholder={registerCopy.addressPlaceholder} value={homeAddress} onChange={e => setHomeAddress(e.target.value)} required />
+                    <label htmlFor="regAddress">{registerCopy.addressLabel}</label>
                   </div>
                   <div className="col-md-4 form-floating">
-                    <input type="text" className="form-control" id="regPostal" placeholder="Postal Code" value={postalCode} onChange={e => setPostalCode(e.target.value)} required />
-                    <label htmlFor="regPostal">Postal Code</label>
+                    <input type="text" className="form-control" id="regPostal" placeholder={registerCopy.postalPlaceholder} value={postalCode} onChange={e => setPostalCode(e.target.value)} required />
+                    <label htmlFor="regPostal">{registerCopy.postalLabel}</label>
                   </div>
                 </div>
                 <div className="row g-2 mb-3">

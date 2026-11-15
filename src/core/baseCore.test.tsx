@@ -630,30 +630,46 @@ describe("baseDomainCore & baseUiCore (2-File Core Architecture)", () => {
       };
 
       render(
-        <AuthProvider
-          user={{
-            id: "u-1",
-            name: "Dr. Bo Jensen",
-            email: "bo@clinic.dk",
-            roles: ["THERAPIST"],
-          }}
-        >
-          <InsideAuthConsumer />
-          <RoleGuard allowed={["PROVIDER"]}>
-            <div data-testid="allowed-provider-block">Provider Visible</div>
-          </RoleGuard>
+        <>
           <RoleGuard allowed={["MANAGEMENT"]}>
-            <div data-testid="forbidden-mgmt-block">Mgmt Hidden</div>
+            <div data-testid="standalone-guard-child">Standalone Visible</div>
           </RoleGuard>
-          <RoleGuard
-            allowed={["MANAGEMENT"]}
-            fallback={<div data-testid="custom-fallback">Custom Denied</div>}
+          <AuthProvider user={null}>
+            <RoleGuard
+              allowed={["MANAGEMENT"]}
+              fallback={<div data-testid="pending-fallback">Denied</div>}
+            >
+              <div data-testid="pending-secret">Pending Secret</div>
+            </RoleGuard>
+          </AuthProvider>
+          <AuthProvider
+            user={{
+              id: "u-1",
+              name: "Dr. Bo Jensen",
+              email: "bo@clinic.dk",
+              roles: ["THERAPIST"],
+            }}
           >
-            <div>Never Shown</div>
-          </RoleGuard>
-        </AuthProvider>
+            <InsideAuthConsumer />
+            <RoleGuard allowed={["PROVIDER"]}>
+              <div data-testid="allowed-provider-block">Provider Visible</div>
+            </RoleGuard>
+            <RoleGuard allowed={["MANAGEMENT"]}>
+              <div data-testid="forbidden-mgmt-block">Mgmt Hidden</div>
+            </RoleGuard>
+            <RoleGuard
+              allowed={["MANAGEMENT"]}
+              fallback={<div data-testid="custom-fallback">Custom Denied</div>}
+            >
+              <div>Never Shown</div>
+            </RoleGuard>
+          </AuthProvider>
+        </>
       );
 
+      expect(screen.getByTestId("standalone-guard-child")).toBeDefined();
+      expect(screen.queryByTestId("pending-secret")).toBeNull();
+      expect(screen.queryByTestId("pending-fallback")).toBeNull();
       expect(screen.getByTestId("inside-auth-user").textContent).toBe(
         "Dr. Bo Jensen (true)"
       );

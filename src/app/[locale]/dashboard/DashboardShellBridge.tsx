@@ -8,7 +8,7 @@ import {
   useRouter,
   useSearchParams,
 } from "next/navigation";
-import { signOut } from "next-auth/react";
+import { SessionProvider, signOut, useSession } from "next-auth/react";
 import {
   ClientPortalWorkspace,
   ClientTab,
@@ -83,8 +83,15 @@ const DashboardShellInner: React.FC<DashboardShellBridgeProps> = ({
     router.refresh();
   };
 
-  const handleLogout = () => {
-    void signOut({ callbackUrl: `/${locale}` });
+  const handleLogout = async () => {
+    const targetUrl =
+      typeof window !== "undefined"
+        ? `${window.location.origin}/${locale}`
+        : `/${locale}`;
+    await signOut({ callbackUrl: targetUrl, redirect: false });
+    if (typeof window !== "undefined") {
+      window.location.assign(targetUrl);
+    }
   };
 
   return (
@@ -94,7 +101,7 @@ const DashboardShellInner: React.FC<DashboardShellBridgeProps> = ({
       activeTab={activeTab}
       onNavigate={(href) => router.push(href)}
       onLocaleNavigate={handleLocaleNavigate}
-      onLogout={handleLogout}
+      onLogout={() => void handleLogout()}
     >
       {children}
     </ConnectedPortalWorkspaceShell>
@@ -106,30 +113,38 @@ export const DashboardShellBridge: React.FC<DashboardShellBridgeProps> = ({
   children,
 }) => {
   return (
-    <Suspense
-      fallback={
-        <ConnectedPortalWorkspaceShell locale={locale}>
-          {children}
-        </ConnectedPortalWorkspaceShell>
-      }
-    >
-      <DashboardShellInner locale={locale}>{children}</DashboardShellInner>
-    </Suspense>
+    <SessionProvider refetchOnWindowFocus={false}>
+      <Suspense
+        fallback={
+          <ConnectedPortalWorkspaceShell locale={locale}>
+            {children}
+          </ConnectedPortalWorkspaceShell>
+        }
+      >
+        <DashboardShellInner locale={locale}>{children}</DashboardShellInner>
+      </Suspense>
+    </SessionProvider>
   );
 };
 
 interface SyncedClientPortalWorkspaceProps {
+  locale?: string;
   userName?: string;
   secureStatus?: string | null;
 }
 
 const SyncedClientPortalInner: React.FC<SyncedClientPortalWorkspaceProps> = ({
+  locale,
   userName,
   secureStatus,
 }) => {
+  const { update } = useSession();
+  const params = useParams();
   const router = useRouter();
   const pathname = usePathname() || "/da/dashboard/personal";
   const searchParams = useSearchParams();
+  const activeLocale =
+    (typeof params?.locale === "string" && params.locale) || locale;
   const rawTab = searchParams?.get("tab");
   const activeTab: ClientTab =
     rawTab && VALID_CLIENT_TABS.has(rawTab)
@@ -138,9 +153,14 @@ const SyncedClientPortalInner: React.FC<SyncedClientPortalWorkspaceProps> = ({
 
   return (
     <ClientPortalWorkspace
+      locale={activeLocale}
       userName={userName}
       secureStatus={secureStatus}
       activeTab={activeTab}
+      onRoleUpgraded={async () => {
+        await update();
+        router.refresh();
+      }}
       onTabChange={(nextTab) => {
         router.replace(buildTabHref(pathname, searchParams, nextTab, "overview"), {
           scroll: false,
@@ -152,29 +172,42 @@ const SyncedClientPortalInner: React.FC<SyncedClientPortalWorkspaceProps> = ({
 
 export const SyncedClientPortalWorkspace: React.FC<
   SyncedClientPortalWorkspaceProps
-> = ({ userName, secureStatus }) => {
+> = ({ locale, userName, secureStatus }) => {
   return (
     <Suspense
       fallback={
-        <ClientPortalWorkspace userName={userName} secureStatus={secureStatus} />
+        <ClientPortalWorkspace
+          locale={locale}
+          userName={userName}
+          secureStatus={secureStatus}
+        />
       }
     >
-      <SyncedClientPortalInner userName={userName} secureStatus={secureStatus} />
+      <SyncedClientPortalInner
+        locale={locale}
+        userName={userName}
+        secureStatus={secureStatus}
+      />
     </Suspense>
   );
 };
 
 interface SyncedTherapistWorkspaceProps {
+  locale?: string;
   therapistName?: string;
   defaultTab?: TherapistTab;
 }
 
 const SyncedTherapistWorkspaceInner: React.FC<
   SyncedTherapistWorkspaceProps
-> = ({ therapistName, defaultTab = "overview" }) => {
+> = ({ locale, therapistName, defaultTab = "overview" }) => {
+  const { update } = useSession();
+  const params = useParams();
   const router = useRouter();
   const pathname = usePathname() || "/da/dashboard/therapist";
   const searchParams = useSearchParams();
+  const activeLocale =
+    (typeof params?.locale === "string" && params.locale) || locale;
   const rawTab = searchParams?.get("tab");
   const activeTab: TherapistTab =
     rawTab && VALID_THERAPIST_TABS.has(rawTab)
@@ -183,9 +216,14 @@ const SyncedTherapistWorkspaceInner: React.FC<
 
   return (
     <TherapistMultiWindowWorkspace
+      locale={activeLocale}
       therapistName={therapistName}
       initialTab={defaultTab}
       activeTab={activeTab}
+      onRoleUpgraded={async () => {
+        await update();
+        router.refresh();
+      }}
       onTabChange={(nextTab) => {
         router.replace(buildTabHref(pathname, searchParams, nextTab, defaultTab), {
           scroll: false,
@@ -197,17 +235,19 @@ const SyncedTherapistWorkspaceInner: React.FC<
 
 export const SyncedTherapistWorkspace: React.FC<
   SyncedTherapistWorkspaceProps
-> = ({ therapistName, defaultTab = "overview" }) => {
+> = ({ locale, therapistName, defaultTab = "overview" }) => {
   return (
     <Suspense
       fallback={
         <TherapistMultiWindowWorkspace
+          locale={locale}
           therapistName={therapistName}
           initialTab={defaultTab}
         />
       }
     >
       <SyncedTherapistWorkspaceInner
+        locale={locale}
         therapistName={therapistName}
         defaultTab={defaultTab}
       />

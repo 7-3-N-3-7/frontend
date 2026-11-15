@@ -1593,6 +1593,190 @@ Then("the clinic general ledger summary should be accessible", function (this: F
   assert.equal(this.lastResponse.status, 200, this.lastResponse.bodyAsString());
 });
 
+let lastVippsAgreementId: string | null = null;
+
+function buildVippsCheckoutPayload(
+  clientUuid: string,
+  productType: string,
+  amount: number | undefined,
+  currency: string,
+  paymentMethod: string
+): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    clientUuid,
+    productType,
+    currency,
+    paymentMethod,
+  };
+  if (amount !== undefined) {
+    payload.amount = amount;
+  }
+  if (paymentMethod.toUpperCase() === "MOBILEPAY") {
+    payload.phoneNumber = "+4520123456";
+  } else {
+    payload.cardToken = "tok_card_bdd_4242";
+    payload.cardLast4 = "4242";
+    payload.cardBrand = "VISA";
+  }
+  return payload;
+}
+
+When(
+  "client {string} pays via Vipps OSGi checkout for {string} of {int} {word} with payment method {string} and {int} clips",
+  async function (
+    this: FrontendBddWorld,
+    clientUsername: string,
+    productType: string,
+    amount: number,
+    currency: string,
+    paymentMethod: string,
+    clips: number
+  ) {
+    const client = this.usersByLogicalName.get(clientUsername);
+    assert.ok(client, `Missing client user ${clientUsername}`);
+    const payload = buildVippsCheckoutPayload(
+      client.id,
+      productType,
+      amount,
+      currency,
+      paymentMethod
+    );
+    payload.clips = clips;
+    this.lastResponse = await this.requestAs(clientUsername, "CLIENT")
+      .contentType("application/json")
+      .body(payload)
+      .post("/api/backend/finance/vipps/checkout");
+    assert.equal(this.lastResponse.status, 201, this.lastResponse.bodyAsString());
+    const json = this.lastResponse.json<any>();
+    if (json.agreementId) lastVippsAgreementId = String(json.agreementId);
+    if (json.invoiceId) this.lastInvoiceId = String(json.invoiceId);
+    if (json.gitCommitHash) this.lastCommitHash = String(json.gitCommitHash);
+  }
+);
+
+When(
+  "client {string} pays via Vipps OSGi checkout for {string} of {int} {word} with payment method {string}",
+  async function (
+    this: FrontendBddWorld,
+    clientUsername: string,
+    productType: string,
+    amount: number,
+    currency: string,
+    paymentMethod: string
+  ) {
+    const client = this.usersByLogicalName.get(clientUsername);
+    assert.ok(client, `Missing client user ${clientUsername}`);
+    const payload = buildVippsCheckoutPayload(
+      client.id,
+      productType,
+      amount,
+      currency,
+      paymentMethod
+    );
+    this.lastResponse = await this.requestAs(clientUsername, "CLIENT")
+      .contentType("application/json")
+      .body(payload)
+      .post("/api/backend/finance/vipps/checkout");
+    assert.equal(this.lastResponse.status, 201, this.lastResponse.bodyAsString());
+    const json = this.lastResponse.json<any>();
+    if (json.agreementId) lastVippsAgreementId = String(json.agreementId);
+    if (json.invoiceId) this.lastInvoiceId = String(json.invoiceId);
+    if (json.gitCommitHash) this.lastCommitHash = String(json.gitCommitHash);
+  }
+);
+
+When(
+  "the active Vipps agreement is charged for the next recurring period by {string}",
+  async function (this: FrontendBddWorld, username: string) {
+    assert.ok(lastVippsAgreementId, "Expected active Vipps agreementId");
+    this.lastResponse = await this.requestAs(username, "CLIENT")
+      .contentType("application/json")
+      .body({})
+      .post(`/api/backend/finance/vipps/agreements/${encodeURIComponent(lastVippsAgreementId)}/charge`);
+    assert.equal(this.lastResponse.status, 200, this.lastResponse.bodyAsString());
+  }
+);
+
+When(
+  "the active Vipps agreement is cancelled by {string}",
+  async function (this: FrontendBddWorld, username: string) {
+    assert.ok(lastVippsAgreementId, "Expected active Vipps agreementId");
+    this.lastResponse = await this.requestAs(username, "CLIENT")
+      .contentType("application/json")
+      .body({})
+      .post(`/api/backend/finance/vipps/agreements/${encodeURIComponent(lastVippsAgreementId)}/cancel`);
+    assert.equal(this.lastResponse.status, 200, this.lastResponse.bodyAsString());
+  }
+);
+
+Then("the Vipps agreement status should be {string}", function (this: FrontendBddWorld, expectedStatus: string) {
+  assert.ok(this.lastResponse);
+  assert.equal(this.lastResponse.status, 200, this.lastResponse.bodyAsString());
+  const json = this.lastResponse.json<any>();
+  assert.equal(json.status, expectedStatus);
+});
+
+When(
+  "user {string} with role {string} purchases platform access {string} via payment method {string}",
+  async function (
+    this: FrontendBddWorld,
+    username: string,
+    role: string,
+    accessTier: string,
+    paymentMethod: string
+  ) {
+    const user = this.usersByLogicalName.get(username);
+    assert.ok(user, `Missing user ${username}`);
+    const payload = buildVippsCheckoutPayload(
+      user.id,
+      accessTier,
+      undefined,
+      "DKK",
+      paymentMethod
+    );
+    this.lastResponse = await this.requestAs(username, role)
+      .contentType("application/json")
+      .body(payload)
+      .post("/api/backend/finance/vipps/checkout");
+    assert.equal(this.lastResponse.status, 201, this.lastResponse.bodyAsString());
+    const json = this.lastResponse.json<any>();
+    if (json.agreementId) lastVippsAgreementId = String(json.agreementId);
+    if (json.invoiceId) this.lastInvoiceId = String(json.invoiceId);
+    if (json.gitCommitHash) this.lastCommitHash = String(json.gitCommitHash);
+  }
+);
+
+Then(
+  "the Vipps payout destination should have IBAN {string}, MSN {string}, amount {int} {word}, and granted role {string}",
+  function (
+    this: FrontendBddWorld,
+    expectedIban: string,
+    expectedMsn: string,
+    expectedAmount: number,
+    currency: string,
+    expectedRole: string
+  ) {
+    assert.ok(this.lastResponse);
+    assert.equal(this.lastResponse.status, 201, this.lastResponse.bodyAsString());
+    const json = this.lastResponse.json<any>();
+    assert.equal(json.payoutIban, expectedIban);
+    assert.equal(json.vippsMsn, expectedMsn);
+    assert.equal(Number(json.amountDkk), expectedAmount);
+    assert.equal(json.currency, currency);
+    assert.equal(json.grantedRole, expectedRole);
+  }
+);
+
+Then(
+  "user {string} should be able to access the clinic general ledger summary",
+  async function (this: FrontendBddWorld, username: string) {
+    this.lastResponse = await this.requestAs(username, "CLIENT").get(
+      "/api/backend/finance/ledger/summary"
+    );
+    assert.equal(this.lastResponse.status, 200, this.lastResponse.bodyAsString());
+  }
+);
+
 // ============================================================================
 // 7. i18n Localization & Fallback
 // ============================================================================
