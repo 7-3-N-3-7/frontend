@@ -364,31 +364,58 @@ export function CachedI18nProvider({
   );
 }
 
+const LANGUAGE_OPTIONS: ReadonlyArray<{ code: string; label: string }> = [
+  { code: "da", label: "🇩🇰 Dansk (DA)" },
+  { code: "en", label: "🇬🇧 English (EN)" },
+  { code: "fr", label: "🇫🇷 Français (FR)" },
+  { code: "es", label: "🇪🇸 Español (ES)" },
+  { code: "de", label: "🇩🇪 Deutsch (DE)" },
+];
+
+export interface LanguageSwitcherProps {
+  currentLocale?: string;
+  onLocaleNavigate?: (nextLocale: string) => void;
+  className?: string;
+}
+
 /**
  * Letvægts-sprogvælger til topnavigationen i Landing og Dashboard.
+ * Understøtter alle 5 aktive sprog (da, en, fr, es, de) og valgfri Next.js route-navigation.
  */
-export const LanguageSwitcher: React.FC = () => {
+export const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({
+  currentLocale,
+  onLocaleNavigate,
+  className = "",
+}) => {
   const cache = useI18nCache();
-  const activeLocale = cache?.locale || "da";
+  const activeLocale = currentLocale || cache?.locale || "da";
 
   const handleLocaleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const next = e.target.value;
     setLocaleCookie(next);
     cache?.switchLocale(next);
+    onLocaleNavigate?.(next);
   };
 
   return (
-    <select
-      aria-label="Vælg sprog"
-      value={activeLocale}
-      onChange={handleLocaleChange}
-      className="border rounded px-2 py-1 text-sm bg-white"
-      data-testid="language-switcher-select"
+    <div
+      className={`inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 shadow-xs transition-colors hover:border-slate-300 ${className}`.trim()}
     >
-      <option value="da">🇩🇰 Dansk (DA)</option>
-      <option value="en">🇬🇧 English (EN)</option>
-      <option value="de">🇩🇪 Deutsch (DE)</option>
-    </select>
+      <i className="bi bi-globe2 text-xs text-slate-500" aria-hidden="true" />
+      <select
+        aria-label="Vælg sprog"
+        value={activeLocale}
+        onChange={handleLocaleChange}
+        className="cursor-pointer border-0 bg-transparent pr-1 text-xs font-medium text-slate-700 focus:outline-none"
+        data-testid="language-switcher-select"
+      >
+        {LANGUAGE_OPTIONS.map((option) => (
+          <option key={option.code} value={option.code}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </div>
   );
 };
 

@@ -1,7 +1,7 @@
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { getTranslations } from "next-intl/server";
-import { ClientPortalWorkspace } from "@/features/clinic/ClinicPlatformFeature";
+import { SyncedClientPortalWorkspace } from "../DashboardShellBridge";
 
 export default async function PersonalDashboard() {
   const session = await getServerSession(authOptions);
@@ -30,7 +30,7 @@ export default async function PersonalDashboard() {
   const userName = session?.user?.name || t("defaultUser");
 
   return (
-    <ClientPortalWorkspace
+    <SyncedClientPortalWorkspace
       userName={userName}
       secureStatus={secureData?.data || null}
     />

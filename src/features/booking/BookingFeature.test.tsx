@@ -30,7 +30,7 @@ describe("BookingFeature Vertical Slice (RoleGuard RBAC)", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("booking-feature-view")).toBeDefined();
-      expect(screen.getByText("Appointments & Bookings")).toBeDefined();
+      expect(screen.getByText("Aftaler & Tidsbestilling")).toBeDefined();
     });
     unmount();
 

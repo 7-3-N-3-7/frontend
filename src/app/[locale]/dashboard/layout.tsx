@@ -1,9 +1,14 @@
-import { ConnectedPortalWorkspaceShell as PortalWorkspaceShell } from '@/features/clinic/ClinicPlatformFeature';
+import { DashboardShellBridge } from "./DashboardShellBridge";
 
 export default async function DashboardLayout({
   children,
+  params,
 }: {
   children: React.ReactNode;
+  params: Promise<{ locale: string }>;
 }) {
-  return <PortalWorkspaceShell>{children}</PortalWorkspaceShell>;
+  const { locale } = await params;
+  return (
+    <DashboardShellBridge locale={locale}>{children}</DashboardShellBridge>
+  );
 }

@@ -216,25 +216,38 @@ describe("I18nFeature Vertical Slice", () => {
       );
     };
 
+    const onLocaleNavigate = vi.fn();
+
     render(
       <CachedI18nProvider
         initialLocale="da"
         initialMessages={{ Common: { save: "Gem" } }}
       >
-        <LanguageSwitcher />
+        <LanguageSwitcher onLocaleNavigate={onLocaleNavigate} />
         <CacheActionsTester />
       </CachedI18nProvider>
     );
 
+    const select = screen.getByTestId(
+      "language-switcher-select"
+    ) as HTMLSelectElement;
+    expect(Array.from(select.options).map((o) => o.value)).toEqual([
+      "da",
+      "en",
+      "fr",
+      "es",
+      "de",
+    ]);
     expect(screen.getByTestId("active-locale").textContent).toBe("da");
 
-    fireEvent.change(screen.getByTestId("language-switcher-select"), {
+    fireEvent.change(select, {
       target: { value: "en" },
     });
 
     await waitFor(() => {
       expect(screen.getByTestId("active-locale").textContent).toBe("en");
     });
+    expect(onLocaleNavigate).toHaveBeenCalledWith("en");
 
     // Invalid locale is ignored
     fireEvent.click(screen.getByTestId("btn-invalid-locale"));
@@ -243,5 +256,22 @@ describe("I18nFeature Vertical Slice", () => {
     // Invalidate cache refreshes cookie
     fireEvent.click(screen.getByTestId("btn-invalidate-cache"));
     expect(getCookieValue("NEXT_LOCALE")).toBe("en");
+
+    // Standalone LanguageSwitcher driven by explicit currentLocale prop
+    const standaloneNavigate = vi.fn();
+    render(
+      <LanguageSwitcher
+        currentLocale="fr"
+        onLocaleNavigate={standaloneNavigate}
+        className="custom-pill"
+      />
+    );
+    const selects = screen.getAllByTestId(
+      "language-switcher-select"
+    ) as HTMLSelectElement[];
+    const standaloneSelect = selects[selects.length - 1];
+    expect(standaloneSelect.value).toBe("fr");
+    fireEvent.change(standaloneSelect, { target: { value: "es" } });
+    expect(standaloneNavigate).toHaveBeenCalledWith("es");
   });
 });

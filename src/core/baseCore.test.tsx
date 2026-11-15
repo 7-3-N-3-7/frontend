@@ -18,6 +18,7 @@ import {
   RoleGuard,
   useAuth,
   useBaseCrud,
+  useOptionalAuth,
 } from "./baseUiCore";
 import { AuthGateway } from "./authGateway";
 
@@ -432,11 +433,15 @@ describe("baseDomainCore & baseUiCore (2-File Core Architecture)", () => {
       const service = new TestEntityApiService();
       const fetchMock = vi.fn();
       global.fetch = fetchMock;
+      const onNavigate = vi.fn();
+      const onLogout = vi.fn();
+      const onDismissShellError = vi.fn();
 
       render(
         <PortalWorkspaceShell
           brandTitle="Clinic Portal"
           brandSubtitle="Sub"
+          pageTitle="Behandleroversigt"
           userName="Dr. Bo Jensen"
           userEmail="bo@clinic.dk"
           avatarInitial="B"
@@ -444,15 +449,32 @@ describe("baseDomainCore & baseUiCore (2-File Core Architecture)", () => {
           settingsLabel="Indstillinger"
           logoutLabel="Log ud"
           accountSettingsHeader="Konto"
-          profileSubtext="Profil"
+          profileSubtext="Aktiv profil"
           roleBadge="THERAPIST"
           roleLabel="Terapeut"
+          portalOptions={[
+            {
+              area: "therapist",
+              href: "/da/dashboard/therapist",
+              label: "Behandlerportal",
+              icon: "bi-heart-pulse",
+              active: true,
+            },
+            {
+              area: "client",
+              href: "/da/dashboard/personal",
+              label: "Klientportal",
+              icon: "bi-person",
+              active: false,
+            },
+          ]}
           navItems={[
             {
               href: "/da/dashboard/therapist",
               label: "Kalender",
               icon: "bi-calendar",
               active: true,
+              badge: "Ny",
             },
             {
               href: "/da/dashboard/personal",
@@ -461,6 +483,22 @@ describe("baseDomainCore & baseUiCore (2-File Core Architecture)", () => {
               active: false,
             },
           ]}
+          upgradeAction={{
+            label: "Bliv behandler",
+            href: "/da/dashboard/clinic",
+            description: "Opret klinik med CVR",
+          }}
+          defaultSidebarCollapsed={false}
+          onNavigate={onNavigate}
+          onLogout={onLogout}
+          shellError={{
+            type: "about:blank",
+            title: "Netværksfejl",
+            status: 503,
+            detail: "Kunne ikke hente brugerprofil",
+            errorCode: "SERVICE_UNAVAILABLE",
+          }}
+          onDismissShellError={onDismissShellError}
           headerNav={<span>CustomHeaderNav</span>}
           headerActions={<span>CustomHeaderActions</span>}
         >
@@ -468,16 +506,75 @@ describe("baseDomainCore & baseUiCore (2-File Core Architecture)", () => {
         </PortalWorkspaceShell>
       );
 
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(screen.getByText("Clinic Portal")).toBeDefined();
+      expect(screen.getByText("Terapeut")).toBeDefined();
+      expect(screen.getByTestId("shell-page-title").textContent).toBe(
+        "Behandleroversigt"
+      );
+
+      // Collapse and expand sidebar
+      fireEvent.click(screen.getByTestId("sidebar-collapse-toggle"));
+      expect(
+        screen
+          .getByTestId("portal-workspace-shell")
+          .getAttribute("data-sidebar-collapsed")
+      ).toBe("true");
+      fireEvent.click(screen.getByTestId("sidebar-collapse-toggle"));
+      expect(
+        screen
+          .getByTestId("portal-workspace-shell")
+          .getAttribute("data-sidebar-collapsed")
+      ).toBe("false");
+
+      // Portal switcher & nav navigation
+      fireEvent.click(screen.getByTestId("portal-switch-client"));
+      expect(onNavigate).toHaveBeenCalledWith("/da/dashboard/personal");
+
+      // Modifier click passes through without onNavigate
+      onNavigate.mockClear();
+      fireEvent.click(screen.getByTestId("sidebar-nav-1"), { ctrlKey: true });
+      expect(onNavigate).not.toHaveBeenCalled();
+
+      // Normal click invokes onNavigate
+      fireEvent.click(screen.getByTestId("upgrade-therapist-cta"));
+      expect(onNavigate).toHaveBeenCalledWith("/da/dashboard/clinic");
+
+      // Mobile drawer toggle & close
+      fireEvent.click(screen.getByTestId("mobile-menu-toggle"));
+      expect(screen.getByTestId("mobile-sidebar-drawer")).toBeDefined();
+      fireEvent.click(screen.getByTestId("mobile-sidebar-nav-0"));
+      expect(screen.queryByTestId("mobile-sidebar-drawer")).toBeNull();
+      fireEvent.click(screen.getByTestId("mobile-menu-toggle"));
+      fireEvent.click(screen.getByTestId("mobile-portal-switch-client"));
+      expect(screen.queryByTestId("mobile-sidebar-drawer")).toBeNull();
+      fireEvent.click(screen.getByTestId("mobile-menu-toggle"));
+      fireEvent.click(screen.getByTestId("mobile-upgrade-therapist-cta"));
+      expect(screen.queryByTestId("mobile-sidebar-drawer")).toBeNull();
+      fireEvent.click(screen.getByTestId("mobile-menu-toggle"));
+      fireEvent.click(screen.getByTestId("mobile-menu-close"));
+      expect(screen.queryByTestId("mobile-sidebar-drawer")).toBeNull();
+
+      // User dropdown menu: settings & logout
+      fireEvent.click(screen.getByTestId("user-menu-trigger"));
+      expect(screen.getByTestId("user-menu-dropdown")).toBeDefined();
+      fireEvent.click(screen.getByTestId("user-menu-settings"));
+      expect(onNavigate).toHaveBeenCalledWith("/da/dashboard/settings");
+      fireEvent.click(screen.getByTestId("user-menu-trigger"));
+      fireEvent.click(screen.getByTestId("user-menu-logout"));
+      expect(onLogout).toHaveBeenCalledTimes(1);
+
+      // Dismiss shell error banner
+      fireEvent.click(screen.getByTestId("dismiss-error"));
+      expect(onDismissShellError).toHaveBeenCalledTimes(1);
+
+      // Minimal shell without optional callbacks
       render(
-        <PortalWorkspaceShell>
+        <PortalWorkspaceShell userName=" ">
           <span>DefaultShellChild</span>
         </PortalWorkspaceShell>
       );
-
-      expect(fetchMock).not.toHaveBeenCalled();
       expect(screen.getAllByTestId("portal-workspace-shell")).toHaveLength(2);
-      expect(screen.getByText("Clinic Portal")).toBeDefined();
-      expect(screen.getByText("Terapeut")).toBeDefined();
     });
   });
 
@@ -563,6 +660,38 @@ describe("baseDomainCore & baseUiCore (2-File Core Architecture)", () => {
       expect(screen.getByTestId("allowed-provider-block")).toBeDefined();
       expect(screen.queryByTestId("forbidden-mgmt-block")).toBeNull();
       expect(screen.getByTestId("custom-fallback")).toBeDefined();
+    });
+
+    it("supports useOptionalAuth() safely both outside and inside AuthProvider", () => {
+      const OptionalConsumer: React.FC<{ id: string }> = ({ id }) => {
+        const optional = useOptionalAuth();
+        return (
+          <div data-testid={id}>
+            {optional ? `${optional.user.name}:${String(optional.hasRole("CLIENT"))}` : "null"}
+          </div>
+        );
+      };
+
+      render(
+        <>
+          <OptionalConsumer id="optional-outside" />
+          <AuthProvider
+            user={{
+              id: "u-2",
+              name: "Anders Sand",
+              email: "anders@sand.dk",
+              roles: ["CLIENT"],
+            }}
+          >
+            <OptionalConsumer id="optional-inside" />
+          </AuthProvider>
+        </>
+      );
+
+      expect(screen.getByTestId("optional-outside").textContent).toBe("null");
+      expect(screen.getByTestId("optional-inside").textContent).toBe(
+        "Anders Sand:true"
+      );
     });
 
     it("builds login URLs and initiates redirect via AuthGateway", () => {

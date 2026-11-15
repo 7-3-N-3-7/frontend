@@ -9,6 +9,8 @@ ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 # Install dependencies based on the preferred package manager
 COPY package.json package-lock.json ./
+COPY apps/landing/package.json ./apps/landing/package.json
+COPY apps/dashboard/package.json ./apps/dashboard/package.json
 RUN npm ci
 
 COPY . .

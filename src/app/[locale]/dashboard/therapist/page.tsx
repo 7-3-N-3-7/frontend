@@ -1,7 +1,7 @@
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { getTranslations } from "next-intl/server";
-import { TherapistMultiWindowWorkspace } from "@/features/clinic/ClinicPlatformFeature";
+import { SyncedTherapistWorkspace } from "../DashboardShellBridge";
 
 export default async function TherapistDashboard() {
   const session = await getServerSession(authOptions);
@@ -9,8 +9,8 @@ export default async function TherapistDashboard() {
   const userName = session?.user?.name || t("defaultUser");
 
   return (
-    <div className="d-flex flex-column gap-4">
-      <TherapistMultiWindowWorkspace therapistName={userName} />
+    <div className="space-y-6">
+      <SyncedTherapistWorkspace therapistName={userName} />
     </div>
   );
 }
