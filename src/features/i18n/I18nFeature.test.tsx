@@ -5,6 +5,7 @@ import {
   I18nFeatureView,
   CachedI18nProvider,
   LanguageSwitcher,
+  I18N_PAGE_SIZE,
   isSupportedLocaleCode,
   mergeWithFallbackClient,
   setLocaleCookie,
@@ -129,6 +130,13 @@ describe("I18nFeature Vertical Slice", () => {
       status: 204,
     });
     fireEvent.click(screen.getByTestId("delete-i18n-k-2"));
+    expect(screen.getByTestId("confirm-action-dialog")).toBeDefined();
+    fireEvent.click(screen.getByTestId("confirm-action-cancel"));
+    expect(screen.queryByTestId("confirm-action-dialog")).toBeNull();
+    expect(screen.getByText("Common.cancel")).toBeDefined();
+
+    fireEvent.click(screen.getByTestId("delete-i18n-k-2"));
+    fireEvent.click(screen.getByTestId("confirm-action-accept"));
 
     await waitFor(() => {
       expect(screen.queryByText("Common.cancel")).toBeNull();
@@ -196,6 +204,8 @@ describe("I18nFeature Vertical Slice", () => {
       expect(screen.getByTestId("delete-i18n-k-11")).toBeDefined();
     });
     fireEvent.click(screen.getByTestId("delete-i18n-k-11"));
+    expect(screen.getByTestId("confirm-action-dialog")).toBeDefined();
+    fireEvent.click(screen.getByTestId("confirm-action-accept"));
     await waitFor(() => {
       expect(screen.queryByTestId("delete-i18n-k-11")).toBeNull();
     });
@@ -457,5 +467,104 @@ describe("I18nFeature Vertical Slice", () => {
       </CachedI18nProvider>
     );
     expect(screen.getByTestId("resolved-ui-locale").textContent).toBe("de");
+  });
+
+  it("supports search, locale filter chips, 25-per-page pagination, and empty filter state", async () => {
+    expect(I18N_PAGE_SIZE).toBe(25);
+    const items = Array.from({ length: 25 }, (_, idx) => ({
+      id: `p-${idx + 1}`,
+      locale: "da",
+      translationKey: `PageKey.${idx + 1}`,
+      translationValue: `Dansk værdi ${idx + 1}`,
+    }));
+    items.push(
+      {
+        id: "p-26",
+        locale: "de",
+        translationKey: "German.greeting",
+        translationValue: "Guten Tag",
+      },
+      {
+        id: "p-27",
+        locale: "da",
+        translationKey: "PageKey.27",
+        translationValue: "Særlig søgetekst",
+      }
+    );
+
+    const fetchMock = vi.fn().mockImplementation(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "DELETE") {
+        return {
+          ok: false,
+          status: 500,
+          json: async () => ({
+            type: "about:blank",
+            title: "Delete failed",
+            status: 500,
+            detail: "Locked key",
+            errorCode: ErrorCode.INTERNAL_ERROR,
+          }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => items,
+      };
+    });
+    global.fetch = fetchMock;
+
+    render(<I18nFeatureView />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("i18n-filtered-count").textContent).toContain("27 / 27");
+    });
+
+    // Page 1 shows item 1 and hides page-2 items
+    expect(screen.getByText("PageKey.1")).toBeDefined();
+    expect(screen.queryByText("German.greeting")).toBeNull();
+    expect(screen.getByTestId("i18n-pagination")).toBeDefined();
+
+    // Next & Prev page buttons
+    fireEvent.click(screen.getByTestId("i18n-next-page"));
+    expect(screen.getByText("German.greeting")).toBeDefined();
+    expect(screen.getByText("PageKey.27")).toBeDefined();
+    expect(screen.queryByText("PageKey.1")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("i18n-prev-page"));
+    expect(screen.getByText("PageKey.1")).toBeDefined();
+
+    // Locale filter chip ("de")
+    fireEvent.click(screen.getByTestId("filter-i18n-locale-de"));
+    expect(screen.getByTestId("i18n-filtered-count").textContent).toContain("1 / 27");
+    expect(screen.getByText("German.greeting")).toBeDefined();
+    expect(screen.queryByTestId("i18n-pagination")).toBeNull();
+
+    // Failed delete keeps row and hits remove() === false branch
+    fireEvent.click(screen.getByTestId("delete-i18n-p-26"));
+    fireEvent.click(screen.getByTestId("confirm-action-accept"));
+    await waitFor(() => {
+      expect(screen.getByTestId("error-banner")).toBeDefined();
+    });
+    expect(screen.getByText("German.greeting")).toBeDefined();
+
+    // Reset to all locales
+    fireEvent.click(screen.getByTestId("filter-i18n-locale-all"));
+    expect(screen.getByTestId("i18n-filtered-count").textContent).toContain("27 / 27");
+
+    // Search by key, then by value, then non-matching empty state
+    const searchInput = screen.getByTestId("input-i18n-search");
+    fireEvent.change(searchInput, { target: { value: "PageKey.27" } });
+    expect(screen.getByTestId("i18n-filtered-count").textContent).toContain("1 / 27");
+    expect(screen.getByText("PageKey.27")).toBeDefined();
+
+    fireEvent.change(searchInput, { target: { value: "søgetekst" } });
+    expect(screen.getByTestId("i18n-filtered-count").textContent).toContain("1 / 27");
+    expect(screen.getByText("PageKey.27")).toBeDefined();
+
+    fireEvent.change(searchInput, { target: { value: "ingen_match_xyz" } });
+    expect(screen.getByTestId("i18n-filtered-count").textContent).toContain("0 / 27");
+    expect(screen.getByTestId("i18n-empty-filter")).toBeDefined();
+    expect(screen.queryByTestId("i18n-list")).toBeNull();
   });
 });

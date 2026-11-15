@@ -1,5 +1,7 @@
 import http from "node:http";
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 
 export interface MockStackServers {
   keycloakServer: http.Server;
@@ -44,69 +46,123 @@ function sendJson(
   res.end(payload);
 }
 
+function deterministicUuid(seed: string): string {
+  const hex = crypto.createHash("sha256").update(seed).digest("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+
+const cachedSeedI18nBundles: Record<string, Record<string, any>> = (() => {
+  const seedPath = path.resolve(process.cwd(), "features", "support", "i18nSeedBundles.json");
+  if (fs.existsSync(seedPath)) {
+    return JSON.parse(fs.readFileSync(seedPath, "utf8"));
+  }
+  return {};
+})();
+
 function buildBaselineI18n(): Record<string, Record<string, any>> {
-  return {
-    da: {
-      portal: {
-        brandTitle: "EduJournal Klinik",
-        welcome: "Velkommen til EduJournal",
-        tabCalendar: "Månedskalender & Dagsprogram",
-        appointmentsCountBadge: "{count} aftaler",
-        singleAppointmentBadge: "1 aftale",
-      },
-      HomePage: {
-        heroTitle: "Reflekter, Lær, og Voks",
-      },
-    },
-    en: {
-      portal: {
-        brandTitle: "EduJournal Clinic",
-        welcome: "Welcome to EduJournal",
-        tabCalendar: "Monthly Calendar & Daily Schedule",
-        appointmentsCountBadge: "{count} appointments",
-        singleAppointmentBadge: "1 appointment",
-      },
-      HomePage: {
-        heroTitle: "Reflect, Learn, and Grow",
-      },
-    },
-    fr: {
-      portal: {
-        brandTitle: "EduJournal Clinique",
-        welcome: "Bienvenue sur EduJournal",
-        tabCalendar: "Calendrier Mensuel & Programme",
-        appointmentsCountBadge: "{count} rdv",
-        singleAppointmentBadge: "1 rdv",
-      },
-      HomePage: {
-        heroTitle: "Réfléchissez, Apprenez et Grandissez",
-      },
-    },
-    es: {
-      portal: {
-        brandTitle: "EduJournal Clínica",
-        welcome: "Bienvenido a EduJournal",
-        tabCalendar: "Calendario Mensual y Agenda",
-        appointmentsCountBadge: "{count} citas",
-        singleAppointmentBadge: "1 cita",
-      },
-      HomePage: {
-        heroTitle: "Reflexiona, Aprende y Crece",
-      },
-    },
-    de: {
-      portal: {
-        brandTitle: "EduJournal Klinik",
-        welcome: "Willkommen bei EduJournal",
-        tabCalendar: "Monatskalender & Tagesplan",
-        appointmentsCountBadge: "{count} Termine",
-        singleAppointmentBadge: "1 Termin",
-      },
-      HomePage: {
-        heroTitle: "Reflektieren, Lernen und Wachsen",
-      },
-    },
+  const cloned: Record<string, Record<string, any>> = structuredClone(cachedSeedI18nBundles);
+  const heroTitles: Record<string, string> = {
+    da: "Reflekter, Lær, og Voks",
+    en: "Reflect, Learn, and Grow",
+    fr: "Réfléchissez, Apprenez et Grandissez",
+    es: "Reflexiona, Aprende y Crece",
+    de: "Reflektieren, Lernen und Wachsen",
   };
+  const brandTitles: Record<string, string> = {
+    da: "EduJournal Klinik",
+    en: "EduJournal Clinic",
+    fr: "EduJournal Clinique",
+    es: "EduJournal Clínica",
+    de: "EduJournal Klinik",
+  };
+  const welcomes: Record<string, string> = {
+    da: "Velkommen til EduJournal",
+    en: "Welcome to EduJournal",
+    fr: "Bienvenue sur EduJournal",
+    es: "Bienvenido a EduJournal",
+    de: "Willkommen bei EduJournal",
+  };
+  for (const loc of ["da", "en", "fr", "es", "de"]) {
+    cloned[loc] = cloned[loc] || {};
+    cloned[loc].portal = {
+      ...(cloned[loc].portal || {}),
+      brandTitle: brandTitles[loc],
+      welcome: welcomes[loc],
+    };
+    cloned[loc].HomePage = {
+      ...(cloned[loc].HomePage || {}),
+      heroTitle: heroTitles[loc],
+    };
+  }
+  return cloned;
+}
+
+function setNestedI18nKey(dict: Record<string, any>, dottedKey: string, val: any) {
+  const parts = dottedKey.split(".").filter(Boolean);
+  if (parts.length === 0) return;
+  if (parts.length === 1) {
+    dict[parts[0]] = val;
+    return;
+  }
+  let cur = dict;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const part = parts[i];
+    if (!cur[part] || typeof cur[part] !== "object" || Array.isArray(cur[part])) {
+      cur[part] = {};
+    }
+    cur = cur[part];
+  }
+  cur[parts[parts.length - 1]] = val;
+}
+
+function deleteNestedI18nKey(dict: Record<string, any>, dottedKey: string) {
+  const parts = dottedKey.split(".").filter(Boolean);
+  if (parts.length === 0) return;
+  let cur = dict;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const part = parts[i];
+    if (!cur[part] || typeof cur[part] !== "object") return;
+    cur = cur[part];
+  }
+  delete cur[parts[parts.length - 1]];
+}
+
+function buildI18nAdminMap(store: Record<string, Record<string, any>>) {
+  const entries = new Map<
+    string,
+    {
+      id: string;
+      locale: string;
+      namespace: string;
+      translationKey: string;
+      translationValue: string;
+      updatedAt: string;
+    }
+  >();
+  const walk = (loc: string, node: any, prefix: string) => {
+    if (!node || typeof node !== "object" || Array.isArray(node)) return;
+    for (const [k, v] of Object.entries(node)) {
+      const fullKey = prefix ? `${prefix}.${k}` : k;
+      if (v !== null && typeof v === "object" && !Array.isArray(v)) {
+        walk(loc, v, fullKey);
+      } else if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
+        const id = deterministicUuid(`i18n:${loc}:${fullKey}`);
+        const ns = fullKey.includes(".") ? fullKey.split(".")[0] : "common";
+        entries.set(id, {
+          id,
+          locale: loc,
+          namespace: ns,
+          translationKey: fullKey,
+          translationValue: String(v),
+          updatedAt: "2026-10-01T10:00:00Z",
+        });
+      }
+    }
+  };
+  for (const [loc, dict] of Object.entries(store)) {
+    walk(loc, dict, "");
+  }
+  return entries;
 }
 
 export async function startSelfContainedMockStack(
@@ -124,6 +180,7 @@ export async function startSelfContainedMockStack(
   const services = new Map<string, any>();
   const handshakes = new Map<string, any>();
   const appointments = new Map<string, any>();
+  const managementKpis = new Map<string, any>();
   const pcl5Tests: any[] = [];
   const journalEntries: any[] = [];
   const clinicalNotes: any[] = [];
@@ -151,13 +208,16 @@ export async function startSelfContainedMockStack(
     bundleSymbolicName: "com.platform.killbill.vipps-mobilepay-plugin",
     bundleVersion: "1.0.0",
     pluginName: "killbill-vipps-mobilepay",
+    apiBaseUrl: "https://api.vipps.no",
+    merchantName: "73N37",
+    merchantCvr: "46688244",
     clinicPayoutIban: "DK5000400440116243",
     clinicVippsMsn: "700000",
     tiers: {
       THERAPIST_ACCESS: {
         productType: "THERAPIST_ACCESS",
         planName: "Therapist Access",
-        amountDkk: 799,
+        amountDkk: 4,
         payoutIban: "DK8130000012345678",
         vippsMsn: "700101",
         glAccount: "4300",
@@ -166,7 +226,7 @@ export async function startSelfContainedMockStack(
       MANAGEMENT_ACCESS: {
         productType: "MANAGEMENT_ACCESS",
         planName: "Management Access",
-        amountDkk: 1499,
+        amountDkk: 5,
         payoutIban: "DK9230000087654321",
         vippsMsn: "700202",
         glAccount: "4300",
@@ -175,6 +235,7 @@ export async function startSelfContainedMockStack(
     },
   };
   let i18nStore = buildBaselineI18n();
+  let i18nAdminEntries = buildI18nAdminMap(i18nStore);
 
   function addJGitCommit(opts: {
     clientUuid?: string;
@@ -226,6 +287,7 @@ export async function startSelfContainedMockStack(
     services.clear();
     handshakes.clear();
     appointments.clear();
+    managementKpis.clear();
     pcl5Tests.length = 0;
     journalEntries.length = 0;
     clinicalNotes.length = 0;
@@ -244,6 +306,7 @@ export async function startSelfContainedMockStack(
     glBalances["4200"] = 0;
     glBalances["4300"] = 0;
     i18nStore = buildBaselineI18n();
+    i18nAdminEntries = buildI18nAdminMap(i18nStore);
 
     const seedUsers = [
       {
@@ -288,6 +351,98 @@ export async function startSelfContainedMockStack(
         role: u.role,
       });
       userRoles.set(u.id, new Set(u.roles));
+    }
+
+    const bijensOrgId = deterministicUuid("org:73N37");
+    const bijensOrg = {
+      id: bijensOrgId,
+      name: "73N37",
+      cvrNumber: "46688244",
+      address: "Bredgade 42",
+      postalCode: "1260",
+      phoneNumber: "+45 33 14 25 36",
+      iban: "DK5000400440116243",
+      currency: "DKK",
+    };
+    organisations.set(bijensOrgId, bijensOrg);
+
+    const bijensProfileId = deterministicUuid("provider:bijens");
+    const bijensUuid = "4c421f46-836c-4897-8dae-ba9587473273";
+    providerProfiles.set(bijensUuid, {
+      id: bijensProfileId,
+      userUuid: bijensUuid,
+      displayName: "Bo Jensen",
+      fullName: "Bo Jensen",
+      biography: "Autoriseret psykolog hos 73N37",
+      iban: "DK5000400440116243",
+      currency: "DKK",
+      workingHoursJson: "09:00-17:00",
+      organisationId: bijensOrgId,
+      organisation: bijensOrg,
+    });
+
+    const bijensServiceId = deterministicUuid("service:bijens:individuel-terapi");
+    services.set(bijensServiceId, {
+      id: bijensServiceId,
+      therapistUuid: bijensUuid,
+      providerProfileId: bijensProfileId,
+      organisationId: bijensOrgId,
+      provider: {
+        id: bijensProfileId,
+        userUuid: bijensUuid,
+        displayName: "Bo Jensen",
+        organisation: bijensOrg,
+      },
+      organisation: bijensOrg,
+      organisationName: "73N37",
+      name: "Individuel Terapi",
+      description: "Individuel Terapi i speciale PSYCHOLOGY",
+      durationMinutes: 60,
+      price: 2,
+      priceDkk: 2,
+      currency: "DKK",
+      location: "PSYCHOLOGY",
+      isActive: true,
+      active: true,
+    });
+
+    const clientUuid = "5e357ca1-4913-414f-91a6-81a7de9042ab";
+    clientProfiles.set(clientUuid, {
+      id: deterministicUuid("client-profile:client"),
+      userId: clientUuid,
+      fullName: "Anders Sand",
+      email: "client@mail.com",
+      dateOfBirth: "1990-04-12",
+      homeAddress: "Vesterbrogade 21",
+      postalCode: "1620",
+      phoneNumber: "+45 20 11 22 33",
+    });
+
+    const defaultKpis = [
+      {
+        id: deterministicUuid("kpi-session-price"),
+        metricName: "Gennemsnitlig sessionspris",
+        metricValue: 2,
+        unit: "DKK",
+        department: "Psykotraumatologi",
+      },
+      {
+        id: deterministicUuid("kpi-capacity"),
+        metricName: "Månedlig kapacitetsudnyttelse",
+        metricValue: 84,
+        unit: "%",
+        department: "Klinikdrift",
+      },
+      {
+        id: deterministicUuid("kpi-retention"),
+        metricName: "Klientfastholdelse (3 mdr.)",
+        metricValue: 92,
+        unit: "%",
+        department: "Kvalitet & Audit",
+      },
+    ];
+    for (const kpi of defaultKpis) {
+      managementKpis.set(kpi.id, kpi);
     }
   }
 
@@ -374,6 +529,59 @@ export async function startSelfContainedMockStack(
       }
     }
 
+    if (url.pathname.endsWith("/users")) {
+      if (req.method === "GET") {
+        const searchUsername = url.searchParams.get("username");
+        const list = Array.from(usersByUsername.values())
+          .filter((u) => !searchUsername || u.username === searchUsername)
+          .map((u) => ({
+            id: u.id,
+            username: u.username,
+            firstName: u.fullName.split(" ")[0] || u.username,
+            lastName: u.fullName.split(" ").slice(1).join(" ") || "",
+            email: u.email,
+            enabled: true,
+          }));
+        return sendJson(res, 200, list);
+      }
+      if (req.method === "POST") {
+        let parsed: any = {};
+        try {
+          parsed = body ? JSON.parse(body) : {};
+        } catch {
+          parsed = {};
+        }
+        const uname = String(parsed.username || "").trim();
+        if (!uname) {
+          return sendJson(res, 400, { errorMessage: "Username is required" });
+        }
+        if (usersByUsername.has(uname)) {
+          return sendJson(res, 409, { errorMessage: "User exists with same username" });
+        }
+        const id = crypto.randomUUID();
+        const fullName =
+          [parsed.firstName, parsed.lastName].filter(Boolean).join(" ").trim() || uname;
+        usersByUsername.set(uname, {
+          id,
+          username: uname,
+          fullName,
+          email: String(parsed.email || `${uname}@example.dk`),
+          role: "CLIENT",
+        });
+        userRoles.set(id, new Set(["client"]));
+        return sendJson(
+          res,
+          201,
+          { id, username: uname },
+          { Location: `http://127.0.0.1:${keycloakPort}${url.pathname}/${id}` }
+        );
+      }
+    }
+
+    if (/\/users\/[^/]+\/reset-password$/.test(url.pathname) && req.method === "PUT") {
+      return sendJson(res, 204, undefined);
+    }
+
     return sendJson(res, 200, { ok: true });
   });
 
@@ -445,6 +653,42 @@ export async function startSelfContainedMockStack(
       return sendJson(res, 200, saved);
     }
 
+    if (pathname === "/api/v1/i18n") {
+      if (method === "GET") {
+        return sendJson(res, 200, Array.from(i18nAdminEntries.values()));
+      }
+      if (method === "POST") {
+        if (!auth.userUuid) {
+          return sendJson(res, 401, { error: "Unauthorized" });
+        }
+        if (!auth.isAdmin) {
+          return sendJson(res, 403, { error: "Forbidden: admin required" });
+        }
+        const locale = String(jsonBody.locale || "da").trim() || "da";
+        const translationKey = String(jsonBody.translationKey || "").trim();
+        const translationValue = String(jsonBody.translationValue ?? "");
+        const namespace =
+          String(jsonBody.namespace || "").trim() ||
+          (translationKey.includes(".") ? translationKey.split(".")[0] : "common");
+        if (!translationKey) {
+          return sendJson(res, 400, { error: "translationKey is required" });
+        }
+        i18nStore[locale] = i18nStore[locale] || {};
+        setNestedI18nKey(i18nStore[locale], translationKey, translationValue);
+        const id = deterministicUuid(`i18n:${locale}:${translationKey}`);
+        const entry = {
+          id,
+          locale,
+          namespace,
+          translationKey,
+          translationValue,
+          updatedAt: new Date().toISOString(),
+        };
+        i18nAdminEntries.set(id, entry);
+        return sendJson(res, 201, entry);
+      }
+    }
+
     if (pathname.startsWith("/api/v1/i18n/")) {
       const rest = pathname.slice("/api/v1/i18n/".length);
       const parts = rest.split("/");
@@ -468,18 +712,83 @@ export async function startSelfContainedMockStack(
         const key = decodeURIComponent(parts.slice(1).join("/"));
         const val = jsonBody.value;
         i18nStore[locale][key] = val;
-        if (key.includes(".")) {
-          const [ns, prop] = key.split(".");
-          i18nStore[locale][ns] = i18nStore[locale][ns] || {};
-          i18nStore[locale][ns][prop] = val;
-        }
+        setNestedI18nKey(i18nStore[locale], key, val);
+        const id = deterministicUuid(`i18n:${locale}:${key}`);
+        i18nAdminEntries.set(id, {
+          id,
+          locale,
+          namespace: key.includes(".") ? key.split(".")[0] : "common",
+          translationKey: key,
+          translationValue: String(val ?? ""),
+          updatedAt: new Date().toISOString(),
+        });
         return sendJson(res, 200, { key, value: val });
+      }
+      if (method === "DELETE" && parts.length === 1) {
+        if (!auth.userUuid) {
+          return sendJson(res, 401, { error: "Unauthorized" });
+        }
+        if (!auth.isAdmin) {
+          return sendJson(res, 403, { error: "Forbidden: admin required" });
+        }
+        const targetId = decodeURIComponent(parts[0]);
+        const existing = i18nAdminEntries.get(targetId);
+        if (!existing) {
+          return sendJson(res, 404, { error: "Translation entry not found" });
+        }
+        i18nAdminEntries.delete(targetId);
+        if (i18nStore[existing.locale]) {
+          deleteNestedI18nKey(i18nStore[existing.locale], existing.translationKey);
+          delete i18nStore[existing.locale][existing.translationKey];
+        }
+        return sendJson(res, 204, undefined);
       }
     }
 
     // Require auth for all protected routes below
     if (!auth.userUuid) {
       return sendJson(res, 401, { error: "Unauthorized" });
+    }
+
+    if (pathname === "/api/v1/secure-data" && method === "GET") {
+      return sendJson(res, 200, { status: "OK", userUuid: auth.userUuid });
+    }
+
+    if (pathname === "/api/v1/management/kpis") {
+      if (!auth.isAdmin) {
+        return sendJson(res, 403, { error: "Management or admin role is required" });
+      }
+      if (method === "GET") {
+        return sendJson(res, 200, Array.from(managementKpis.values()));
+      }
+      if (method === "POST") {
+        const metricName = String(jsonBody.metricName || "").trim();
+        const metricValue = Number(jsonBody.metricValue || 0);
+        const unit = String(jsonBody.unit || "DKK").trim() || "DKK";
+        const department = String(jsonBody.department || "").trim();
+        if (!metricName || !(metricValue > 0) || !department) {
+          return sendJson(res, 400, { error: "Invalid KPI payload" });
+        }
+        const id = crypto.randomUUID();
+        const created = { id, metricName, metricValue, unit, department };
+        managementKpis.set(id, created);
+        return sendJson(res, 201, created);
+      }
+    }
+
+    const kpiIdMatch = pathname.match(/^\/api\/v1\/management\/kpis\/([^/]+)$/);
+    if (kpiIdMatch) {
+      if (!auth.isAdmin) {
+        return sendJson(res, 403, { error: "Management or admin role is required" });
+      }
+      const kpiId = decodeURIComponent(kpiIdMatch[1]);
+      if (!managementKpis.has(kpiId)) {
+        return sendJson(res, 404, { error: "KPI not found" });
+      }
+      if (method === "DELETE") {
+        managementKpis.delete(kpiId);
+        return sendJson(res, 204, undefined);
+      }
     }
 
     // 2. User Account & Profile endpoints
@@ -548,7 +857,49 @@ export async function startSelfContainedMockStack(
       return sendJson(res, 404, { error: "User not found" });
     }
 
-    // 3. Client profile endpoints
+    // 3. Client profile endpoints & clinic clients list
+    if (pathname === "/api/v1/clinic/clients") {
+      if (method === "GET") {
+        const merged = new Map<string, any>();
+        for (const cp of clientProfiles.values()) {
+          const uid = String(cp.userId || cp.id);
+          merged.set(uid, cp);
+        }
+        for (const u of usersByUsername.values()) {
+          const roles = userRoles.get(u.id) || new Set([u.role.toLowerCase()]);
+          const isOnlyClient = u.role.toUpperCase() === "CLIENT" && !roles.has("therapist");
+          if (isOnlyClient && !merged.has(u.id)) {
+            merged.set(u.id, {
+              id: deterministicUuid(`client-row:${u.id}`),
+              userId: u.id,
+              fullName: u.fullName,
+              email: u.email,
+            });
+          }
+        }
+        return sendJson(res, 200, Array.from(merged.values()));
+      }
+      if (method === "POST") {
+        const uid = String(jsonBody.userId || jsonBody.userUuid || crypto.randomUUID());
+        const id = crypto.randomUUID();
+        const saved = { id, userId: uid, ...jsonBody };
+        clientProfiles.set(uid, saved);
+        return sendJson(res, 201, saved);
+      }
+    }
+
+    const clinicClientIdMatch = pathname.match(/^\/api\/v1\/clinic\/clients\/([^/]+)$/);
+    if (clinicClientIdMatch && method === "DELETE") {
+      const targetId = decodeURIComponent(clinicClientIdMatch[1]);
+      for (const [k, cp] of clientProfiles.entries()) {
+        if (cp.id === targetId || cp.userId === targetId || k === targetId) {
+          clientProfiles.delete(k);
+          return sendJson(res, 204, undefined);
+        }
+      }
+      return sendJson(res, 404, { error: "Not found" });
+    }
+
     if (pathname === "/api/v1/clinic/client-profile" && method === "PUT") {
       const uid = String(jsonBody.userId || jsonBody.userUuid || auth.userUuid);
       const saved = {
@@ -595,6 +946,7 @@ export async function startSelfContainedMockStack(
         id: existing.id || crypto.randomUUID(),
         userUuid: targetUuid,
         displayName: jsonBody.displayName || existing.displayName || auth.fullName || "Bo Jensen",
+        fullName: jsonBody.displayName || existing.fullName || auth.fullName || "Bo Jensen",
         biography: jsonBody.biography || existing.biography || "",
         iban,
         currency,
@@ -602,6 +954,7 @@ export async function startSelfContainedMockStack(
           jsonBody.workingHoursJson !== undefined
             ? jsonBody.workingHoursJson
             : existing.workingHoursJson || "09:00-17:00",
+        organisationId: orgId,
         organisation: org,
       };
       providerProfiles.set(targetUuid, profile);
@@ -613,8 +966,12 @@ export async function startSelfContainedMockStack(
 
     if (pathname === "/api/v1/clinic/me" && method === "GET") {
       const profile = providerProfiles.get(auth.userUuid) || null;
+      const storedRoles = Array.from(userRoles.get(auth.userUuid) || []);
+      const combinedRoles = Array.from(new Set([...auth.roles, ...storedRoles]));
+      const effectiveIsTherapist = auth.isTherapist || combinedRoles.includes("therapist");
+      const effectiveIsAdmin = auth.isAdmin || combinedRoles.includes("admin");
       const missingProfileFields: string[] = [];
-      if (auth.isTherapist) {
+      if (effectiveIsTherapist) {
         if (!profile || !profile.iban || String(profile.iban).trim() === "") {
           missingProfileFields.push("IBAN");
         }
@@ -625,9 +982,11 @@ export async function startSelfContainedMockStack(
       return sendJson(res, 200, {
         userUuid: auth.userUuid,
         username: auth.username,
+        fullName: auth.fullName,
         email: auth.email,
-        roles: auth.roles,
-        isTherapist: auth.isTherapist,
+        roles: combinedRoles,
+        isTherapist: effectiveIsTherapist,
+        isAdmin: effectiveIsAdmin,
         providerProfile: profile,
         clientProfile: clientProfiles.get(auth.userUuid) || null,
         canCreateServices: missingProfileFields.length === 0,
@@ -635,37 +994,46 @@ export async function startSelfContainedMockStack(
       });
     }
 
-    if (pathname === "/api/v1/clinic/services" && method === "POST") {
-      const targetUuid = String(jsonBody.therapistUuid || jsonBody.userUuid || auth.userUuid);
-      const profile = providerProfiles.get(targetUuid);
-      if (!profile || !profile.iban || String(profile.iban).trim() === "") {
-        return sendJson(res, 400, {
-          error: "Du kan ikke oprette en service/ydelse før du har udfyldt: IBAN",
-          message: "Du kan ikke oprette en service/ydelse før du har udfyldt: IBAN",
-        });
+    if (pathname === "/api/v1/clinic/services") {
+      if (method === "GET") {
+        return sendJson(res, 200, Array.from(services.values()));
       }
-      const id = crypto.randomUUID();
-      const srv = {
-        id,
-        therapistUuid: targetUuid,
-        provider: {
-          id: profile.id,
-          userUuid: targetUuid,
-          displayName: profile.displayName,
-        },
-        organisation: profile.organisation,
-        name: jsonBody.name,
-        description: jsonBody.description,
-        durationMinutes: jsonBody.durationMinutes,
-        price: jsonBody.price,
-        currency: jsonBody.currency || profile.currency || "DKK",
-        location: jsonBody.location,
-        isActive: true,
-        active: true,
-        organisationName: profile.organisation?.name || "Nordic Mind Clinic ApS",
-      };
-      services.set(id, srv);
-      return sendJson(res, 201, srv);
+      if (method === "POST") {
+        const targetUuid = String(jsonBody.therapistUuid || jsonBody.userUuid || auth.userUuid);
+        const profile = providerProfiles.get(targetUuid);
+        if (!profile || !profile.iban || String(profile.iban).trim() === "") {
+          return sendJson(res, 400, {
+            error: "Du kan ikke oprette en service/ydelse før du har udfyldt: IBAN",
+            message: "Du kan ikke oprette en service/ydelse før du har udfyldt: IBAN",
+          });
+        }
+        const id = crypto.randomUUID();
+        const srv = {
+          id,
+          therapistUuid: targetUuid,
+          providerProfileId: profile.id,
+          organisationId: profile.organisation?.id,
+          provider: {
+            id: profile.id,
+            userUuid: targetUuid,
+            displayName: profile.displayName,
+            organisation: profile.organisation,
+          },
+          organisation: profile.organisation,
+          name: jsonBody.name,
+          description: jsonBody.description,
+          durationMinutes: jsonBody.durationMinutes,
+          price: jsonBody.price,
+          priceDkk: jsonBody.price,
+          currency: jsonBody.currency || profile.currency || "DKK",
+          location: jsonBody.location,
+          isActive: true,
+          active: true,
+          organisationName: profile.organisation?.name || "Nordic Mind Clinic ApS",
+        };
+        services.set(id, srv);
+        return sendJson(res, 201, srv);
+      }
     }
 
     const serviceToggleMatch = pathname.match(/^\/api\/v1\/clinic\/services\/([^/]+)\/toggle$/);
@@ -677,6 +1045,16 @@ export async function startSelfContainedMockStack(
       return sendJson(res, 200, srv);
     }
 
+    const serviceIdMatch = pathname.match(/^\/api\/v1\/clinic\/services\/([^/]+)$/);
+    if (serviceIdMatch && method === "DELETE") {
+      const targetId = decodeURIComponent(serviceIdMatch[1]);
+      if (!services.has(targetId)) {
+        return sendJson(res, 404, { error: "Not found" });
+      }
+      services.delete(targetId);
+      return sendJson(res, 204, undefined);
+    }
+
     if (pathname === "/api/v1/clinic/directory" && method === "GET") {
       return sendJson(res, 200, {
         providers: Array.from(providerProfiles.values()),
@@ -686,26 +1064,75 @@ export async function startSelfContainedMockStack(
     }
 
     // 5. Handshakes (/api/v1/clinic/handshakes)
+    const hsClientMatch = pathname.match(/^\/api\/v1\/clinic\/handshakes\/client\/([^/]+)$/);
+    if (hsClientMatch && method === "GET") {
+      const targetClient = decodeURIComponent(hsClientMatch[1]);
+      const list = Array.from(handshakes.values()).filter(
+        (h) => h.clientUuid === targetClient || h.clientId === targetClient
+      );
+      return sendJson(res, 200, list);
+    }
+
+    const hsTherapistMatch = pathname.match(/^\/api\/v1\/clinic\/handshakes\/therapist\/([^/]+)$/);
+    if (hsTherapistMatch && method === "GET") {
+      const targetTherapist = decodeURIComponent(hsTherapistMatch[1]);
+      const list = Array.from(handshakes.values()).filter(
+        (h) => h.therapistUuid === targetTherapist || h.therapistId === targetTherapist
+      );
+      return sendJson(res, 200, list);
+    }
+
     if (pathname === "/api/v1/clinic/handshakes") {
       if (method === "GET") {
         return sendJson(res, 200, Array.from(handshakes.values()));
       }
       if (method === "POST") {
+        const reqClientUuid = String(jsonBody.clientUuid || jsonBody.clientId || auth.userUuid);
+        const reqTherapistUuid = String(jsonBody.therapistUuid || jsonBody.therapistId || "");
         const existing = Array.from(handshakes.values()).find(
-          (h) =>
-            h.clientUuid === jsonBody.clientUuid &&
-            h.therapistUuid === jsonBody.therapistUuid
+          (h) => h.clientUuid === reqClientUuid && h.therapistUuid === reqTherapistUuid
         );
+        const provider = providerProfiles.get(reqTherapistUuid);
+        const clientCp = clientProfiles.get(reqClientUuid);
+        const resolvedClientName =
+          jsonBody.clientName ||
+          existing?.clientName ||
+          clientCp?.fullName ||
+          auth.fullName ||
+          "Anders Sand";
+        const resolvedTherapistName =
+          jsonBody.therapistName ||
+          existing?.therapistName ||
+          provider?.displayName ||
+          "Maja Lindholm";
+        const resolvedOrgName =
+          jsonBody.organisationName ||
+          existing?.organisationName ||
+          provider?.organisation?.name ||
+          "Nordic Mind Clinic ApS";
         const id = existing?.id || crypto.randomUUID();
         const hs = {
           id,
-          clientUuid: jsonBody.clientUuid,
-          clientName: jsonBody.clientName || existing?.clientName || "Anders Sand",
-          therapistUuid: jsonBody.therapistUuid,
-          therapistName: jsonBody.therapistName || existing?.therapistName || "Maja Lindholm",
-          organisationName:
-            jsonBody.organisationName || existing?.organisationName || "Nordic Mind Clinic ApS",
+          clientId: reqClientUuid,
+          clientUuid: reqClientUuid,
+          clientName: resolvedClientName,
+          therapistId: reqTherapistUuid,
+          therapistUuid: reqTherapistUuid,
+          therapistName: resolvedTherapistName,
+          organisationName: resolvedOrgName,
           status: jsonBody.status || existing?.status || "REQUESTED",
+          sharedJournalAccess:
+            jsonBody.sharedJournalAccess !== undefined
+              ? Boolean(jsonBody.sharedJournalAccess)
+              : existing?.sharedJournalAccess ?? true,
+          historyStartDate:
+            jsonBody.historyStartDate !== undefined
+              ? jsonBody.historyStartDate
+              : existing?.historyStartDate ?? null,
+          historyEndDate:
+            jsonBody.historyEndDate !== undefined
+              ? jsonBody.historyEndDate
+              : existing?.historyEndDate ?? null,
           allowedBranches:
             jsonBody.allowedBranches !== undefined
               ? jsonBody.allowedBranches
@@ -726,13 +1153,26 @@ export async function startSelfContainedMockStack(
 
     const hsStatusMatch = pathname.match(/^\/api\/v1\/clinic\/handshakes\/([^/]+)\/status$/);
     if (hsStatusMatch && method === "PATCH") {
-      const hs = handshakes.get(hsStatusMatch[1]);
+      const hs = handshakes.get(decodeURIComponent(hsStatusMatch[1]));
       if (!hs) return sendJson(res, 404, { error: "Not found" });
       if (jsonBody.status !== undefined) hs.status = jsonBody.status;
+      if (jsonBody.sharedJournalAccess !== undefined) {
+        hs.sharedJournalAccess = Boolean(jsonBody.sharedJournalAccess);
+      }
+      if (jsonBody.historyStartDate !== undefined) hs.historyStartDate = jsonBody.historyStartDate;
+      if (jsonBody.historyEndDate !== undefined) hs.historyEndDate = jsonBody.historyEndDate;
       if (jsonBody.allowedBranches !== undefined) hs.allowedBranches = jsonBody.allowedBranches;
       if (jsonBody.customRestrictions !== undefined) hs.customRestrictions = jsonBody.customRestrictions;
       if (jsonBody.branchRestrictions !== undefined) hs.branchRestrictions = jsonBody.branchRestrictions;
       return sendJson(res, 200, hs);
+    }
+
+    const hsIdMatch = pathname.match(/^\/api\/v1\/clinic\/handshakes\/([^/]+)$/);
+    if (hsIdMatch && method === "DELETE") {
+      const hsId = decodeURIComponent(hsIdMatch[1]);
+      if (!handshakes.has(hsId)) return sendJson(res, 404, { error: "Not found" });
+      handshakes.delete(hsId);
+      return sendJson(res, 204, undefined);
     }
 
     // 6. Appointments (/api/v1/appointments)
@@ -842,7 +1282,11 @@ export async function startSelfContainedMockStack(
       return sendJson(res, 200, [
         {
           commitHash: existing.gitCommitHash || "abc1234",
+          fullHash: existing.gitCommitHash || "abc1234",
+          author: existing.clientName || "System",
+          timestamp: existing.startTime || "2026-11-20T10:00:00",
           message: `Appointment ${existing.status}`,
+          snapshot: `${existing.title || "Terapisamtale"} (${existing.status})`,
         },
       ]);
     }
@@ -952,14 +1396,32 @@ export async function startSelfContainedMockStack(
     }
 
     // 8. Psychotraumatology PCL-5 tests
-    if (pathname === "/api/v1/psychotraumatology/tests" && method === "POST") {
-      const testEntry = {
-        id: crypto.randomUUID(),
-        ...jsonBody,
-        createdAt: new Date().toISOString(),
-      };
-      pcl5Tests.push(testEntry);
-      return sendJson(res, 200, testEntry);
+    if (pathname === "/api/v1/psychotraumatology/tests") {
+      if (method === "GET") {
+        const list =
+          auth.isTherapist || auth.isAdmin
+            ? pcl5Tests
+            : pcl5Tests.filter((t) => t.clientUuid === auth.userUuid);
+        return sendJson(res, 200, list);
+      }
+      if (method === "POST") {
+        const testEntry = {
+          id: crypto.randomUUID(),
+          ...jsonBody,
+          createdAt: new Date().toISOString(),
+        };
+        pcl5Tests.push(testEntry);
+        return sendJson(res, 200, testEntry);
+      }
+    }
+
+    const pclIdMatch = pathname.match(/^\/api\/v1\/psychotraumatology\/tests\/([^/]+)$/);
+    if (pclIdMatch && method === "DELETE") {
+      const targetId = decodeURIComponent(pclIdMatch[1]);
+      const idx = pcl5Tests.findIndex((t) => t.id === targetId);
+      if (idx === -1) return sendJson(res, 404, { error: "Not found" });
+      pcl5Tests.splice(idx, 1);
+      return sendJson(res, 204, undefined);
     }
 
     const pclClientMatch = pathname.match(/^\/api\/v1\/psychotraumatology\/tests\/client\/([^/]+)$/);
@@ -976,32 +1438,58 @@ export async function startSelfContainedMockStack(
     }
 
     // 9. Journals & JGit History
-    if (pathname === "/api/v1/journals" && method === "POST") {
-      const branch = jsonBody.gitBranch || "main";
-      const commit = addJGitCommit({
-        clientUuid: jsonBody.clientUuid,
-        author: auth.fullName || auth.username,
-        message: jsonBody.title || "Journalopslag",
-        isConfidential: false,
-        addedLine: jsonBody.content || jsonBody.title || "Journalopslag",
-        mood: jsonBody.moodRating ?? 7,
-        branch,
-      });
-      const entry = {
-        id: crypto.randomUUID(),
-        clientUuid: jsonBody.clientUuid,
-        title: jsonBody.title,
-        content: jsonBody.content,
-        moodRating: jsonBody.moodRating ?? 7,
-        sharedWithTherapists: jsonBody.sharedWithTherapists ?? true,
-        gitBranch: branch,
-        createdAt: commit.timestamp,
-        timestamp: commit.timestamp,
-        commitHash: commit.commitHash,
-        gitCommitHash: commit.commitHash,
-      };
-      journalEntries.unshift(entry);
-      return sendJson(res, 200, entry);
+    if (pathname === "/api/v1/journals") {
+      if (method === "GET") {
+        const list =
+          auth.isTherapist || auth.isAdmin
+            ? journalEntries
+            : journalEntries.filter((e) => e.clientUuid === auth.userUuid);
+        return sendJson(res, 200, list);
+      }
+      if (method === "POST") {
+        const branch = jsonBody.gitBranch || "main";
+        const effectiveClientUuid = String(jsonBody.clientUuid || jsonBody.userId || auth.userUuid);
+        const shared =
+          jsonBody.sharedWithTherapists ?? jsonBody.sharedWithTherapist ?? true;
+        const commit = addJGitCommit({
+          clientUuid: effectiveClientUuid,
+          author: auth.fullName || auth.username,
+          message: jsonBody.title || "Journalopslag",
+          isConfidential: false,
+          addedLine: jsonBody.content || jsonBody.title || "Journalopslag",
+          mood: jsonBody.moodRating ?? 7,
+          branch,
+        });
+        const entry = {
+          id: crypto.randomUUID(),
+          userId: jsonBody.userId || effectiveClientUuid,
+          clientUuid: effectiveClientUuid,
+          title: jsonBody.title,
+          content: jsonBody.content,
+          moodRating: jsonBody.moodRating ?? 7,
+          sharedWithTherapist: Boolean(shared),
+          sharedWithTherapists: Boolean(shared),
+          sharedTherapistUuids: Array.isArray(jsonBody.sharedTherapistUuids)
+            ? jsonBody.sharedTherapistUuids
+            : [],
+          gitBranch: branch,
+          createdAt: commit.timestamp,
+          timestamp: commit.timestamp,
+          commitHash: commit.commitHash,
+          gitCommitHash: commit.commitHash,
+        };
+        journalEntries.unshift(entry);
+        return sendJson(res, 200, entry);
+      }
+    }
+
+    const journalIdMatch = pathname.match(/^\/api\/v1\/journals\/([^/]+)$/);
+    if (journalIdMatch && method === "DELETE") {
+      const targetId = decodeURIComponent(journalIdMatch[1]);
+      const idx = journalEntries.findIndex((e) => e.id === targetId);
+      if (idx === -1) return sendJson(res, 404, { error: "Not found" });
+      journalEntries.splice(idx, 1);
+      return sendJson(res, 204, undefined);
     }
 
     if (pathname === "/api/v1/journals/therapist-notes" && method === "POST") {
@@ -1117,25 +1605,89 @@ export async function startSelfContainedMockStack(
     }
 
     // 10. Finance Endpoints (/api/v1/finance/*)
+    if (pathname === "/api/v1/finance") {
+      if (method === "GET") {
+        const list =
+          auth.isTherapist || auth.isAdmin
+            ? Array.from(invoicesById.values())
+            : Array.from(invoicesById.values()).filter((i) => i.clientUuid === auth.userUuid);
+        return sendJson(res, 200, list);
+      }
+      if (method === "POST") {
+        const amount = Number(jsonBody.amount ?? jsonBody.amountGrossDkk ?? 2);
+        const currency = String(jsonBody.currency || "DKK").toUpperCase();
+        const invoiceId = `KB-INV-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+        const gitCommitHash = crypto.randomBytes(4).toString("hex");
+        const clientUuid = String(jsonBody.clientUuid || auth.userUuid);
+        const invoice = {
+          id: invoiceId,
+          invoiceId,
+          clientUuid,
+          description: String(jsonBody.description || "Klinikydelse"),
+          amount,
+          amountNetDkk: amount,
+          amountGrossDkk: amount,
+          currency,
+          status: String(jsonBody.status || "PAID"),
+          gitCommitHash,
+          createdAt: new Date().toISOString(),
+        };
+        invoicesById.set(invoiceId, invoice);
+        ledgerCommits.set(gitCommitHash, {
+          commitHash: gitCommitHash,
+          shortHash: gitCommitHash.slice(0, 7),
+          invoiceId,
+          clientUuid,
+          amount,
+          currency,
+          message: `Invoice ${invoiceId} (${amount} ${currency})`,
+          authorName: auth.fullName || auth.username,
+          voucher: `PAID ${amount} ${currency}`,
+        });
+        glBalances["1100"] = (glBalances["1100"] || 0) + amount;
+        glBalances["4100"] = (glBalances["4100"] || 0) + amount;
+        return sendJson(res, 201, invoice);
+      }
+    }
+
+    const financeIdMatch = pathname.match(/^\/api\/v1\/finance\/([^/]+)$/);
+    if (financeIdMatch && method === "DELETE") {
+      const targetId = decodeURIComponent(financeIdMatch[1]);
+      if (!invoicesById.has(targetId)) {
+        return sendJson(res, 404, { error: "Invoice not found" });
+      }
+      invoicesById.delete(targetId);
+      return sendJson(res, 204, undefined);
+    }
+
     if (pathname === "/api/v1/finance/invoices/session" && method === "POST") {
       const amount = Number(jsonBody.amount || 50);
       const currency = String(jsonBody.currency || "DKK").toUpperCase();
       const invoiceId = `KB-INV-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
       const gitCommitHash = crypto.randomBytes(4).toString("hex");
       const invoice = {
+        id: invoiceId,
         invoiceId,
         clientUuid: jsonBody.clientUuid || auth.userUuid,
+        description: String(jsonBody.description || "Terapisession"),
         amount,
+        amountNetDkk: amount,
+        amountGrossDkk: amount,
         currency,
         status: "PAID",
         gitCommitHash,
+        createdAt: new Date().toISOString(),
       };
       invoicesById.set(invoiceId, invoice);
       ledgerCommits.set(gitCommitHash, {
         commitHash: gitCommitHash,
+        shortHash: gitCommitHash.slice(0, 7),
         invoiceId,
+        clientUuid: invoice.clientUuid,
         amount,
         currency,
+        message: `PAID ${amount} ${currency}`,
+        authorName: auth.fullName || auth.username,
         voucher: `PAID ${amount} ${currency}`,
       });
       glBalances["1100"] = (glBalances["1100"] || 0) + amount;
@@ -1222,7 +1774,7 @@ export async function startSelfContainedMockStack(
     }
 
     if (pathname === "/api/v1/finance/subscriptions" && method === "POST") {
-      const amount = Number(jsonBody.monthlyAmount || 250);
+      const amount = Number(jsonBody.monthlyAmount || 3);
       const currency = String(jsonBody.currency || "DKK").toUpperCase();
       const clientUuid = String(jsonBody.clientUuid || auth.userUuid);
       glBalances["1100"] = (glBalances["1100"] || 0) + amount;
@@ -1285,20 +1837,31 @@ export async function startSelfContainedMockStack(
         return sendJson(res, 403, { error: "Forbidden: cannot view another client's overview" });
       }
       const savings = savingsAccounts.get(targetUuid) || {
+        savingsAccountId: `FIN-SAV-${targetUuid.slice(0, 8).toUpperCase()}`,
         balance: 0,
         remainingClips: 0,
         clipUnitPrice: 0,
         currency: "DKK",
       };
       const plans = Array.from(installmentLoans.values()).filter((l) => l.clientUuid === targetUuid);
+      const clientInvoices = Array.from(invoicesById.values()).filter(
+        (inv) => inv.clientUuid === targetUuid
+      );
       return sendJson(res, 200, {
         clientUuid: targetUuid,
+        invoices: clientInvoices,
         prepaidSavings: savings,
         subscriptions: subscriptionsByClient.get(targetUuid) || [],
         installmentPlans: plans,
-        vippsConfig: VIPPS_MOCK_CONFIG,
+        vippsConfig: {
+          ...VIPPS_MOCK_CONFIG,
+          grantedRoles: Array.from(grantedAccessByUser.get(auth.userUuid) || []),
+        },
         vippsAgreements: Array.from(vippsAgreementsById.values()).filter(
           (a) => a.clientUuid === targetUuid
+        ),
+        gitHistory: Array.from(ledgerCommits.values()).filter(
+          (c) => !c.clientUuid || c.clientUuid === targetUuid
         ),
       });
     }
@@ -1354,8 +1917,11 @@ export async function startSelfContainedMockStack(
         grantedRole = "ADMIN";
         keycloakRealmRole = "admin";
         isRecurring = true;
+      } else if (productType === "SESSION_INVOICE") {
+        amountDkk = amountDkk > 0 ? amountDkk : 2;
+        glCredit = "4100";
       } else if (productType === "CLIP_CARD") {
-        amountDkk = amountDkk > 0 ? amountDkk : 5000;
+        amountDkk = amountDkk > 0 ? amountDkk : 3;
         glCredit = "2100";
         const clips = Number(jsonBody.clips || 5);
         const existingSavings = savingsAccounts.get(targetClientUuid) || {
@@ -1372,7 +1938,7 @@ export async function startSelfContainedMockStack(
             : 0;
         savingsAccounts.set(targetClientUuid, existingSavings);
       } else {
-        amountDkk = amountDkk > 0 ? amountDkk : 499;
+        amountDkk = amountDkk > 0 ? amountDkk : 3;
         glCredit = "4200";
         isRecurring = true;
       }
@@ -1428,6 +1994,19 @@ export async function startSelfContainedMockStack(
         message: `Vipps OSGi ${productType} (${amountDkk} DKK) -> ${payoutIban}`,
         authorName: auth.fullName || auth.username,
       };
+      invoicesById.set(invoiceId, {
+        id: invoiceId,
+        invoiceId,
+        clientUuid: targetClientUuid,
+        description: planName,
+        amount: amountDkk,
+        amountNetDkk: amountDkk,
+        amountGrossDkk: amountDkk,
+        currency: "DKK",
+        status: isRecurring ? "ACTIVE" : "PAID",
+        gitCommitHash,
+        createdAt: new Date().toISOString(),
+      });
       ledgerCommits.set(gitCommitHash, commitSnapshot);
       addJGitCommit({
         clientUuid: targetClientUuid,
@@ -1501,10 +2080,20 @@ export async function startSelfContainedMockStack(
       if (!hasFinanceAccess) {
         return sendJson(res, 403, { error: "Forbidden: requires therapist or admin role" });
       }
+      const glNames: Record<string, { name: string; type: string }> = {
+        "1100": { name: "Bank / Vipps Liquidity", type: "ASSET" },
+        "1200": { name: "Patient Installment Receivables", type: "ASSET" },
+        "2100": { name: "Deferred Prepaid Liability", type: "LIABILITY" },
+        "4100": { name: "Session Revenue", type: "REVENUE" },
+        "4200": { name: "Subscription Revenue", type: "REVENUE" },
+        "4300": { name: "Platform License Revenue", type: "REVENUE" },
+      };
       return sendJson(res, 200, {
         chartOfAccounts: Object.entries(glBalances).map(([glCode, balance]) => ({
           code: glCode,
           glCode,
+          name: glNames[glCode]?.name || `Account ${glCode}`,
+          type: glNames[glCode]?.type || "REVENUE",
           balance,
         })),
         vippsConfig: {
@@ -1512,6 +2101,7 @@ export async function startSelfContainedMockStack(
           grantedRoles: Array.from(dynamicAccess || []),
         },
         vippsAgreements: Array.from(vippsAgreementsById.values()),
+        gitHistory: Array.from(ledgerCommits.values()),
       });
     }
 

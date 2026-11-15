@@ -1,10 +1,12 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import {
   AppointmentFeatureView,
   BookingFeatureView,
   AppointmentDto,
+  deduplicateProviders,
+  deduplicateServices,
   toDateTimeLocalInput,
   addMinutesToIsoLocal,
   formatAppointmentDateParts,
@@ -88,11 +90,18 @@ describe("AppointmentFeature Vertical Slice (UI + DomainGuard + ProblemDetail)",
       expect(screen.getByText(/Bob/)).toBeDefined();
     });
 
+    fireEvent.click(screen.getByTestId("delete-booking-apt-2"));
+    expect(screen.getByTestId("confirm-action-dialog")).toBeDefined();
+    fireEvent.click(screen.getByTestId("confirm-action-cancel"));
+    expect(screen.queryByTestId("confirm-action-dialog")).toBeNull();
+    expect(screen.getByText(/Bob/)).toBeDefined();
+
     fetchMock.mockResolvedValueOnce({
       ok: true,
       status: 204,
     });
     fireEvent.click(screen.getByTestId("delete-booking-apt-2"));
+    fireEvent.click(screen.getByTestId("confirm-action-accept"));
 
     await waitFor(() => {
       expect(screen.queryByText(/Bob/)).toBeNull();
@@ -448,6 +457,32 @@ describe("AppointmentFeature Trin 1 UI (Timefold AI, Reschedule, JGit, Filters &
     expect(
       filterAppointments(sample, "active", "2026-10-19", "2026-10-26").map((x) => x.id)
     ).toEqual(["a3"]);
+    expect(filterAppointments(sample, "all", "", "", "C").map((x) => x.id)).toEqual(["a3"]);
+
+    expect(
+      deduplicateProviders([
+        { userUuid: "u1", displayName: "Dr. Bo" },
+        { userUuid: "u1", displayName: "Dr. Bo Duplicate" },
+        { id: "p2", userUuid: "", displayName: "Dr. Mette" },
+        { id: "p2", userUuid: "", displayName: "Dr. Mette Dup" },
+        { userUuid: "", displayName: "Dr. Lise" },
+        { userUuid: "", displayName: "dr. lise" },
+        { userUuid: "u-maja-1", displayName: "Dr. maja_terapeut" },
+        { userUuid: "u-maja-2", displayName: "dr. maja_terapeut " },
+        { userUuid: "", displayName: "" },
+      ]).map((p) => p.displayName)
+    ).toEqual(["Dr. Bo", "Dr. Mette", "Dr. Lise", "Dr. maja_terapeut"]);
+
+    expect(
+      deduplicateServices([
+        { id: "s1", name: "EMDR", durationMinutes: 60, providerProfileId: "p1" },
+        { id: "s1", name: "EMDR Clone", durationMinutes: 60, providerProfileId: "p1" },
+        { id: "s2", name: "  emdr  ", durationMinutes: 60, providerProfileId: "p1" },
+        { id: "s3", name: "Check-in", durationMinutes: 30, providerProfileId: "p2" },
+      ]).map((s) => s.id)
+    ).toEqual(["s1", "s3"]);
+    expect(deduplicateProviders(null)).toEqual([]);
+    expect(deduplicateServices(undefined)).toEqual([]);
   });
 
   it("supports status tabs, date filter, duration chips, inline reschedule, and JGit history", async () => {
@@ -498,9 +533,19 @@ describe("AppointmentFeature Trin 1 UI (Timefold AI, Reschedule, JGit, Filters &
     await waitFor(() => {
       expect(screen.getByText("Ida Holm")).toBeDefined();
     });
-    // Default Aktive tab hides CANCELLED rows
+    // Default Aktive tab hides CANCELLED rows and omits raw CONFIRMED enum suffix
     expect(screen.queryByText("Gammel Aflysning")).toBeNull();
     expect(screen.getByText("Klinik Nord")).toBeDefined();
+    expect(screen.queryByText(/\(CONFIRMED\)/)).toBeNull();
+
+    // Live search query filter + reset
+    fireEvent.change(screen.getByTestId("filter-appointment-search"), {
+      target: { value: "Poul" },
+    });
+    expect(screen.getByText("Poul Kjær")).toBeDefined();
+    expect(screen.queryByText("Ida Holm")).toBeNull();
+    fireEvent.click(screen.getByTestId("reset-date-filter"));
+    expect(screen.getByText("Ida Holm")).toBeDefined();
 
     // Status tab switching
     fireEvent.click(screen.getByTestId("filter-status-cancelled"));
@@ -574,7 +619,7 @@ describe("AppointmentFeature Trin 1 UI (Timefold AI, Reschedule, JGit, Filters &
       expect(screen.queryByTestId("reschedule-panel-appt-active-1")).toBeNull();
     });
 
-    // JGit audit history: commits, toggle close, empty history, and error fallback
+    // JGit audit history inside collapsible technical-audit-history details (provider/default mode)
     fetchMock.mockResolvedValueOnce({
       ok: true,
       status: 200,
@@ -590,6 +635,7 @@ describe("AppointmentFeature Trin 1 UI (Timefold AI, Reschedule, JGit, Filters &
     });
     fireEvent.click(screen.getByTestId("git-history-btn-appt-active-1"));
     await waitFor(() => {
+      expect(screen.getByTestId("technical-audit-history-appt-active-1")).toBeDefined();
       expect(screen.getByText("abcdef12")).toBeDefined();
       expect(screen.getByText("Created appointment")).toBeDefined();
     });
@@ -599,7 +645,7 @@ describe("AppointmentFeature Trin 1 UI (Timefold AI, Reschedule, JGit, Filters &
     fireEvent.click(screen.getByTestId("git-history-btn-appt-active-1"));
     expect(screen.getByTestId("git-history-panel-appt-active-1")).toBeDefined();
 
-    // Empty JGit commit list
+    // Empty change history
     fetchMock.mockResolvedValueOnce({
       ok: true,
       status: 200,
@@ -608,7 +654,7 @@ describe("AppointmentFeature Trin 1 UI (Timefold AI, Reschedule, JGit, Filters &
     fireEvent.click(screen.getByTestId("git-history-btn-appt-done-2"));
     await waitFor(() => {
       expect(
-        screen.getByText("Ingen Git-commits registreret endnu for denne aftale.")
+        screen.getByText("Ingen ændringer registreret endnu for denne aftale.")
       ).toBeDefined();
     });
 
@@ -918,6 +964,8 @@ describe("AppointmentFeature Trin 1 UI (Timefold AI, Reschedule, JGit, Filters &
     });
 
     fireEvent.click(screen.getByTestId("delete-booking-c-appt-1"));
+    expect(screen.getByTestId("confirm-action-dialog")).toBeDefined();
+    fireEvent.click(screen.getByTestId("confirm-action-accept"));
     await waitFor(() => {
       expect(screen.queryByTestId("delete-booking-c-appt-1")).toBeNull();
     });
@@ -948,6 +996,18 @@ describe("AppointmentFeature Trin 1 UI (Timefold AI, Reschedule, JGit, Filters &
               available: true,
             },
           ],
+        } as Response;
+      }
+      if (url === "/api/backend/clinic/me") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            userUuid: therapistUuid,
+            providerProfile: {
+              organisation: { cvrNumber: "46688244", name: "73N37" },
+            },
+          }),
         } as Response;
       }
       if (url === "/api/backend/clinic/therapist-onboarding" && init?.method === "POST") {
@@ -1188,6 +1248,252 @@ describe("AppointmentFeature Trin 1 UI (Timefold AI, Reschedule, JGit, Filters &
     ]) {
       expect(bodyText).not.toContain(unexpectedDanish);
     }
+  });
+
+  it("paginates >10 appointments and hides commit SHAs when portalMode='client'", async () => {
+    const fetchMock = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/backend/appointments") {
+        const twelve: AppointmentDto[] = Array.from({ length: 12 }, (_, idx) => ({
+          id: `pg-apt-${idx + 1}`,
+          clientName: `Klient ${String(idx + 1).padStart(2, "0")}`,
+          startTime: `2026-12-${String(idx + 10).padStart(2, "0")}T10:00:00`,
+          status: "CONFIRMED",
+        }));
+        return { ok: true, status: 200, json: async () => twelve } as Response;
+      }
+      if (url === "/api/backend/appointments/pg-apt-1/git-history") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            {
+              commitHash: "deadbeef1234",
+              author: "Dr. Bo Jensen",
+              timestamp: "2026-11-15T10:00:00Z",
+              message: "Booket konsultation",
+              snapshot: "{}",
+            },
+          ],
+        } as Response;
+      }
+      return { ok: true, status: 200, json: async () => ({}) } as Response;
+    });
+    global.fetch = fetchMock;
+
+    render(<AppointmentFeatureView portalMode="client" />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Klient 01")).toBeDefined();
+    });
+    expect(screen.queryByTestId("toggle-weekly-schedule")).toBeNull();
+    expect(screen.queryByText("Klient 11")).toBeNull();
+    expect(screen.getByTestId("booking-pagination")).toBeDefined();
+
+    fireEvent.click(screen.getByTestId("booking-next-page"));
+    expect(screen.getByText("Klient 11")).toBeDefined();
+    expect(screen.queryByText("Klient 01")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("booking-prev-page"));
+    expect(screen.getByText("Klient 01")).toBeDefined();
+
+    fireEvent.click(screen.getByTestId("git-history-btn-pg-apt-1"));
+    await waitFor(() => {
+      expect(screen.getByText("Booket konsultation")).toBeDefined();
+    });
+    expect(screen.queryByTestId("technical-audit-history-pg-apt-1")).toBeNull();
+    expect(screen.queryByText("deadbeef")).toBeNull();
+    cleanup();
+  });
+
+  it("covers helper deduplication/formatting branches, window date filtering, duration chips, Timefold slot apply, and empty-day interval add", async () => {
+    expect(deduplicateProviders([null as never, {} as never, { id: "p-id-only" } as never, { displayName: "Navn" } as never])).toHaveLength(2);
+    expect(deduplicateServices([null as never, {} as never, { id: "s-only", name: "S-Only" } as never, { name: "Klinik" } as never])).toHaveLength(3);
+    expect(formatMinutes(0, true)).toBe("0 hrs");
+    expect(formatMinutes(0, false)).toBe("0 timer");
+    expect(formatMinutes(45, false)).toBe("45 min");
+    expect(formatMinutes(120, true)).toBe("2 hrs");
+    expect(formatMinutes(120, false)).toBe("2 timer");
+    expect(formatMinutes(135, true)).toBe("2h 15m");
+    expect(formatMinutes(135, false)).toBe("2t 15m");
+
+    let currentList: AppointmentDto[] = [
+      {
+        id: "apt-noclient",
+        clientName: "",
+        title: "",
+        startTime: "bad-date-format",
+        status: "CONFIRMED",
+      },
+      {
+        clientName: "Uden ID Klient",
+        startTime: "2026-12-20T09:00:00",
+        status: "CONFIRMED",
+      },
+    ];
+
+    const fetchMock = vi.fn().mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = String(init?.method || "GET").toUpperCase();
+      if (url.includes("/api/backend/clinic/directory")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            providers: [
+              { id: "prov-1", userUuid: "th-uuid-1", displayName: "Dr. Sofie", organisationName: "Nordic" },
+            ],
+            services: [
+              { id: "srv-45", name: "Fokuseret Samtale", durationMinutes: 45, providerProfileId: "prov-1" },
+              { id: "srv-60", name: "Udvidet Samtale", durationMinutes: 60, providerProfileId: "prov-1" },
+            ],
+          }),
+        };
+      }
+      if (url.includes("/api/backend/appointments/timefold-slots")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            therapistUuid: "th-uuid-1",
+            date: "2026-12-10",
+            durationMinutes: 60,
+            recommendedSlot: "2026-12-10T10:00:00",
+            slots: [],
+          }),
+        };
+      }
+      if (url.includes("/api/backend/appointments/client/")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            {
+              id: "apt-win-1",
+              clientName: "Klient Live",
+              title: "Vindue-aftale",
+              startTime: "2026-12-12T10:00:00",
+              endTime: "2026-12-12T11:00:00",
+              status: "CONFIRMED",
+            },
+          ],
+        };
+      }
+      if (url.includes("/api/backend/appointments/apt-win-1") && method === "PUT") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            id: "apt-win-1",
+            clientName: "Klient Live",
+            title: "Vindue-aftale",
+            startTime: "2026-12-12T12:00",
+            endTime: "2026-12-12T13:00",
+            status: "CONFIRMED",
+          }),
+        };
+      }
+      if (url.includes("/api/backend/appointments/apt-win-1") && method === "DELETE") {
+        return { ok: true, status: 204 };
+      }
+      if (url.endsWith("/api/backend/appointments") && method === "GET") {
+        return { ok: true, status: 200, json: async () => currentList };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    });
+    global.fetch = fetchMock;
+
+    render(
+      <AuthProvider
+        user={{
+          id: "11111111-1111-4111-8111-111111111111",
+          name: "Klient Live",
+          email: "live@klient.dk",
+          roles: ["CLIENT"],
+        }}
+      >
+        <AppointmentFeatureView />
+      </AuthProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Uden ID Klient")).toBeDefined();
+    });
+
+    // Apply empty date filter (resets windowItems to null), then with from & to dates
+    fireEvent.click(screen.getByTestId("apply-date-filter"));
+    fireEvent.change(screen.getByTestId("filter-date-from"), { target: { value: "2026-12-01" } });
+    fireEvent.change(screen.getByTestId("filter-date-to"), { target: { value: "2026-12-31" } });
+    fireEvent.click(screen.getByTestId("apply-date-filter"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("reschedule-btn-apt-win-1")).toBeDefined();
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("from=2026-12-01&to=2026-12-31"),
+      expect.anything()
+    );
+
+    // Search query filtering + clear
+    fireEvent.change(screen.getByTestId("filter-appointment-search"), { target: { value: "Vindue" } });
+    expect(screen.getByText(/Vindue-aftale/)).toBeDefined();
+    fireEvent.change(screen.getByTestId("filter-appointment-search"), { target: { value: "" } });
+
+    // Select service before startTime, click duration chip with empty startTime, then select service after startTime
+    fireEvent.change(screen.getByTestId("select-service"), { target: { value: "srv-45" } });
+    fireEvent.click(screen.getByTestId("duration-chip-45"));
+    fireEvent.change(screen.getByTestId("select-service"), { target: { value: "srv-60" } });
+    expect((screen.getByTestId("input-endTime") as HTMLInputElement).value).toContain("T");
+
+    // Timefold recommended slot apply
+    fireEvent.click(screen.getByTestId("toggle-timefold-panel"));
+    fireEvent.click(screen.getByTestId("fetch-timefold-slots"));
+    await waitFor(() => {
+      expect(screen.getByTestId("apply-recommended-slot")).toBeDefined();
+    });
+    fireEvent.click(screen.getByTestId("apply-recommended-slot"));
+
+    // Reschedule & delete while windowItems is active
+    fireEvent.click(screen.getByTestId("reschedule-btn-apt-win-1"));
+    fireEvent.change(screen.getByTestId("reschedule-start-apt-win-1"), {
+      target: { value: "2026-12-12T12:00" },
+    });
+    fireEvent.change(screen.getByTestId("reschedule-end-apt-win-1"), {
+      target: { value: "2026-12-12T13:00" },
+    });
+    fireEvent.click(screen.getByTestId("reschedule-save-apt-win-1"));
+    await waitFor(() => {
+      expect(screen.queryByTestId("reschedule-panel-apt-win-1")).toBeNull();
+    });
+
+    fireEvent.click(screen.getByTestId("delete-booking-apt-win-1"));
+    fireEvent.click(screen.getByTestId("confirm-action-accept"));
+    await waitFor(() => {
+      expect(screen.queryByTestId("delete-booking-apt-win-1")).toBeNull();
+    });
+    cleanup();
+
+    // Therapist weekly schedule enable SAT and add interval
+    render(
+      <AuthProvider
+        user={{
+          id: "22222222-2222-4222-8222-222222222222",
+          name: "Dr. Sofie",
+          email: "sofie@klinik.dk",
+          roles: ["PROVIDER"],
+        }}
+      >
+        <AppointmentFeatureView />
+      </AuthProvider>
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("toggle-weekly-schedule")).toBeDefined();
+    });
+    fireEvent.click(screen.getByTestId("toggle-weekly-schedule"));
+    fireEvent.click(screen.getByTestId("day-enabled-saturday"));
+    fireEvent.click(screen.getByTestId("add-interval-saturday"));
+    expect(screen.getByTestId("weekly-schedule-panel").textContent).toContain("08:30");
+    cleanup();
   });
 });
 

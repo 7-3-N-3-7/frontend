@@ -13,6 +13,7 @@ import {
 } from "./baseDomainCore";
 import {
   AuthProvider,
+  ConfirmActionDialog,
   PortalWorkspaceShell,
   ProblemAlert,
   RoleGuard,
@@ -738,6 +739,55 @@ describe("baseDomainCore & baseUiCore (2-File Core Architecture)", () => {
         configurable: true,
         value: originalLocation,
       });
+    });
+
+    it("renders ConfirmActionDialog cleanly in closed, danger, and warning modes", () => {
+      const onConfirm = vi.fn();
+      const onCancel = vi.fn();
+
+      const { rerender } = render(
+        <ConfirmActionDialog
+          open={false}
+          title="Slet"
+          description="Er du sikker?"
+          confirmLabel="Ja, slet"
+          cancelLabel="Annuller"
+          onConfirm={onConfirm}
+          onCancel={onCancel}
+        />
+      );
+      expect(screen.queryByTestId("confirm-action-dialog")).toBeNull();
+
+      rerender(
+        <ConfirmActionDialog
+          open={true}
+          title="Bekræft sletning"
+          description="Handlingen kan ikke fortrydes."
+          confirmLabel="Slet permanent"
+          cancelLabel="Behold"
+          tone="danger"
+          onConfirm={onConfirm}
+          onCancel={onCancel}
+        />
+      );
+      expect(screen.getByTestId("confirm-action-dialog")).toBeDefined();
+      fireEvent.click(screen.getByTestId("confirm-action-cancel"));
+      expect(onCancel).toHaveBeenCalledTimes(1);
+
+      rerender(
+        <ConfirmActionDialog
+          open={true}
+          title="Bekræft refundering"
+          description="Beløbet returneres til kunden."
+          confirmLabel="Refunder"
+          cancelLabel="Annuller"
+          tone="warning"
+          onConfirm={onConfirm}
+          onCancel={onCancel}
+        />
+      );
+      fireEvent.click(screen.getByTestId("confirm-action-accept"));
+      expect(onConfirm).toHaveBeenCalledTimes(1);
     });
   });
 });

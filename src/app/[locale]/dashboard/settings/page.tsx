@@ -16,37 +16,37 @@ type SettingsLocale = "da" | "en" | "fr" | "es" | "de";
 
 const SETTINGS_COPY_BY_LOCALE: Record<
   SettingsLocale,
-  { badge: string; title: string; subtitlePrefix: string }
+  { badge: string; title: string; subtitle: string }
 > = {
   da: {
     badge: "Konto & Praksis",
-    title: "Profil- & Klinikindstillinger (CVR & Samtykke)",
-    subtitlePrefix:
-      "Administrer personoplysninger, aktive behandlersamtykker og (for behandlere) CVR/IBAN-klinikindstillinger med 1:1 symmetri mod",
+    title: "Profil- & Klinikindstillinger",
+    subtitle:
+      "Administrer personoplysninger, samtykker med behandlere og eventuelle klinikoplysninger.",
   },
   en: {
     badge: "Account & Practice",
-    title: "Profile & Clinic Settings (Company & Consents)",
-    subtitlePrefix:
-      "Manage personal details, active therapist consents, and (for therapists) company/IBAN clinic settings with 1:1 symmetry to",
+    title: "Profile & Clinic Settings",
+    subtitle:
+      "Manage personal details, active therapist consents, and practice settings.",
   },
   fr: {
     badge: "Compte & Cabinet",
-    title: "Paramètres Profil & Clinique (Registre & Consentements)",
-    subtitlePrefix:
-      "Gérez vos informations personnelles, consentements actifs et paramètres de clinique en symétrie 1:1 avec",
+    title: "Paramètres Profil & Clinique",
+    subtitle:
+      "Gérez vos informations personnelles, consentements actifs et paramètres de cabinet.",
   },
   es: {
     badge: "Cuenta & Práctica",
-    title: "Configuración de Perfil y Clínica (Registro y Consentimientos)",
-    subtitlePrefix:
-      "Gestiona tus datos personales, consentimientos activos y ajustes de clínica en simetría 1:1 con",
+    title: "Configuración de Perfil y Clínica",
+    subtitle:
+      "Gestiona tus datos personales, consentimientos activos y ajustes de clínica.",
   },
   de: {
     badge: "Konto & Praxis",
-    title: "Profil- & Klinikeinstellungen (Register & Einwilligungen)",
-    subtitlePrefix:
-      "Verwalten Sie persönliche Daten, aktive Einwilligungen und Praxisdaten in 1:1-Symmetrie zu",
+    title: "Profil- & Klinikeinstellungen",
+    subtitle:
+      "Verwalten Sie persönliche Daten, aktive Einwilligungen und Praxiseinstellungen.",
   },
 };
 
@@ -73,9 +73,7 @@ export default function ProfileAndClinicSettingsPage() {
         <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900">
           {copy.title}
         </h1>
-        <p className="mt-1 mb-0 text-sm text-slate-600">
-          {copy.subtitlePrefix} <code>ClinicPlatformFeature.java</code>.
-        </p>
+        <p className="mt-1 mb-0 text-sm text-slate-600">{copy.subtitle}</p>
       </header>
       <section className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs">
         <ProfileSettingsWorkspace />

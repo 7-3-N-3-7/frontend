@@ -550,7 +550,7 @@ export const PortalWorkspaceShell: React.FC<PortalWorkspaceShellProps> = ({
                     : `mobile-portal-switch-${option.area}`
                 }
                 onClick={(e) => handleNavigation(option.href, e)}
-                className={`flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-xs font-semibold no-underline transition-colors ${
+                className={`flex min-h-11 items-center gap-2.5 rounded-lg px-2.5 py-2 text-xs font-semibold no-underline transition-colors ${
                   isCollapsed ? "justify-center" : ""
                 } ${
                   option.active
@@ -588,7 +588,7 @@ export const PortalWorkspaceShell: React.FC<PortalWorkspaceShellProps> = ({
                   : `mobile-sidebar-nav-${idx}`
               }
               onClick={(e) => handleNavigation(item.href, e)}
-              className={`flex items-center justify-between gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium no-underline transition-colors ${
+              className={`flex min-h-11 items-center justify-between gap-2.5 rounded-lg px-2.5 py-2.5 text-sm font-medium no-underline transition-colors ${
                 isCollapsed ? "justify-center" : ""
               } ${
                 item.active
@@ -742,7 +742,7 @@ export const PortalWorkspaceShell: React.FC<PortalWorkspaceShellProps> = ({
                 onClick={() => setMobileOpen(false)}
                 aria-label="Luk menu"
                 data-testid="mobile-menu-close"
-                className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100"
+                className="flex h-11 w-11 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100"
               >
                 <i className="bi bi-x-lg text-sm" aria-hidden="true" />
               </button>
@@ -761,7 +761,7 @@ export const PortalWorkspaceShell: React.FC<PortalWorkspaceShellProps> = ({
               onClick={() => setMobileOpen(true)}
               aria-label="Åbn menu"
               data-testid="mobile-menu-toggle"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 md:hidden"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 md:hidden"
             >
               <i className="bi bi-list text-lg" aria-hidden="true" />
             </button>
@@ -803,7 +803,7 @@ export const PortalWorkspaceShell: React.FC<PortalWorkspaceShellProps> = ({
                 aria-expanded={userMenuOpen}
                 aria-haspopup="menu"
                 data-testid="user-menu-trigger"
-                className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white py-1 pl-1 pr-2.5 text-xs font-medium text-slate-700 shadow-xs transition-colors hover:border-slate-300 hover:bg-slate-50"
+                className="inline-flex min-h-11 items-center gap-2 rounded-full border border-slate-200 bg-white py-1.5 pl-1.5 pr-3 text-xs font-medium text-slate-700 shadow-xs transition-colors hover:border-slate-300 hover:bg-slate-50"
               >
                 <span
                   className="flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold text-white"
@@ -896,6 +896,105 @@ export const PortalWorkspaceShell: React.FC<PortalWorkspaceShellProps> = ({
             {children}
           </div>
         </main>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// 5. CONFIRMATION DIALOG FOR IRREVERSIBLE ACTIONS (Postel's Law / Safeguard)
+// ============================================================================
+
+export interface ConfirmActionDialogProps {
+  open: boolean;
+  title: string;
+  description: string;
+  confirmLabel: string;
+  cancelLabel: string;
+  tone?: "danger" | "warning";
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+/**
+ * Genanvendelig bekræftelsesdialog til destruktive eller økonomisk bindende handlinger.
+ */
+export const ConfirmActionDialog: React.FC<ConfirmActionDialogProps> = ({
+  open,
+  title,
+  description,
+  confirmLabel,
+  cancelLabel,
+  tone = "danger",
+  onConfirm,
+  onCancel,
+}) => {
+  if (!open) return null;
+
+  const isWarning = tone === "warning";
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-[1px]"
+      data-testid="confirm-action-dialog"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="confirm-action-title"
+      aria-describedby="confirm-action-description"
+    >
+      <div className="w-full max-w-md space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-xl">
+        <div className="flex items-start gap-3">
+          <span
+            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
+              isWarning
+                ? "bg-amber-100 text-amber-700"
+                : "bg-rose-100 text-rose-700"
+            }`}
+          >
+            <i
+              className={`bi ${
+                isWarning ? "bi-exclamation-triangle" : "bi-shield-exclamation"
+              } text-lg`}
+              aria-hidden="true"
+            />
+          </span>
+          <div className="min-w-0 space-y-1">
+            <h3
+              id="confirm-action-title"
+              className="text-base font-bold text-slate-900"
+            >
+              {title}
+            </h3>
+            <p
+              id="confirm-action-description"
+              className="text-sm leading-relaxed text-slate-600"
+            >
+              {description}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-end gap-3 pt-1">
+          <button
+            type="button"
+            data-testid="confirm-action-cancel"
+            onClick={onCancel}
+            className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+          >
+            {cancelLabel}
+          </button>
+          <button
+            type="button"
+            data-testid="confirm-action-accept"
+            onClick={onConfirm}
+            className={`min-h-11 rounded-xl px-4 py-2 text-sm font-semibold text-white transition-colors ${
+              isWarning
+                ? "bg-amber-600 hover:bg-amber-700"
+                : "bg-rose-600 hover:bg-rose-700"
+            }`}
+          >
+            {confirmLabel}
+          </button>
+        </div>
       </div>
     </div>
   );

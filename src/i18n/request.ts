@@ -3,7 +3,9 @@ import { cookies } from 'next/headers';
 import { notFound } from 'next/navigation';
 import { routing } from './routing';
 
-const backendUrl = process.env.BACKEND_INTERNAL_URL || "http://localhost:8081";
+function resolveBackendInternalUrl(): string {
+  return process.env.BACKEND_INTERNAL_URL || "http://localhost:8081";
+}
 
 function mergeWithFallback(
   target: Record<string, any>,
@@ -66,6 +68,7 @@ export default getRequestConfig(async ({ requestLocale }) => {
 
   const fetchCacheOptions: RequestInit = { cache: 'no-store' };
 
+  const backendUrl = resolveBackendInternalUrl();
   const [res, fallbackRes] = await Promise.all([
     fetch(`${backendUrl}/api/v1/i18n/${locale}`, fetchCacheOptions),
     locale !== 'da'

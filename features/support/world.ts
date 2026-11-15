@@ -6,11 +6,13 @@ import {
   AfterAll,
   Before,
   After,
+  Status,
   setDefaultTimeout,
 } from "@cucumber/cucumber";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { encode } from "next-auth/jwt";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import {
   given,
@@ -22,9 +24,7 @@ import { startSelfContainedMockStack, type MockStackServers } from "./mockStack.
 
 setDefaultTimeout(60000);
 
-function loadEnvLocal() {
-  if (process.env.BDD_SELF_CONTAINED === "true") return;
-  const envPath = path.resolve(process.cwd(), ".env.local");
+function parseAndLoadEnvFile(envPath: string) {
   if (!fs.existsSync(envPath)) return;
   const content = fs.readFileSync(envPath, "utf8");
   for (const rawLine of content.split(/\r?\n/)) {
@@ -33,16 +33,28 @@ function loadEnvLocal() {
     const eqIdx = line.indexOf("=");
     if (eqIdx <= 0) continue;
     const key = line.slice(0, eqIdx).trim();
-    const val = line.slice(eqIdx + 1).trim();
+    const valRaw = line.slice(eqIdx + 1).trim();
+    const val =
+      (valRaw.startsWith('"') && valRaw.endsWith('"')) ||
+      (valRaw.startsWith("'") && valRaw.endsWith("'"))
+        ? valRaw.slice(1, -1)
+        : valRaw;
     if (!process.env[key]) {
       process.env[key] = val;
     }
   }
 }
 
-loadEnvLocal();
+function loadEnvFiles() {
+  if (process.env.BDD_SELF_CONTAINED === "true") return;
+  parseAndLoadEnvFile(path.resolve(process.cwd(), ".env.local"));
+  parseAndLoadEnvFile(path.resolve(process.cwd(), "..", ".env"));
+}
+
+loadEnvFiles();
 
 export let baseTestUrl = process.env.BDD_FRONTEND_URL || "http://localhost:3000";
+export let uiBaseUrl = process.env.BDD_FRONTEND_URL || "http://localhost:3000";
 export let backendDirectUrl =
   process.env.BACKEND_INTERNAL_URL || "http://localhost:8081";
 export const TEST_PASSWORD = process.env.BDD_TEST_PASSWORD || "TestPass123!";
@@ -155,7 +167,15 @@ export async function ensureBackendBaselineSeed(): Promise<void> {
 }
 
 async function launchPlaywrightBrowser(): Promise<Browser> {
-  const launchArgs = ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"];
+  const launchArgs = [
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    "--disable-dev-shm-usage",
+    "--disable-gpu",
+    "--font-render-hinting=none",
+    "--disable-lcd-text",
+    "--force-color-profile=srgb",
+  ];
   if (process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH) {
     return await chromium.launch({
       executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
@@ -215,8 +235,9 @@ async function ensureMockStackIfNeeded(): Promise<void> {
   if (useMock && !activeMockStack) {
     activeMockStack = await startSelfContainedMockStack(18081, 18082);
     backendDirectUrl = `http://127.0.0.1:${activeMockStack.backendPort}`;
-    if (!process.env.BDD_FRONTEND_URL && process.env.BDD_SPAWN_NEXT !== "true") {
+    if (!process.env.BDD_FRONTEND_URL) {
       baseTestUrl = backendDirectUrl;
+      uiBaseUrl = "http://127.0.0.1:13000";
     }
     process.env.BACKEND_INTERNAL_URL = backendDirectUrl;
     process.env.KEYCLOAK_ISSUER = `http://127.0.0.1:${activeMockStack.keycloakPort}/realms/EduJournal`;
@@ -226,22 +247,15 @@ async function ensureMockStackIfNeeded(): Promise<void> {
     process.env.KEYCLOAK_ADMIN_CLIENT_SECRET = "mock-admin-secret";
     process.env.NEXTAUTH_SECRET =
       process.env.NEXTAUTH_SECRET || "bdd-self-contained-secret-key-123456";
-    process.env.NEXTAUTH_URL = baseTestUrl;
+    process.env.NEXTAUTH_URL = uiBaseUrl;
   }
 }
 
 async function ensureFrontendServerRunning(): Promise<void> {
-  if (
-    (process.env.BDD_SELF_CONTAINED === "true" || activeMockStack !== null) &&
-    process.env.BDD_SPAWN_NEXT !== "true"
-  ) {
-    return;
-  }
-
   const checkListening = async () => {
     try {
-      const res = await fetch(`${baseTestUrl}/api/backend/i18n/da`, {
-        signal: AbortSignal.timeout(3000),
+      const res = await fetch(`${uiBaseUrl}/api/backend/i18n/da`, {
+        signal: AbortSignal.timeout(2500),
       });
       return res.ok;
     } catch {
@@ -253,35 +267,59 @@ async function ensureFrontendServerRunning(): Promise<void> {
     return;
   }
 
+  const shouldSpawn =
+    process.env.BDD_SELF_CONTAINED === "true" ||
+    activeMockStack !== null ||
+    process.env.BDD_SPAWN_NEXT === "true";
+  if (!shouldSpawn) {
+    return;
+  }
+
+  const parsedUrl = new URL(uiBaseUrl);
+  const port = parsedUrl.port || "13000";
+  const hasProdBuild = fs.existsSync(path.resolve(process.cwd(), ".next", "BUILD_ID"));
+  const subcommand = hasProdBuild ? "start" : "dev";
+
   const { spawn } = await import("node:child_process");
-  const cleanEnv = { ...process.env };
+  const cleanEnv: Record<string, string | undefined> = { ...process.env };
   delete cleanEnv.NODE_OPTIONS;
   delete cleanEnv.__NEXT_PRIVATE_ORIGIN;
+  cleanEnv.BACKEND_INTERNAL_URL = backendDirectUrl;
+  cleanEnv.NEXTAUTH_URL = uiBaseUrl;
+  cleanEnv.NEXTAUTH_SECRET =
+    process.env.NEXTAUTH_SECRET || "bdd-self-contained-secret-key-123456";
+  if (hasProdBuild) {
+    cleanEnv.NODE_ENV = "production";
+  }
 
   spawnedNextProcess = spawn(
     process.execPath,
-    ["node_modules/next/dist/bin/next", "dev", "-H", "0.0.0.0", "-p", "3000"],
+    ["node_modules/next/dist/bin/next", subcommand, "-H", "127.0.0.1", "-p", port],
     {
       cwd: process.cwd(),
       env: cleanEnv,
       stdio: "ignore",
-      detached: true,
+      detached: process.platform !== "win32",
     }
   );
 
   for (let i = 0; i < 60; i++) {
     await new Promise((r) => setTimeout(r, 1000));
     if (await checkListening()) {
-      await fetch(`${baseTestUrl}/api/auth/csrf`).catch(() => {});
-      await fetch(`${baseTestUrl}/da`).catch(() => {});
+      await fetch(`${uiBaseUrl}/api/auth/csrf`).catch(() => {});
+      await fetch(`${uiBaseUrl}/da`).catch(() => {});
       return;
     }
   }
+
+  throw new Error(`Next.js UI server failed to become ready on ${uiBaseUrl} within 60s`);
 }
 
 BeforeAll(async function () {
   await ensureMockStackIfNeeded();
-  await ensureFrontendServerRunning();
+  if (process.env.BDD_SPAWN_NEXT === "true") {
+    await ensureFrontendServerRunning();
+  }
 });
 
 AfterAll(async function () {
@@ -291,7 +329,11 @@ AfterAll(async function () {
   }
   if (spawnedNextProcess && spawnedNextProcess.pid) {
     try {
-      process.kill(-spawnedNextProcess.pid);
+      if (process.platform !== "win32") {
+        process.kill(-spawnedNextProcess.pid);
+      } else {
+        spawnedNextProcess.kill();
+      }
     } catch {
       try {
         spawnedNextProcess.kill();
@@ -314,12 +356,27 @@ Before(async function (this: FrontendBddWorld) {
   this.resetScenarioState();
 });
 
-After(async function (this: FrontendBddWorld) {
+After(async function (this: FrontendBddWorld, scenario) {
+  if (scenario.result?.status === Status.FAILED && this.page) {
+    try {
+      const screenshot = await this.page.screenshot({ fullPage: true });
+      await this.attach(screenshot, "image/png");
+    } catch {
+      // ignore if page is already closed
+    }
+  }
+
   for (const restoration of this.i18nRestorations.reverse()) {
     await this.requestAs("i18n_cleanup_admin", "ADMIN")
       .contentType("application/json")
       .body({ value: restoration.previousValue })
       .put(`/api/backend/i18n/${restoration.locale}/${restoration.key}`)
+      .catch(() => {});
+  }
+
+  for (const kpiId of Array.from(this.createdKpiIds).reverse()) {
+    await this.requestAs("cleanup_admin", "ADMIN")
+      .delete(`/api/backend/management/kpis/${kpiId}`)
       .catch(() => {});
   }
 
@@ -353,19 +410,23 @@ export class FrontendBddWorld extends World {
   public currentIdentity: KeycloakTestIdentity | null = null;
   public lastResponse: RestAssuredResponse | null = null;
   public secondaryResponse: RestAssuredResponse | null = null;
-  public currentUiHtml = "";
-  public currentUiUrl = "";
 
   public browserContext: BrowserContext | null = null;
   public page: Page | null = null;
-  public loggedInIdentityUuid: string | null = null;
+  public loggedInIdentityKey: string | null = null;
+  public pageErrors: string[] = [];
+  public apiServerErrors: string[] = [];
 
   public usersByLogicalName = new Map<string, ScenarioUserRecord>();
   public providerIdsByLogicalName = new Map<string, string>();
   public orgIdsByLogicalName = new Map<string, string>();
-  public servicesByName = new Map<string, { id: string; therapistLogicalName: string; currency: string }>();
+  public servicesByName = new Map<
+    string,
+    { id: string; therapistLogicalName: string; currency: string }
+  >();
   public baselineGlBalances = new Map<string, number>();
   public createdUserIds = new Set<string>();
+  public createdKpiIds = new Set<string>();
   public i18nRestorations: Array<{ locale: string; key: string; previousValue: string }> = [];
 
   public lastServiceId: string | null = null;
@@ -385,15 +446,16 @@ export class FrontendBddWorld extends World {
     this.currentIdentity = null;
     this.lastResponse = null;
     this.secondaryResponse = null;
-    this.currentUiHtml = "";
-    this.currentUiUrl = "";
-    this.loggedInIdentityUuid = null;
+    this.loggedInIdentityKey = null;
+    this.pageErrors = [];
+    this.apiServerErrors = [];
     this.usersByLogicalName.clear();
     this.providerIdsByLogicalName.clear();
     this.orgIdsByLogicalName.clear();
     this.servicesByName.clear();
     this.baselineGlBalances.clear();
     this.createdUserIds.clear();
+    this.createdKpiIds.clear();
     this.i18nRestorations = [];
     this.lastServiceId = null;
     this.lastHandshakeId = null;
@@ -429,79 +491,140 @@ export class FrontendBddWorld extends World {
     return spec;
   }
 
-  public requestAs(logicalName: string, roleOverride?: string): RestAssuredRequestSpecification {
+  public requestAs(
+    logicalName: string,
+    roleOverride?: string
+  ): RestAssuredRequestSpecification {
     return given(baseTestUrl).authAsKeycloakUser(this.identityFor(logicalName, roleOverride));
   }
 
-  public async ensurePlaywrightPage(): Promise<Page> {
+  public async ensurePlaywrightPage(
+    viewport: { width: number; height: number } = { width: 1440, height: 900 }
+  ): Promise<Page> {
+    await ensureFrontendServerRunning();
+
     if (!sharedBrowser) {
       sharedBrowser = await launchPlaywrightBrowser();
     }
     if (!this.browserContext) {
-      this.browserContext = await sharedBrowser.newContext({
-        viewport: { width: 1440, height: 900 },
-      });
+      this.browserContext = await sharedBrowser.newContext({ viewport });
     }
     if (!this.page) {
+      this.pageErrors = [];
+      this.apiServerErrors = [];
       this.page = await this.browserContext.newPage();
+      this.page.on("pageerror", (err) => {
+        this.pageErrors.push(err?.message || String(err));
+      });
+      this.page.on("response", (response) => {
+        if (response.url().includes("/api/") && response.status() >= 500) {
+          this.apiServerErrors.push(`${response.status()} ${response.url()}`);
+        }
+      });
+    } else {
+      const cur = this.page.viewportSize();
+      if (!cur || cur.width !== viewport.width || cur.height !== viewport.height) {
+        await this.page.setViewportSize(viewport);
+      }
     }
     return this.page;
   }
 
-  public async loginInBrowserIfNeeded(targetPath: string): Promise<Page> {
-    const page = await this.ensurePlaywrightPage();
-    const requiresAuth = targetPath.includes("/dashboard");
+  public async loginInBrowserIfNeeded(
+    viewport: { width: number; height: number } = { width: 1440, height: 900 }
+  ): Promise<Page> {
+    const page = await this.ensurePlaywrightPage(viewport);
 
-    if (
-      requiresAuth &&
-      this.currentIdentity &&
-      this.loggedInIdentityUuid !== this.currentIdentity.userUuid
-    ) {
+    if (!this.currentIdentity) {
+      if (this.loggedInIdentityKey !== null) {
+        await this.browserContext!.clearCookies();
+        this.loggedInIdentityKey = null;
+      }
+      return page;
+    }
+
+    const id = this.currentIdentity;
+    const kcUsername = keycloakUsernameByUuid.get(id.userUuid) || id.username;
+    const identityKey = `${id.userUuid}:${id.roles.join(",")}:${kcUsername}`;
+
+    if (this.loggedInIdentityKey !== identityKey) {
       await this.browserContext!.clearCookies();
-      const kcUsername =
-        keycloakUsernameByUuid.get(this.currentIdentity.userUuid) ||
-        this.currentIdentity.username;
+      const secret = process.env.NEXTAUTH_SECRET;
+      if (!secret) {
+        throw new Error(
+          "NEXTAUTH_SECRET is required to mint Playwright NextAuth session cookies."
+        );
+      }
 
-      await page.goto(`${baseTestUrl}/da`, { waitUntil: "domcontentloaded" });
-      await page.evaluate(
-        async ({ username, password }) => {
-          const csrfRes = await fetch("/api/auth/csrf");
-          const { csrfToken } = await csrfRes.json();
-          const params = new URLSearchParams({
-            csrfToken,
-            username,
-            password,
-            redirect: "false",
-            json: "true",
-          });
-          await fetch("/api/auth/callback/credentials", {
-            method: "POST",
-            headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            body: params.toString(),
-          });
+      const cookieName = uiBaseUrl.startsWith("https://")
+        ? "__Secure-next-auth.session-token"
+        : "next-auth.session-token";
+
+      const jwtValue = await encode({
+        token: {
+          sub: id.userUuid,
+          name: id.fullName,
+          email: id.email,
+          userUuid: id.userUuid,
+          username: kcUsername,
+          fullName: id.fullName,
+          roles: id.roles,
+          accessTokenExpires: Date.now() + 3600 * 1000,
         },
-        { username: kcUsername, password: TEST_PASSWORD }
-      );
+        secret,
+        maxAge: 3600,
+      });
 
-      this.loggedInIdentityUuid = this.currentIdentity.userUuid;
+      await this.browserContext!.addCookies([
+        {
+          name: cookieName,
+          value: jwtValue,
+          url: uiBaseUrl,
+          httpOnly: true,
+          sameSite: "Lax",
+        },
+      ]);
+      this.loggedInIdentityKey = identityKey;
     }
 
     return page;
   }
 
-  public async visitPage(targetPath: string): Promise<void> {
-    const page = await this.loginInBrowserIfNeeded(targetPath);
+  public async visitPage(
+    targetPath: string,
+    viewport: { width: number; height: number } = { width: 1440, height: 900 }
+  ): Promise<Page> {
+    const page = await this.loginInBrowserIfNeeded(viewport);
     const fullUrl = targetPath.startsWith("http")
       ? targetPath
-      : `${baseTestUrl}${targetPath.startsWith("/") ? "" : "/"}${targetPath}`;
+      : `${uiBaseUrl}${targetPath.startsWith("/") ? "" : "/"}${targetPath}`;
 
-    await page.goto(fullUrl, { waitUntil: "networkidle" });
-    await page
-      .waitForFunction(() => !document.querySelector(".spinner-border"), { timeout: 15000 })
-      .catch(() => {});
+    await page.goto(fullUrl, { waitUntil: "domcontentloaded" });
+    return page;
+  }
 
-    this.currentUiUrl = targetPath;
-    this.currentUiHtml = await page.content();
+  public async assertPageHealthy(): Promise<void> {
+    if (this.pageErrors.length > 0) {
+      throw new Error(`Uncaught pageerror(s): ${this.pageErrors.join(" | ")}`);
+    }
+    if (this.apiServerErrors.length > 0) {
+      throw new Error(`Unexpected 5xx /api/ response(s): ${this.apiServerErrors.join(" | ")}`);
+    }
+    if (this.page) {
+      const bodyText = await this.page
+        .locator("body")
+        .innerText()
+        .catch(() => "");
+      if (bodyText.includes("MISSING_MESSAGE")) {
+        throw new Error("Rendered page contains 'MISSING_MESSAGE' i18n error.");
+      }
+      const leakedKeyMatch = bodyText.match(
+        /\b(landing|dashboard|portal|HomePage)\.[a-zA-Z0-9_.]+\b/
+      );
+      if (leakedKeyMatch) {
+        throw new Error(`Leaked raw i18n translation key in UI: '${leakedKeyMatch[0]}'`);
+      }
+    }
   }
 }
 

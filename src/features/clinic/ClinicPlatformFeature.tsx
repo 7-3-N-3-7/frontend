@@ -39,6 +39,7 @@ import {
 } from "../../core/baseDomainCore";
 import {
   AuthProvider,
+  ConfirmActionDialog,
   PortalArea,
   PortalSwitcherOption,
   PortalUpgradeAction,
@@ -49,7 +50,10 @@ import {
   useBaseCrud,
   useOptionalAuth,
 } from "../../core/baseUiCore";
-import { JournalFeatureView } from "../journal/JournalFeature";
+import {
+  JournalFeatureView,
+  PatientTimelineContainer,
+} from "../journal/JournalFeature";
 import { AppointmentFeatureView } from "../appointment/AppointmentFeature";
 import { BookingFeatureView } from "../booking/BookingFeature";
 import { PsychotraumatologyFeatureView } from "../psychotraumatology/PsychotraumatologyFeature";
@@ -144,6 +148,9 @@ export interface ClientTherapistHandshakeDto extends HasId<string> {
   status: HandshakeStatus | string;
   allowedBranches?: string;
   sharedJournalAccess?: boolean;
+  historyStartDate?: string | null;
+  historyEndDate?: string | null;
+  customRestrictions?: string | null;
   requestedAt?: string;
   respondedAt?: string;
 }
@@ -169,6 +176,275 @@ export interface HandshakeRequestDto {
  */
 export function isValidDanishCvr(cvr: string): boolean {
   return /^\d{8}$/.test((cvr || "").trim());
+}
+
+export const CLINIC_PAGE_SIZE = 10;
+
+const HANDSHAKE_STATUS_LABELS: Record<
+  SupportedUiLocale,
+  Record<string, string>
+> = {
+  da: {
+    ACTIVE: "Aktiv",
+    ACCEPTED: "Accepteret",
+    REQUESTED: "Afventer godkendelse",
+    PENDING: "Afventer godkendelse",
+    REVOKED: "Tilbagekaldt",
+    TERMINATED: "Afsluttet",
+  },
+  en: {
+    ACTIVE: "Active",
+    ACCEPTED: "Accepted",
+    REQUESTED: "Pending approval",
+    PENDING: "Pending approval",
+    REVOKED: "Revoked",
+    TERMINATED: "Terminated",
+  },
+  fr: {
+    ACTIVE: "Actif",
+    ACCEPTED: "Accepté",
+    REQUESTED: "En attente",
+    PENDING: "En attente",
+    REVOKED: "Révoqué",
+    TERMINATED: "Clôturé",
+  },
+  es: {
+    ACTIVE: "Activo",
+    ACCEPTED: "Aceptado",
+    REQUESTED: "Pendiente",
+    PENDING: "Pendiente",
+    REVOKED: "Revocado",
+    TERMINATED: "Finalizado",
+  },
+  de: {
+    ACTIVE: "Aktiv",
+    ACCEPTED: "Angenommen",
+    REQUESTED: "Ausstehend",
+    PENDING: "Ausstehend",
+    REVOKED: "Widerrufen",
+    TERMINATED: "Beendet",
+  },
+};
+
+export function localizeHandshakeStatus(
+  status: string | undefined,
+  locale: SupportedUiLocale = "da"
+): string {
+  const normalized = (status || "").trim().toUpperCase();
+  if (!normalized) {
+    return "-";
+  }
+  const map = HANDSHAKE_STATUS_LABELS[locale] || HANDSHAKE_STATUS_LABELS.en;
+  return map[normalized] || status!.trim();
+}
+
+const MISSING_FIELD_LABELS: Record<
+  SupportedUiLocale,
+  Record<string, string>
+> = {
+  da: {
+    cvr: "CVR-nummer",
+    cvrnumber: "CVR-nummer",
+    iban: "Bankkonto (IBAN)",
+    workinghours: "Åbningstider",
+    workinghoursjson: "Åbningstider",
+    organisationname: "Kliniknavn",
+    displayname: "Behandlernavn",
+    address: "Adresse",
+    homeaddress: "Hjemmeadresse",
+    postalcode: "Postnummer",
+    phone: "Telefonnummer",
+    phonenumber: "Telefonnummer",
+    email: "E-mail",
+    fullname: "Fulde navn",
+    dateofbirth: "Fødselsdato",
+    service: "Ydelse",
+    services: "Ydelser",
+  },
+  en: {
+    cvr: "Company registration ID",
+    cvrnumber: "Company registration ID",
+    iban: "Bank account (IBAN)",
+    workinghours: "Opening hours",
+    workinghoursjson: "Opening hours",
+    organisationname: "Clinic name",
+    displayname: "Therapist name",
+    address: "Address",
+    homeaddress: "Home address",
+    postalcode: "Postal code",
+    phone: "Phone number",
+    phonenumber: "Phone number",
+    email: "Email address",
+    fullname: "Full name",
+    dateofbirth: "Date of birth",
+    service: "Service",
+    services: "Services",
+  },
+  fr: {
+    cvr: "Numéro d'entreprise",
+    cvrnumber: "Numéro d'entreprise",
+    iban: "Compte bancaire (IBAN)",
+    workinghours: "Horaires d'ouverture",
+    workinghoursjson: "Horaires d'ouverture",
+    organisationname: "Nom du cabinet",
+    displayname: "Nom du praticien",
+    address: "Adresse",
+    homeaddress: "Adresse postale",
+    postalcode: "Code postal",
+    phone: "Téléphone",
+    phonenumber: "Téléphone",
+    email: "Adresse e-mail",
+    fullname: "Nom complet",
+    dateofbirth: "Date de naissance",
+    service: "Prestation",
+    services: "Prestations",
+  },
+  es: {
+    cvr: "Número de registro",
+    cvrnumber: "Número de registro",
+    iban: "Cuenta bancaria (IBAN)",
+    workinghours: "Horario de atención",
+    workinghoursjson: "Horario de atención",
+    organisationname: "Nombre de la clínica",
+    displayname: "Nombre del terapeuta",
+    address: "Dirección",
+    homeaddress: "Dirección postal",
+    postalcode: "Código postal",
+    phone: "Teléfono",
+    phonenumber: "Teléfono",
+    email: "Correo electrónico",
+    fullname: "Nombre completo",
+    dateofbirth: "Fecha de nacimiento",
+    service: "Servicio",
+    services: "Servicios",
+  },
+  de: {
+    cvr: "Registernummer",
+    cvrnumber: "Registernummer",
+    iban: "Bankkonto (IBAN)",
+    workinghours: "Öffnungszeiten",
+    workinghoursjson: "Öffnungszeiten",
+    organisationname: "Klinikname",
+    displayname: "Therapeutenname",
+    address: "Adresse",
+    homeaddress: "Wohnadresse",
+    postalcode: "Postleitzahl",
+    phone: "Telefonnummer",
+    phonenumber: "Telefonnummer",
+    email: "E-Mail-Adresse",
+    fullname: "Vollständiger Name",
+    dateofbirth: "Geburtsdatum",
+    service: "Leistung",
+    services: "Leistungen",
+  },
+};
+
+export function localizeMissingField(
+  field: string,
+  locale: SupportedUiLocale = "da"
+): string {
+  const raw = (field || "").trim();
+  if (!raw) {
+    return "";
+  }
+  const key = raw.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const map = MISSING_FIELD_LABELS[locale] || MISSING_FIELD_LABELS.en;
+  return map[key] || raw;
+}
+
+export function deduplicateClinicProviders(
+  providers: ReadonlyArray<ProviderProfileDto>
+): ProviderProfileDto[] {
+  const seenIds = new Set<string>();
+  const seenNames = new Map<string, number>();
+  const result: ProviderProfileDto[] = [];
+  for (const provider of providers) {
+    const idKey = (
+      provider.userUuid ||
+      provider.userId ||
+      provider.id ||
+      ""
+    )
+      .trim()
+      .toLowerCase();
+    const nameKey = (provider.displayName || provider.fullName || "")
+      .trim()
+      .toLowerCase();
+    if (idKey && seenIds.has(idKey)) {
+      continue;
+    }
+    if (nameKey && seenNames.has(nameKey)) {
+      if (!idKey) {
+        continue;
+      }
+      const existingIdx = seenNames.get(nameKey)!;
+      seenIds.add(idKey);
+      result[existingIdx] = {
+        ...provider,
+        displayName: result[existingIdx].displayName || provider.displayName,
+      };
+      continue;
+    }
+    if (idKey) seenIds.add(idKey);
+    if (nameKey) seenNames.set(nameKey, result.length);
+    result.push(provider);
+  }
+  return result;
+}
+
+export function deduplicateClinicServices(
+  services: ReadonlyArray<ServiceDto>
+): ServiceDto[] {
+  const seen = new Set<string>();
+  const result: ServiceDto[] = [];
+  for (const srv of services) {
+    const normalizedName = (srv.name || "").trim().toLowerCase();
+    const numericPrice = srv.priceDkk ?? srv.price ?? 0;
+    const key = `${normalizedName}|${srv.durationMinutes ?? ""}|${numericPrice}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(srv);
+  }
+  return result;
+}
+
+/**
+ * Filtrerer lækkede behandler-/BDD-testprofiler og brugeren selv fra klientlister
+ * samt deduplikerer på både id og normaliseret fulde navn.
+ */
+export function filterAndDeduplicateClinicClients(
+  clients: ReadonlyArray<ClientProfileDto>,
+  options?: { excludeUserId?: string | null; excludeEmail?: string | null }
+): ClientProfileDto[] {
+  const excludeUserId = options?.excludeUserId?.trim() || "";
+  const excludeEmail = options?.excludeEmail?.trim().toLowerCase() || "";
+  const seenIds = new Set<string>();
+  const seenNames = new Set<string>();
+  const result: ClientProfileDto[] = [];
+  for (const client of clients) {
+    const name = (client.fullName || "").trim();
+    const email = (client.email || "").trim().toLowerCase();
+    const idKey = (client.userId || client.id || "").trim().toLowerCase();
+    const nameKey = name.toLowerCase();
+    if (excludeUserId && (client.userId === excludeUserId || client.id === excludeUserId)) {
+      continue;
+    }
+    if (excludeEmail && email === excludeEmail) {
+      continue;
+    }
+    if (/^dr\.\s/i.test(name) || /_terapeut/i.test(name) || /_terapeut/i.test(email)) {
+      continue;
+    }
+    if ((idKey && seenIds.has(idKey)) || (nameKey && seenNames.has(nameKey))) {
+      continue;
+    }
+    if (idKey) seenIds.add(idKey);
+    if (nameKey) seenNames.add(nameKey);
+    result.push(client);
+  }
+  return result;
 }
 
 // ==========================================
@@ -278,6 +554,12 @@ interface ClinicInnerCopy {
   activeHandshakesHeading: string;
   emptyConsents: string;
   revokeConsentBtn: string;
+  dataSharingBtn: string;
+  historyStartLabel: string;
+  historyEndLabel: string;
+  hideMoodScoresLabel: string;
+  saveDataSharingBtn: string;
+  dataSharingSavedBanner: string;
   onboardingBadge: string;
   onboardingHeading: string;
   missingBeforePublishPrefix: string;
@@ -290,6 +572,7 @@ interface ClinicInnerCopy {
   onboardAddressPlaceholder: string;
   onboardPostalPlaceholder: string;
   onboardPhonePlaceholder: string;
+  currencyLabel: string;
   saveOnboardingBtn: string;
   servicesHeading: string;
   serviceNamePlaceholder: string;
@@ -304,12 +587,27 @@ interface ClinicInnerCopy {
   therapistHandshakesHeading: string;
   approveBtn: string;
   terminateBtn: string;
+  cancelBtn: string;
+  confirmRemoveClientTitle: string;
+  confirmRemoveClientDesc: string;
+  confirmRevokeTitle: string;
+  confirmRevokeDesc: string;
+  confirmDeleteServiceTitle: string;
+  confirmDeleteServiceDesc: string;
+  confirmTerminateTitle: string;
+  confirmTerminateDesc: string;
+  prevPageBtn: string;
+  nextPageBtn: string;
+  pageLabel: string;
+  ofLabel: string;
+  settingsClinicShortcutDesc: string;
+  settingsOpenClinicBtn: string;
 }
 
 const CLINIC_INNER_COPY: Record<SupportedUiLocale, ClinicInnerCopy> = {
   da: {
     clientsBadge: "Klientregister",
-    clientsHeading: "Klinikplatform — Klientprofiler & Handshakes",
+    clientsHeading: "Klinikplatform — Klientprofiler & Samarbejdsaftaler",
     profilesCountSuffix: "profiler",
     nameLabel: "Navn",
     namePlaceholder: "Klientens fulde navn",
@@ -336,12 +634,18 @@ const CLINIC_INNER_COPY: Record<SupportedUiLocale, ClinicInnerCopy> = {
     profileAddressPlaceholder: "Hjemmeadresse",
     profilePostalCodePlaceholder: "Postnummer",
     saveProfileBtn: "Gem personlige oplysninger",
-    activeHandshakesHeading: "Aktive Behandlersamtykker (Handshakes)",
+    activeHandshakesHeading: "Aktive Behandlersamtykker",
     emptyConsents:
       "Du har ingen behandlerrelationer endnu. Find en klinik under Klinik & Praksis.",
     revokeConsentBtn: "Tilbagekald samtykke",
+    dataSharingBtn: "Datadeling",
+    historyStartLabel: "Del historik fra",
+    historyEndLabel: "Del historik til",
+    hideMoodScoresLabel: "Skjul stemnings- & symptomscorer",
+    saveDataSharingBtn: "Gem datadelingsvalg",
+    dataSharingSavedBanner: "Datadelingsindstillinger er opdateret.",
     onboardingBadge: "Klinik, CVR & Ydelser",
-    onboardingHeading: "Klinik-Onboarding, CVR/IBAN & Behandlerhandshakes",
+    onboardingHeading: "Klinikprofil, Registrering & Behandlersamarbejde",
     missingBeforePublishPrefix: "Mangler før ydelser kan udgives",
     onboardingSavedBanner: "Klinik- og CVR-profil er opdateret.",
     onboardOrgPlaceholder: "Kliniknavn",
@@ -352,6 +656,7 @@ const CLINIC_INNER_COPY: Record<SupportedUiLocale, ClinicInnerCopy> = {
     onboardAddressPlaceholder: "Klinikadresse",
     onboardPostalPlaceholder: "Postnummer",
     onboardPhonePlaceholder: "Kliniktelefon",
+    currencyLabel: "Valuta",
     saveOnboardingBtn: "Gem CVR & Klinikprofil",
     servicesHeading: "Behandlerydelser",
     serviceNamePlaceholder: "Ydelsesnavn",
@@ -363,13 +668,32 @@ const CLINIC_INNER_COPY: Record<SupportedUiLocale, ClinicInnerCopy> = {
     serviceInactiveLabel: "Inaktiv",
     toggleServiceStatusBtn: "Skift status",
     deleteBtn: "Slet",
-    therapistHandshakesHeading: "Klient-Handshakes",
+    therapistHandshakesHeading: "Klient-Samarbejdsaftaler",
     approveBtn: "Godkend",
     terminateBtn: "Afslut",
+    cancelBtn: "Annuller",
+    confirmRemoveClientTitle: "Fjern klientprofil",
+    confirmRemoveClientDesc:
+      "Er du sikker på, at du vil fjerne denne klientprofil? Handlingen kan ikke fortrydes.",
+    confirmRevokeTitle: "Tilbagekald samtykke",
+    confirmRevokeDesc:
+      "Når samtykket tilbagekaldes, mister behandleren øjeblikkeligt adgang til delte oplysninger.",
+    confirmDeleteServiceTitle: "Slet ydelse",
+    confirmDeleteServiceDesc: "Vil du slette denne behandlerydelse fra klinikken?",
+    confirmTerminateTitle: "Afslut samarbejde",
+    confirmTerminateDesc:
+      "Er du sikker på, at du vil afslutte dette behandlersamarbejde?",
+    prevPageBtn: "Forrige",
+    nextPageBtn: "Næste",
+    pageLabel: "Side",
+    ofLabel: "af",
+    settingsClinicShortcutDesc:
+      "Administrer CVR-nummer, IBAN, åbningstider, ydelser og klient-samarbejdsaftaler i det dedikerede praksis-arbejdsområde.",
+    settingsOpenClinicBtn: "Åbn CVR & Praksis",
   },
   en: {
     clientsBadge: "Client Registry",
-    clientsHeading: "Clinic Platform — Client Profiles & Handshakes",
+    clientsHeading: "Clinic Platform — Client Profiles & Agreements",
     profilesCountSuffix: "profiles",
     nameLabel: "Name",
     namePlaceholder: "Client Full Name",
@@ -396,12 +720,18 @@ const CLINIC_INNER_COPY: Record<SupportedUiLocale, ClinicInnerCopy> = {
     profileAddressPlaceholder: "Home address",
     profilePostalCodePlaceholder: "Postal code",
     saveProfileBtn: "Save personal details",
-    activeHandshakesHeading: "Active Therapist Consents (Handshakes)",
+    activeHandshakesHeading: "Active Therapist Consents",
     emptyConsents:
       "You have no therapist connections yet. Find a clinic under Clinics & Practice.",
     revokeConsentBtn: "Revoke consent",
+    dataSharingBtn: "Data sharing",
+    historyStartLabel: "Share history from",
+    historyEndLabel: "Share history until",
+    hideMoodScoresLabel: "Hide mood & symptom scores",
+    saveDataSharingBtn: "Save sharing preferences",
+    dataSharingSavedBanner: "Data sharing preferences updated.",
     onboardingBadge: "Clinic, Registry & Services",
-    onboardingHeading: "Clinic Onboarding, Registry/IBAN & Client Handshakes",
+    onboardingHeading: "Clinic Onboarding, Registration & Agreements",
     missingBeforePublishPrefix: "Missing before services can be published",
     onboardingSavedBanner: "Clinic and company profile has been updated.",
     onboardOrgPlaceholder: "Clinic name",
@@ -412,6 +742,7 @@ const CLINIC_INNER_COPY: Record<SupportedUiLocale, ClinicInnerCopy> = {
     onboardAddressPlaceholder: "Clinic address",
     onboardPostalPlaceholder: "Postal code",
     onboardPhonePlaceholder: "Clinic phone",
+    currencyLabel: "Currency",
     saveOnboardingBtn: "Save Registry & Clinic Profile",
     servicesHeading: "Therapist Services",
     serviceNamePlaceholder: "Service name",
@@ -423,9 +754,27 @@ const CLINIC_INNER_COPY: Record<SupportedUiLocale, ClinicInnerCopy> = {
     serviceInactiveLabel: "Inactive",
     toggleServiceStatusBtn: "Toggle status",
     deleteBtn: "Delete",
-    therapistHandshakesHeading: "Client Handshakes",
+    therapistHandshakesHeading: "Client Agreements",
     approveBtn: "Approve",
     terminateBtn: "Terminate",
+    cancelBtn: "Cancel",
+    confirmRemoveClientTitle: "Remove client profile",
+    confirmRemoveClientDesc:
+      "Are you sure you want to remove this client profile? This action cannot be undone.",
+    confirmRevokeTitle: "Revoke consent",
+    confirmRevokeDesc:
+      "Once revoked, the therapist immediately loses access to shared data.",
+    confirmDeleteServiceTitle: "Delete service",
+    confirmDeleteServiceDesc: "Do you want to remove this clinical service?",
+    confirmTerminateTitle: "Terminate agreement",
+    confirmTerminateDesc: "Are you sure you want to end this care agreement?",
+    prevPageBtn: "Previous",
+    nextPageBtn: "Next",
+    pageLabel: "Page",
+    ofLabel: "of",
+    settingsClinicShortcutDesc:
+      "Manage company registration ID, IBAN, opening hours, services, and client agreements in the dedicated practice workspace.",
+    settingsOpenClinicBtn: "Open Practice & Registry",
   },
   fr: {
     clientsBadge: "Registre des Clients",
@@ -456,12 +805,18 @@ const CLINIC_INNER_COPY: Record<SupportedUiLocale, ClinicInnerCopy> = {
     profileAddressPlaceholder: "Adresse postale",
     profilePostalCodePlaceholder: "Code postal",
     saveProfileBtn: "Enregistrer les informations",
-    activeHandshakesHeading: "Consentements Praticiens Actifs (Accords)",
+    activeHandshakesHeading: "Consentements Praticiens Actifs",
     emptyConsents:
       "Vous n'avez aucune relation praticien pour le moment. Trouvez un cabinet dans Cliniques & Cabinets.",
     revokeConsentBtn: "Révoquer le consentement",
+    dataSharingBtn: "Partage",
+    historyStartLabel: "Partager l'historique dès",
+    historyEndLabel: "Partager l'historique jusqu'au",
+    hideMoodScoresLabel: "Masquer les scores d'humeur",
+    saveDataSharingBtn: "Enregistrer le partage",
+    dataSharingSavedBanner: "Préférences de partage mises à jour.",
     onboardingBadge: "Clinique, Registre & Prestations",
-    onboardingHeading: "Inscription Clinique, Registre/IBAN & Accords Clients",
+    onboardingHeading: "Inscription Clinique, Registre & Accords Clients",
     missingBeforePublishPrefix: "Manquant avant publication des prestations",
     onboardingSavedBanner: "Le profil clinique et de registre est à jour.",
     onboardOrgPlaceholder: "Nom de la clinique",
@@ -472,6 +827,7 @@ const CLINIC_INNER_COPY: Record<SupportedUiLocale, ClinicInnerCopy> = {
     onboardAddressPlaceholder: "Adresse de la clinique",
     onboardPostalPlaceholder: "Code postal",
     onboardPhonePlaceholder: "Téléphone clinique",
+    currencyLabel: "Devise",
     saveOnboardingBtn: "Enregistrer le profil clinique",
     servicesHeading: "Prestations du Praticien",
     serviceNamePlaceholder: "Nom de la prestation",
@@ -486,6 +842,24 @@ const CLINIC_INNER_COPY: Record<SupportedUiLocale, ClinicInnerCopy> = {
     therapistHandshakesHeading: "Accords Clients",
     approveBtn: "Approuver",
     terminateBtn: "Clôturer",
+    cancelBtn: "Annuler",
+    confirmRemoveClientTitle: "Supprimer le profil client",
+    confirmRemoveClientDesc:
+      "Voulez-vous vraiment supprimer ce profil client ? Cette action est irréversible.",
+    confirmRevokeTitle: "Révoquer le consentement",
+    confirmRevokeDesc:
+      "Une fois révoqué, le praticien n'a plus accès aux données partagées.",
+    confirmDeleteServiceTitle: "Supprimer la prestation",
+    confirmDeleteServiceDesc: "Voulez-vous supprimer cette prestation clinique ?",
+    confirmTerminateTitle: "Clôturer l'accord",
+    confirmTerminateDesc: "Voulez-vous vraiment clôturer cet accord de suivi ?",
+    prevPageBtn: "Précédent",
+    nextPageBtn: "Suivant",
+    pageLabel: "Page",
+    ofLabel: "sur",
+    settingsClinicShortcutDesc:
+      "Gérez le numéro d'entreprise, l'IBAN, les horaires, les prestations et les accords clients dans l'espace dédié au cabinet.",
+    settingsOpenClinicBtn: "Ouvrir Cabinet & Registre",
   },
   es: {
     clientsBadge: "Registro de Clientes",
@@ -516,12 +890,18 @@ const CLINIC_INNER_COPY: Record<SupportedUiLocale, ClinicInnerCopy> = {
     profileAddressPlaceholder: "Dirección postal",
     profilePostalCodePlaceholder: "Código postal",
     saveProfileBtn: "Guardar datos personales",
-    activeHandshakesHeading: "Consentimientos Activos con Terapeutas (Acuerdos)",
+    activeHandshakesHeading: "Consentimientos Activos con Terapeutas",
     emptyConsents:
       "Aún no tienes relaciones con terapeutas. Encuentra una clínica en Clínicas & Práctica.",
     revokeConsentBtn: "Revocar consentimiento",
+    dataSharingBtn: "Compartición",
+    historyStartLabel: "Compartir historial desde",
+    historyEndLabel: "Compartir historial hasta",
+    hideMoodScoresLabel: "Ocultar puntuaciones de ánimo",
+    saveDataSharingBtn: "Guardar preferencias",
+    dataSharingSavedBanner: "Preferencias de compartición actualizadas.",
     onboardingBadge: "Clínica, Registro y Servicios",
-    onboardingHeading: "Alta de Clínica, Registro/IBAN y Acuerdos de Clientes",
+    onboardingHeading: "Alta de Clínica, Registro y Acuerdos de Clientes",
     missingBeforePublishPrefix: "Falta antes de poder publicar servicios",
     onboardingSavedBanner: "El perfil de clínica y registro ha sido actualizado.",
     onboardOrgPlaceholder: "Nombre de la clínica",
@@ -532,6 +912,7 @@ const CLINIC_INNER_COPY: Record<SupportedUiLocale, ClinicInnerCopy> = {
     onboardAddressPlaceholder: "Dirección de la clínica",
     onboardPostalPlaceholder: "Código postal",
     onboardPhonePlaceholder: "Teléfono de la clínica",
+    currencyLabel: "Moneda",
     saveOnboardingBtn: "Guardar registro y perfil clínico",
     servicesHeading: "Servicios del Terapeuta",
     serviceNamePlaceholder: "Nombre del servicio",
@@ -546,6 +927,24 @@ const CLINIC_INNER_COPY: Record<SupportedUiLocale, ClinicInnerCopy> = {
     therapistHandshakesHeading: "Acuerdos con Clientes",
     approveBtn: "Aprobar",
     terminateBtn: "Finalizar",
+    cancelBtn: "Cancelar",
+    confirmRemoveClientTitle: "Eliminar perfil de cliente",
+    confirmRemoveClientDesc:
+      "¿Estás seguro de que quieres eliminar este perfil de cliente? Esta acción no se puede deshacer.",
+    confirmRevokeTitle: "Revocar consentimiento",
+    confirmRevokeDesc:
+      "Al revocarlo, el terapeuta perderá de inmediato el acceso a los datos compartidos.",
+    confirmDeleteServiceTitle: "Eliminar servicio",
+    confirmDeleteServiceDesc: "¿Deseas eliminar este servicio de la clínica?",
+    confirmTerminateTitle: "Finalizar acuerdo",
+    confirmTerminateDesc: "¿Estás seguro de que deseas finalizar este acuerdo?",
+    prevPageBtn: "Anterior",
+    nextPageBtn: "Siguiente",
+    pageLabel: "Página",
+    ofLabel: "de",
+    settingsClinicShortcutDesc:
+      "Administra el NIF/registro, IBAN, horarios, servicios y acuerdos con clientes en el espacio dedicado de la clínica.",
+    settingsOpenClinicBtn: "Abrir Clínica y Registro",
   },
   de: {
     clientsBadge: "Klientenregister",
@@ -576,12 +975,18 @@ const CLINIC_INNER_COPY: Record<SupportedUiLocale, ClinicInnerCopy> = {
     profileAddressPlaceholder: "Wohnadresse",
     profilePostalCodePlaceholder: "Postleitzahl",
     saveProfileBtn: "Persönliche Daten speichern",
-    activeHandshakesHeading: "Aktive Therapeuten-Einwilligungen (Freigaben)",
+    activeHandshakesHeading: "Aktive Therapeuten-Einwilligungen",
     emptyConsents:
       "Sie haben noch keine Therapeutenbeziehungen. Finden Sie eine Praxis unter Klinik & Praxis.",
     revokeConsentBtn: "Einwilligung widerrufen",
+    dataSharingBtn: "Datenfreigabe",
+    historyStartLabel: "Verlauf teilen ab",
+    historyEndLabel: "Verlauf teilen bis",
+    hideMoodScoresLabel: "Stimmungs- & Symptomwerte verbergen",
+    saveDataSharingBtn: "Freigabe speichern",
+    dataSharingSavedBanner: "Datenfreigabe-Einstellungen aktualisiert.",
     onboardingBadge: "Klinik, Register & Leistungen",
-    onboardingHeading: "Klinik-Onboarding, Register/IBAN & Klientenfreigaben",
+    onboardingHeading: "Klinik-Onboarding, Register & Klientenfreigaben",
     missingBeforePublishPrefix: "Fehlt vor Veröffentlichung von Leistungen",
     onboardingSavedBanner: "Klinik- und Registerprofil wurde aktualisiert.",
     onboardOrgPlaceholder: "Klinikname",
@@ -592,6 +997,7 @@ const CLINIC_INNER_COPY: Record<SupportedUiLocale, ClinicInnerCopy> = {
     onboardAddressPlaceholder: "Klinikadresse",
     onboardPostalPlaceholder: "Postleitzahl",
     onboardPhonePlaceholder: "Kliniktelefon",
+    currencyLabel: "Währung",
     saveOnboardingBtn: "Register & Klinikprofil speichern",
     servicesHeading: "Therapeutenleistungen",
     serviceNamePlaceholder: "Leistungsname",
@@ -606,17 +1012,55 @@ const CLINIC_INNER_COPY: Record<SupportedUiLocale, ClinicInnerCopy> = {
     therapistHandshakesHeading: "Klienten-Freigaben",
     approveBtn: "Genehmigen",
     terminateBtn: "Beenden",
+    cancelBtn: "Abbrechen",
+    confirmRemoveClientTitle: "Klientenprofil entfernen",
+    confirmRemoveClientDesc:
+      "Möchten Sie dieses Klientenprofil wirklich entfernen? Dies kann nicht rückgängig gemacht werden.",
+    confirmRevokeTitle: "Einwilligung widerrufen",
+    confirmRevokeDesc:
+      "Nach dem Widerruf verliert der Therapeut sofort den Zugriff auf freigegebene Daten.",
+    confirmDeleteServiceTitle: "Leistung löschen",
+    confirmDeleteServiceDesc: "Möchten Sie diese Klinikleistung löschen?",
+    confirmTerminateTitle: "Freigabe beenden",
+    confirmTerminateDesc:
+      "Möchten Sie diese Therapievereinbarung wirklich beenden?",
+    prevPageBtn: "Zurück",
+    nextPageBtn: "Weiter",
+    pageLabel: "Seite",
+    ofLabel: "von",
+    settingsClinicShortcutDesc:
+      "Verwalten Sie Registernummer, IBAN, Öffnungszeiten, Leistungen und Klientenfreigaben im eigenen Praxisbereich.",
+    settingsOpenClinicBtn: "Praxis & Register öffnen",
   },
 };
 
 export const ClinicPlatformFeatureView: React.FC = () => {
   const { items, loading, error, create, remove, clearError } =
     useBaseCrud(clinicPlatformApi);
+  const auth = useOptionalAuth();
   const locale = useUiLocale();
   const copy = CLINIC_INNER_COPY[locale];
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [page, setPage] = useState(1);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+
+  const filteredItems = useMemo(
+    () =>
+      filterAndDeduplicateClinicClients(items, {
+        excludeUserId: auth?.user.id,
+        excludeEmail: auth?.user.email,
+      }),
+    [items, auth?.user.id, auth?.user.email]
+  );
+
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / CLINIC_PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const visibleItems = filteredItems.slice(
+    (safePage - 1) * CLINIC_PAGE_SIZE,
+    safePage * CLINIC_PAGE_SIZE
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -648,59 +1092,72 @@ export const ClinicPlatformFeatureView: React.FC = () => {
           </h2>
         </div>
         <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 border border-slate-200 px-3 py-1 text-xs font-medium text-slate-700">
-          {items.length} {copy.profilesCountSuffix}
+          {filteredItems.length} {copy.profilesCountSuffix}
         </span>
       </div>
 
       <ProblemAlert error={error} onDismiss={clearError} />
 
       <form
+        noValidate
         onSubmit={handleSubmit}
         className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm grid grid-cols-1 sm:grid-cols-4 gap-3 items-end"
       >
         <div className="flex flex-col gap-1">
-          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <label
+            htmlFor="clinic-client-fullName"
+            className="text-xs font-semibold uppercase tracking-wide text-slate-500"
+          >
             {copy.nameLabel}
           </label>
           <input
+            id="clinic-client-fullName"
             type="text"
             placeholder={copy.namePlaceholder}
             value={fullName}
             onChange={(e) => setFullName(e.target.value)}
-            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
+            className="min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
             data-testid="input-client-fullName"
           />
         </div>
         <div className="flex flex-col gap-1">
-          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <label
+            htmlFor="clinic-client-email"
+            className="text-xs font-semibold uppercase tracking-wide text-slate-500"
+          >
             {copy.emailLabel}
           </label>
           <input
+            id="clinic-client-email"
             type="email"
             placeholder={copy.emailPlaceholder}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
+            className="min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
             data-testid="input-client-email"
           />
         </div>
         <div className="flex flex-col gap-1">
-          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <label
+            htmlFor="clinic-client-phone"
+            className="text-xs font-semibold uppercase tracking-wide text-slate-500"
+          >
             {copy.phoneLabel}
           </label>
           <input
+            id="clinic-client-phone"
             type="text"
             placeholder={copy.phonePlaceholder}
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
-            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
+            className="min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
             data-testid="input-client-phone"
           />
         </div>
         <button
           type="submit"
           disabled={loading}
-          className="inline-flex items-center justify-center gap-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white px-4 py-2.5 text-sm font-semibold shadow-sm transition-colors disabled:opacity-50"
+          className="min-h-11 inline-flex items-center justify-center gap-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white px-4 py-2.5 text-sm font-semibold shadow-sm transition-colors disabled:opacity-50"
           data-testid="submit-clinic-client"
         >
           <i className="bi bi-person-plus" aria-hidden="true" />
@@ -719,7 +1176,7 @@ export const ClinicPlatformFeatureView: React.FC = () => {
       )}
 
       <ul className="space-y-2.5" data-testid="clinic-client-list">
-        {items.map((item) => (
+        {visibleItems.map((item) => (
           <li
             key={item.id}
             className="rounded-2xl border border-slate-200 bg-white px-4 py-3.5 shadow-sm flex flex-wrap justify-between items-center gap-3 hover:border-teal-200 transition-colors"
@@ -743,8 +1200,8 @@ export const ClinicPlatformFeatureView: React.FC = () => {
             </div>
             <button
               type="button"
-              onClick={() => item.id && remove(item.id)}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 px-3 py-1.5 text-xs font-semibold transition-colors"
+              onClick={() => item.id && setPendingDeleteId(item.id)}
+              className="min-h-11 inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 px-3.5 py-2 text-xs font-semibold transition-colors"
               data-testid={`delete-clinic-client-${item.id}`}
             >
               <i className="bi bi-trash3" aria-hidden="true" />
@@ -753,6 +1210,52 @@ export const ClinicPlatformFeatureView: React.FC = () => {
           </li>
         ))}
       </ul>
+
+      {filteredItems.length > CLINIC_PAGE_SIZE && (
+        <div
+          className="flex items-center justify-between gap-2 pt-2"
+          data-testid="clinic-clients-pagination"
+        >
+          <button
+            type="button"
+            disabled={safePage <= 1}
+            data-testid="clinic-clients-prev"
+            onClick={() => setPage(Math.max(1, safePage - 1))}
+            className="min-h-11 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+          >
+            {copy.prevPageBtn}
+          </button>
+          <span className="text-xs font-medium text-slate-600">
+            {copy.pageLabel} {safePage} {copy.ofLabel} {totalPages}
+          </span>
+          <button
+            type="button"
+            disabled={safePage >= totalPages}
+            data-testid="clinic-clients-next"
+            onClick={() => setPage(Math.min(totalPages, safePage + 1))}
+            className="min-h-11 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+          >
+            {copy.nextPageBtn}
+          </button>
+        </div>
+      )}
+
+      <ConfirmActionDialog
+        open={Boolean(pendingDeleteId)}
+        title={copy.confirmRemoveClientTitle}
+        description={copy.confirmRemoveClientDesc}
+        confirmLabel={copy.removeBtn}
+        cancelLabel={copy.cancelBtn}
+        tone="danger"
+        onCancel={() => setPendingDeleteId(null)}
+        onConfirm={() => {
+          const id = pendingDeleteId;
+          setPendingDeleteId(null);
+          if (id) {
+            void remove(id);
+          }
+        }}
+      />
     </div>
   );
 };
@@ -807,11 +1310,13 @@ interface PortalLocaleCopy {
   therapistWorkspaceTitle: string;
   therapistRoleLabel: string;
   therapistNavOverview: string;
+  therapistNavTimeline: string;
   therapistNavCalendar: string;
   therapistNavClinicCvr: string;
   therapistNavPcl5: string;
   therapistNavFinance: string;
   therapistTabOverview: string;
+  therapistOpenTimelineCta: string;
   therapistSubtitle: string;
   clientSettingsTitle: string;
   clientClinicTitle: string;
@@ -819,16 +1324,21 @@ interface PortalLocaleCopy {
   clientRoleLabel: string;
   clientNavOverview: string;
   clientNavAppointments: string;
+  clientNavJournal: string;
   clientNavMarketplace: string;
   clientNavConsents: string;
   clientNavPcl5: string;
   clientNavFinance: string;
   clientSecureBadge: string;
+  clientDefaultSecure: string;
   clientGreetingPrefix: string;
   clientSecurityCheckPrefix: string;
   clientBookSessionCta: string;
+  clientFindTherapistBtn: string;
   clientCardAppointmentsTitle: string;
   clientCardAppointmentsDesc: string;
+  clientCardJournalTitle: string;
+  clientCardJournalDesc: string;
   clientCardConsentsTitle: string;
   clientCardConsentsDesc: string;
   clientCardPcl5Title: string;
@@ -856,39 +1366,46 @@ const PORTAL_COPY_BY_LOCALE: Record<SupportedUiLocale, PortalLocaleCopy> = {
     defaultUser: "Bruger",
     defaultTherapist: "Behandler",
     defaultClient: "Klient",
-    adminTitle: "System & i18n Administration",
+    adminTitle: "System & Sprogadministration",
     adminRoleLabel: "Administrator",
-    adminNavI18n: "Sprog & i18n",
+    adminNavI18n: "Sprog & Oversættelser",
     adminNavUsers: "Brugere & Roller",
     adminNavManagement: "KPI & Ledelse",
     adminNavClinic: "Klinik & CVR",
     therapistClinicTitle: "Klinik & CVR-Administration",
     therapistWorkspaceTitle: "Behandler-Workspace",
     therapistRoleLabel: "Behandler",
-    therapistNavOverview: "Multi-Window",
+    therapistNavOverview: "Overblik",
+    therapistNavTimeline: "Patienttidslinje",
     therapistNavCalendar: "Kalender",
     therapistNavClinicCvr: "CVR & Praksis",
     therapistNavPcl5: "PCL-5 Screener",
     therapistNavFinance: "Økonomi & Faktura",
     therapistTabOverview: "Klinik & Journal",
+    therapistOpenTimelineCta: "Åbn semantisk journal-tidslinje",
     therapistSubtitle:
-      "1:1 Vertical Slice overblik over klienter, JGit-journaler, Timefold-aftaler og praksisdrift",
+      "Samlet overblik over klienter, journalnotater, aftalekalender og praksisdrift",
     clientSettingsTitle: "Profil- & Klinikindstillinger",
     clientClinicTitle: "Bliv Behandler — CVR Onboarding",
     clientPortalTitle: "Min Klientportal",
     clientRoleLabel: "Klient",
     clientNavOverview: "Overblik",
     clientNavAppointments: "Aftaler",
+    clientNavJournal: "Min Dagbog",
     clientNavMarketplace: "Klinik & Praksis",
     clientNavConsents: "Samtykke & Profil",
     clientNavPcl5: "PCL-5 Test",
     clientNavFinance: "Faktura & Betaling",
     clientSecureBadge: "Sikker Klientportal",
+    clientDefaultSecure: "Krypteret klinisk forbindelse aktiv",
     clientGreetingPrefix: "Velkommen",
     clientSecurityCheckPrefix: "Sikkerhedstjek",
     clientBookSessionCta: "Book ny session",
+    clientFindTherapistBtn: "Find ny behandler",
     clientCardAppointmentsTitle: "Mine Aftaler",
     clientCardAppointmentsDesc: "Se kommende sessioner eller book en ny tid",
+    clientCardJournalTitle: "Min Dagbog",
+    clientCardJournalDesc: "Skriv personlige refleksioner og styr deling med din behandler",
     clientCardConsentsTitle: "Samtykke & Profil",
     clientCardConsentsDesc: "Administrer din profil og datadeling",
     clientCardPcl5Title: "PCL-5 Screening",
@@ -914,39 +1431,46 @@ const PORTAL_COPY_BY_LOCALE: Record<SupportedUiLocale, PortalLocaleCopy> = {
     defaultUser: "User",
     defaultTherapist: "Therapist",
     defaultClient: "Client",
-    adminTitle: "System & i18n Administration",
+    adminTitle: "System & Language Administration",
     adminRoleLabel: "Administrator",
-    adminNavI18n: "Languages & i18n",
+    adminNavI18n: "Languages & Translations",
     adminNavUsers: "Users & Roles",
     adminNavManagement: "KPI & Management",
     adminNavClinic: "Clinic & Company",
     therapistClinicTitle: "Clinic & Company Administration",
     therapistWorkspaceTitle: "Therapist Workspace",
     therapistRoleLabel: "Therapist",
-    therapistNavOverview: "Multi-Window",
+    therapistNavOverview: "Overview",
+    therapistNavTimeline: "Patient Timeline",
     therapistNavCalendar: "Calendar",
     therapistNavClinicCvr: "Clinic & Registry",
     therapistNavPcl5: "PCL-5 Screener",
     therapistNavFinance: "Finance & Invoices",
     therapistTabOverview: "Clinic & Journal",
+    therapistOpenTimelineCta: "Open semantic journal timeline",
     therapistSubtitle:
-      "1:1 Vertical Slice overview of clients, JGit clinical records, Timefold appointments, and clinic operations",
+      "Clinical overview of clients, session notes, appointments, and practice operations",
     clientSettingsTitle: "Profile & Clinic Settings",
     clientClinicTitle: "Become a Therapist — Clinic Onboarding",
     clientPortalTitle: "My Client Portal",
     clientRoleLabel: "Client",
     clientNavOverview: "Overview",
     clientNavAppointments: "Appointments",
+    clientNavJournal: "My Journal",
     clientNavMarketplace: "Clinics & Practice",
     clientNavConsents: "Consents & Profile",
     clientNavPcl5: "PCL-5 Assessment",
     clientNavFinance: "Billing & Invoices",
     clientSecureBadge: "Secure Client Portal",
+    clientDefaultSecure: "Encrypted clinical connection active",
     clientGreetingPrefix: "Welcome",
     clientSecurityCheckPrefix: "Security check",
     clientBookSessionCta: "Book new session",
+    clientFindTherapistBtn: "Find a therapist",
     clientCardAppointmentsTitle: "My Appointments",
     clientCardAppointmentsDesc: "View upcoming sessions or book a new slot",
+    clientCardJournalTitle: "My Journal",
+    clientCardJournalDesc: "Write personal reflections and manage sharing with your therapist",
     clientCardConsentsTitle: "Consents & Profile",
     clientCardConsentsDesc: "Manage your profile and data sharing",
     clientCardPcl5Title: "PCL-5 Screening",
@@ -972,39 +1496,46 @@ const PORTAL_COPY_BY_LOCALE: Record<SupportedUiLocale, PortalLocaleCopy> = {
     defaultUser: "Utilisateur",
     defaultTherapist: "Praticien",
     defaultClient: "Client",
-    adminTitle: "Administration Système & i18n",
+    adminTitle: "Administration Système & Langues",
     adminRoleLabel: "Administrateur",
-    adminNavI18n: "Langues & i18n",
+    adminNavI18n: "Langues & Traductions",
     adminNavUsers: "Utilisateurs & Rôles",
     adminNavManagement: "KPI & Gestion",
     adminNavClinic: "Clinique & Registre",
     therapistClinicTitle: "Administration Clinique & Registre",
     therapistWorkspaceTitle: "Espace Praticien",
     therapistRoleLabel: "Praticien",
-    therapistNavOverview: "Multi-Fenêtre",
+    therapistNavOverview: "Aperçu",
+    therapistNavTimeline: "Chronologie Patient",
     therapistNavCalendar: "Calendrier",
     therapistNavClinicCvr: "Clinique & Registre",
     therapistNavPcl5: "Dépistage PCL-5",
     therapistNavFinance: "Finances & Factures",
     therapistTabOverview: "Clinique & Dossier",
+    therapistOpenTimelineCta: "Ouvrir la chronologie clinique",
     therapistSubtitle:
-      "Vue Vertical Slice 1:1 des clients, dossiers JGit, rendez-vous Timefold et gestion de clinique",
+      "Vue d'ensemble des clients, dossiers cliniques, rendez-vous et gestion de cabinet",
     clientSettingsTitle: "Paramètres Profil & Clinique",
     clientClinicTitle: "Devenir Praticien — Inscription Clinique",
     clientPortalTitle: "Mon Portail Client",
     clientRoleLabel: "Client",
     clientNavOverview: "Aperçu",
     clientNavAppointments: "Rendez-vous",
+    clientNavJournal: "Mon Journal",
     clientNavMarketplace: "Cliniques & Cabinets",
     clientNavConsents: "Consentements & Profil",
     clientNavPcl5: "Test PCL-5",
     clientNavFinance: "Facturation & Paiements",
     clientSecureBadge: "Portail Client Sécurisé",
+    clientDefaultSecure: "Connexion clinique chiffrée active",
     clientGreetingPrefix: "Bienvenue",
     clientSecurityCheckPrefix: "Contrôle sécurité",
     clientBookSessionCta: "Réserver une séance",
+    clientFindTherapistBtn: "Trouver un praticien",
     clientCardAppointmentsTitle: "Mes Rendez-vous",
     clientCardAppointmentsDesc: "Consulter les séances à venir ou réserver",
+    clientCardJournalTitle: "Mon Journal",
+    clientCardJournalDesc: "Notez vos réflexions et gérez le partage avec votre praticien",
     clientCardConsentsTitle: "Consentements & Profil",
     clientCardConsentsDesc: "Gérer votre profil et le partage de données",
     clientCardPcl5Title: "Dépistage PCL-5",
@@ -1030,39 +1561,46 @@ const PORTAL_COPY_BY_LOCALE: Record<SupportedUiLocale, PortalLocaleCopy> = {
     defaultUser: "Usuario",
     defaultTherapist: "Terapeuta",
     defaultClient: "Cliente",
-    adminTitle: "Administración del Sistema & i18n",
+    adminTitle: "Administración del Sistema e Idiomas",
     adminRoleLabel: "Administrador",
-    adminNavI18n: "Idiomas & i18n",
+    adminNavI18n: "Idiomas y Traducciones",
     adminNavUsers: "Usuarios & Roles",
     adminNavManagement: "KPI & Gestión",
     adminNavClinic: "Clínica & Registro",
     therapistClinicTitle: "Administración de Clínica & Registro",
     therapistWorkspaceTitle: "Espacio del Terapeuta",
     therapistRoleLabel: "Terapeuta",
-    therapistNavOverview: "Multi-Ventana",
+    therapistNavOverview: "Resumen",
+    therapistNavTimeline: "Línea de Tiempo",
     therapistNavCalendar: "Calendario",
     therapistNavClinicCvr: "Clínica & Registro",
     therapistNavPcl5: "Cribado PCL-5",
     therapistNavFinance: "Finanzas & Facturas",
     therapistTabOverview: "Clínica & Historia",
+    therapistOpenTimelineCta: "Abrir línea de tiempo clínica",
     therapistSubtitle:
-      "Vista Vertical Slice 1:1 de clientes, historias JGit, citas Timefold y gestión clínica",
+      "Vista clínica integral de clientes, notas terapéuticas, citas y gestión de consulta",
     clientSettingsTitle: "Configuración de Perfil & Clínica",
     clientClinicTitle: "Hazte Terapeuta — Alta de Clínica",
     clientPortalTitle: "Mi Portal de Cliente",
     clientRoleLabel: "Cliente",
     clientNavOverview: "Resumen",
     clientNavAppointments: "Citas",
+    clientNavJournal: "Mi Diario",
     clientNavMarketplace: "Clínicas & Práctica",
     clientNavConsents: "Consentimientos & Perfil",
     clientNavPcl5: "Prueba PCL-5",
     clientNavFinance: "Facturación & Pagos",
     clientSecureBadge: "Portal de Cliente Seguro",
+    clientDefaultSecure: "Conexión clínica cifrada activa",
     clientGreetingPrefix: "Bienvenido",
     clientSecurityCheckPrefix: "Control de seguridad",
     clientBookSessionCta: "Reservar nueva sesión",
+    clientFindTherapistBtn: "Buscar terapeuta",
     clientCardAppointmentsTitle: "Mis Citas",
     clientCardAppointmentsDesc: "Ver próximas sesiones o reservar una cita",
+    clientCardJournalTitle: "Mi Diario",
+    clientCardJournalDesc: "Escribe reflexiones personales y controla qué compartes",
     clientCardConsentsTitle: "Consentimientos & Perfil",
     clientCardConsentsDesc: "Gestionar tu perfil y compartición de datos",
     clientCardPcl5Title: "Cribado PCL-5",
@@ -1088,39 +1626,46 @@ const PORTAL_COPY_BY_LOCALE: Record<SupportedUiLocale, PortalLocaleCopy> = {
     defaultUser: "Benutzer",
     defaultTherapist: "Therapeut",
     defaultClient: "Klient",
-    adminTitle: "System- & i18n-Verwaltung",
+    adminTitle: "System- & Sprachverwaltung",
     adminRoleLabel: "Administrator",
-    adminNavI18n: "Sprachen & i18n",
+    adminNavI18n: "Sprachen & Übersetzungen",
     adminNavUsers: "Benutzer & Rollen",
     adminNavManagement: "KPI & Leitung",
     adminNavClinic: "Klinik & Register",
     therapistClinicTitle: "Klinik- & Registerverwaltung",
     therapistWorkspaceTitle: "Therapeuten-Arbeitsbereich",
     therapistRoleLabel: "Therapeut",
-    therapistNavOverview: "Multi-Fenster",
+    therapistNavOverview: "Übersicht",
+    therapistNavTimeline: "Patienten-Zeitachse",
     therapistNavCalendar: "Kalender",
     therapistNavClinicCvr: "Klinik & Praxis",
     therapistNavPcl5: "PCL-5 Screener",
     therapistNavFinance: "Finanzen & Rechnungen",
     therapistTabOverview: "Klinik & Akte",
+    therapistOpenTimelineCta: "Semantische Patienten-Zeitachse öffnen",
     therapistSubtitle:
-      "1:1 Vertical Slice Übersicht über Klienten, JGit-Akten, Timefold-Termine und Praxisbetrieb",
+      "Klinische Übersicht über Klienten, Verlaufsnotizen, Termine und Praxisbetrieb",
     clientSettingsTitle: "Profil- & Klinikeinstellungen",
     clientClinicTitle: "Therapeut werden — Klinik-Onboarding",
     clientPortalTitle: "Mein Klientenportal",
     clientRoleLabel: "Klient",
     clientNavOverview: "Übersicht",
     clientNavAppointments: "Termine",
+    clientNavJournal: "Mein Tagebuch",
     clientNavMarketplace: "Klinik & Praxis",
     clientNavConsents: "Einwilligung & Profil",
     clientNavPcl5: "PCL-5 Test",
     clientNavFinance: "Rechnung & Zahlung",
     clientSecureBadge: "Sicheres Klientenportal",
+    clientDefaultSecure: "Verschlüsselte klinische Verbindung aktiv",
     clientGreetingPrefix: "Willkommen",
     clientSecurityCheckPrefix: "Sicherheitsprüfung",
     clientBookSessionCta: "Neue Sitzung buchen",
+    clientFindTherapistBtn: "Therapeut finden",
     clientCardAppointmentsTitle: "Meine Termine",
     clientCardAppointmentsDesc: "Kommende Sitzungen ansehen oder Termin buchen",
+    clientCardJournalTitle: "Mein Tagebuch",
+    clientCardJournalDesc: "Persönliche Reflexionen schreiben und Freigabe steuern",
     clientCardConsentsTitle: "Einwilligung & Profil",
     clientCardConsentsDesc: "Profil und Datenfreigabe verwalten",
     clientCardPcl5Title: "PCL-5 Screening",
@@ -1202,7 +1747,8 @@ export function resolvePortalShellConfig({
   tab,
   me,
 }: ResolvePortalShellInput): ResolvedPortalShellConfig {
-  const copy = getPortalCopy(locale);
+  const resolvedLocale = resolveUiLocale(locale);
+  const copy = getPortalCopy(resolvedLocale);
   const base = `/${locale}/dashboard`;
   const currentTab = tab || "overview";
   const rawRoles = (me?.roles || []).map((role) => role.toUpperCase());
@@ -1276,25 +1822,25 @@ export function resolvePortalShellConfig({
         href: `${base}/admin`,
         label: copy.adminNavI18n,
         icon: "bi-translate",
-        active: !isSettings && currentTab === "overview",
+        active: !isSettings && !isClinic && currentTab === "overview",
       },
       {
         href: `${base}/admin?tab=users`,
         label: copy.adminNavUsers,
         icon: "bi-people",
-        active: !isSettings && currentTab === "users",
+        active: !isSettings && !isClinic && currentTab === "users",
       },
       {
         href: `${base}/admin?tab=management`,
         label: copy.adminNavManagement,
         icon: "bi-graph-up-arrow",
-        active: !isSettings && currentTab === "management",
+        active: !isSettings && !isClinic && currentTab === "management",
       },
       {
         href: `${base}/clinic`,
         label: copy.adminNavClinic,
         icon: "bi-building",
-        active: false,
+        active: isClinic && !isSettings,
       },
       {
         href: `${base}/settings`,
@@ -1318,6 +1864,12 @@ export function resolvePortalShellConfig({
         active: !isClinic && !isSettings && currentTab === "overview",
       },
       {
+        href: `${base}/therapist?tab=timeline`,
+        label: copy.therapistNavTimeline,
+        icon: "bi-clock-history",
+        active: !isClinic && !isSettings && currentTab === "timeline",
+      },
+      {
         href: `${base}/therapist?tab=calendar`,
         label: copy.therapistNavCalendar,
         icon: "bi-calendar3",
@@ -1327,19 +1879,19 @@ export function resolvePortalShellConfig({
         href: `${base}/clinic`,
         label: copy.therapistNavClinicCvr,
         icon: "bi-building",
-        active: isClinic || currentTab === "clinic_cvr",
+        active: !isSettings && (isClinic || currentTab === "clinic_cvr"),
       },
       {
         href: `${base}/therapist?tab=pcl5`,
         label: copy.therapistNavPcl5,
         icon: "bi-clipboard2-pulse",
-        active: currentTab === "pcl5",
+        active: !isClinic && !isSettings && currentTab === "pcl5",
       },
       {
         href: `${base}/therapist?tab=finance`,
         label: copy.therapistNavFinance,
         icon: "bi-cash-stack",
-        active: currentTab === "finance",
+        active: !isClinic && !isSettings && currentTab === "finance",
       },
       {
         href: `${base}/settings`,
@@ -1362,37 +1914,43 @@ export function resolvePortalShellConfig({
         href: `${base}/personal`,
         label: copy.clientNavOverview,
         icon: "bi-grid-1x2",
-        active: !isSettings && currentTab === "overview",
+        active: !isSettings && !isClinic && currentTab === "overview",
       },
       {
         href: `${base}/personal?tab=appointments`,
         label: copy.clientNavAppointments,
         icon: "bi-calendar-check",
-        active: !isSettings && currentTab === "appointments",
+        active: !isSettings && !isClinic && currentTab === "appointments",
+      },
+      {
+        href: `${base}/personal?tab=journal`,
+        label: copy.clientNavJournal,
+        icon: "bi-journal-bookmark",
+        active: !isSettings && !isClinic && currentTab === "journal",
       },
       {
         href: `${base}/personal?tab=marketplace`,
         label: copy.clientNavMarketplace,
         icon: "bi-shop",
-        active: currentTab === "marketplace",
+        active: !isSettings && !isClinic && currentTab === "marketplace",
       },
       {
         href: `${base}/personal?tab=consents`,
         label: copy.clientNavConsents,
         icon: "bi-shield-check",
-        active: currentTab === "consents",
+        active: !isSettings && !isClinic && currentTab === "consents",
       },
       {
         href: `${base}/personal?tab=pcl5`,
         label: copy.clientNavPcl5,
         icon: "bi-clipboard2-pulse",
-        active: currentTab === "pcl5",
+        active: !isSettings && !isClinic && currentTab === "pcl5",
       },
       {
         href: `${base}/personal?tab=finance`,
         label: copy.clientNavFinance,
         icon: "bi-receipt",
-        active: currentTab === "finance",
+        active: !isSettings && !isClinic && currentTab === "finance",
       },
       {
         href: `${base}/settings`,
@@ -1415,7 +1973,9 @@ export function resolvePortalShellConfig({
 
   let profileSubtext: string | undefined;
   if (me?.missingProfileFields && me.missingProfileFields.length > 0) {
-    profileSubtext = `${copy.missingPrefix}: ${me.missingProfileFields.join(", ")}`;
+    profileSubtext = `${copy.missingPrefix}: ${me.missingProfileFields
+      .map((field) => localizeMissingField(field, resolvedLocale))
+      .join(", ")}`;
   } else if (hasTherapistAccess) {
     profileSubtext = copy.verifiedTherapist;
   } else if (hasAdminAccess) {
@@ -1432,10 +1992,7 @@ export function resolvePortalShellConfig({
     navItems,
     portalOptions,
     upgradeAction,
-    defaultSidebarCollapsed:
-      activeArea === "therapist" &&
-      pathname.includes("/dashboard/therapist") &&
-      currentTab === "overview",
+    defaultSidebarCollapsed: false,
     settingsHref: `${base}/settings`,
     profileSubtext,
   };
@@ -1574,6 +2131,7 @@ export const ConnectedPortalWorkspaceShell: React.FC<
 
 export type TherapistTab =
   | "overview"
+  | "timeline"
   | "calendar"
   | "clinic_cvr"
   | "pcl5"
@@ -1608,29 +2166,17 @@ export const TherapistMultiWindowWorkspace: React.FC<
     [locale, i18nCache?.locale]
   );
   const displayTherapistName = therapistName ?? copy.defaultTherapist;
-  const therapistTabs: ReadonlyArray<{
-    id: TherapistTab;
-    label: string;
-    testId: string;
-  }> = [
-    { id: "overview", label: copy.therapistTabOverview, testId: "tab-btn-overview" },
-    { id: "calendar", label: copy.therapistNavCalendar, testId: "tab-btn-calendar" },
-    { id: "clinic_cvr", label: copy.therapistNavClinicCvr, testId: "tab-btn-clinic-cvr" },
-    { id: "pcl5", label: copy.therapistNavPcl5, testId: "tab-btn-pcl5" },
-    { id: "finance", label: copy.therapistNavFinance, testId: "tab-btn-finance" },
-  ];
   const [internalTab, setInternalTab] = useState<TherapistTab>(initialTab);
 
   useEffect(() => {
     setInternalTab(initialTab);
   }, [initialTab]);
 
-  const activeTab = controlledActiveTab ?? internalTab;
+  useEffect(() => {
+    void onTabChange;
+  }, [onTabChange]);
 
-  const selectTab = (next: TherapistTab) => {
-    setInternalTab(next);
-    onTabChange?.(next);
-  };
+  const activeTab = controlledActiveTab ?? internalTab;
 
   return (
     <div
@@ -1654,24 +2200,20 @@ export const TherapistMultiWindowWorkspace: React.FC<
             {copy.therapistSubtitle}
           </p>
         </div>
-
-        <div className="flex flex-wrap gap-1.5">
-          {therapistTabs.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => selectTab(tab.id)}
-              data-testid={tab.testId}
-              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
-                activeTab === tab.id
-                  ? "bg-teal-700 text-white shadow-xs"
-                  : "border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+        {activeTab !== "timeline" && (
+          <button
+            type="button"
+            data-testid="therapist-open-timeline-btn"
+            onClick={() => {
+              setInternalTab("timeline");
+              onTabChange?.("timeline");
+            }}
+            className="min-h-11 inline-flex shrink-0 items-center gap-2 rounded-xl bg-teal-700 px-4 py-2 text-xs font-semibold text-white hover:bg-teal-800"
+          >
+            <i className="bi bi-clock-history" aria-hidden="true" />
+            {copy.therapistOpenTimelineCta}
+          </button>
+        )}
       </header>
 
       {activeTab === "overview" && (
@@ -1680,12 +2222,21 @@ export const TherapistMultiWindowWorkspace: React.FC<
             <ClinicPlatformFeatureView />
           </div>
           <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs xl:col-span-6">
-            <JournalFeatureView />
+            <JournalFeatureView portalMode="provider" />
           </div>
           <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs xl:col-span-6">
-            <AppointmentFeatureView />
+            <AppointmentFeatureView portalMode="provider" />
           </div>
         </div>
+      )}
+
+      {activeTab === "timeline" && (
+        <section
+          className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs"
+          data-testid="therapist-timeline-panel"
+        >
+          <PatientTimelineContainer locale={locale} />
+        </section>
       )}
 
       {activeTab === "calendar" && (
@@ -1693,7 +2244,7 @@ export const TherapistMultiWindowWorkspace: React.FC<
           className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs"
           data-testid="therapist-calendar-panel"
         >
-          <AppointmentFeatureView />
+          <AppointmentFeatureView portalMode="provider" />
         </section>
       )}
 
@@ -1711,7 +2262,7 @@ export const TherapistMultiWindowWorkspace: React.FC<
           className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs"
           data-testid="therapist-pcl5-panel"
         >
-          <PsychotraumatologyFeatureView />
+          <PsychotraumatologyFeatureView portalMode="provider" />
         </section>
       )}
 
@@ -1720,7 +2271,7 @@ export const TherapistMultiWindowWorkspace: React.FC<
           className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs"
           data-testid="therapist-finance-panel"
         >
-          <FinanceFeatureView onRoleUpgraded={onRoleUpgraded} />
+          <FinanceFeatureView portalMode="provider" onRoleUpgraded={onRoleUpgraded} />
         </section>
       )}
     </div>
@@ -1730,6 +2281,7 @@ export const TherapistMultiWindowWorkspace: React.FC<
 export type ClientTab =
   | "overview"
   | "appointments"
+  | "journal"
   | "marketplace"
   | "consents"
   | "pcl5"
@@ -1747,7 +2299,7 @@ export interface ClientPortalWorkspaceProps {
 
 /**
  * Borger/Klient-arbejdsområde (`CLIENT`), der giver adgang til selvbetjent booking,
- * markedsplads, samtykke, PCL-5 screening og fakturaer i en moderne Nordic HealthTech-skal.
+ * personlig dagbog, markedsplads, samtykke, PCL-5 screening og fakturaer i en rolig Nordic HealthTech-skal.
  */
 export const ClientPortalWorkspace: React.FC<ClientPortalWorkspaceProps> = ({
   locale,
@@ -1764,18 +2316,12 @@ export const ClientPortalWorkspace: React.FC<ClientPortalWorkspaceProps> = ({
     [locale, i18nCache?.locale]
   );
   const displayUserName = userName ?? copy.defaultClient;
-  const clientTabs: ReadonlyArray<{
-    id: ClientTab;
-    label: string;
-    icon: string;
-  }> = [
-    { id: "overview", label: copy.clientNavOverview, icon: "bi-grid-1x2" },
-    { id: "appointments", label: copy.clientNavAppointments, icon: "bi-calendar-check" },
-    { id: "marketplace", label: copy.clientNavMarketplace, icon: "bi-shop" },
-    { id: "consents", label: copy.clientNavConsents, icon: "bi-shield-check" },
-    { id: "pcl5", label: copy.clientNavPcl5, icon: "bi-clipboard2-pulse" },
-    { id: "finance", label: copy.clientNavFinance, icon: "bi-receipt" },
-  ];
+  const sanitizedSecureStatus =
+    secureStatus &&
+    secureStatus.trim().length > 0 &&
+    !/sensitive enterprise data/i.test(secureStatus)
+      ? secureStatus
+      : copy.clientDefaultSecure;
   const [internalTab, setInternalTab] = useState<ClientTab>(initialTab);
 
   useEffect(() => {
@@ -1808,55 +2354,43 @@ export const ClientPortalWorkspace: React.FC<ClientPortalWorkspaceProps> = ({
             >
               {copy.clientGreetingPrefix}, {displayUserName}
             </h1>
-            {secureStatus && (
-              <p
-                className="mt-1 mb-0 text-xs font-medium text-emerald-700"
-                data-testid="client-secure-status"
-              >
-                {copy.clientSecurityCheckPrefix}: {secureStatus}
-              </p>
-            )}
+            <p
+              className="mt-1 mb-0 text-xs font-medium text-emerald-700"
+              data-testid="client-secure-status"
+            >
+              {copy.clientSecurityCheckPrefix}: {sanitizedSecureStatus}
+            </p>
           </div>
 
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
+              data-testid="client-find-therapist-btn"
+              onClick={() => selectTab("marketplace")}
+              className="min-h-11 inline-flex items-center gap-1.5 rounded-xl border border-teal-200 bg-teal-50 px-3.5 py-2 text-xs font-semibold text-teal-800 transition-colors hover:bg-teal-100"
+            >
+              <i className="bi bi-shop" aria-hidden="true" />
+              {copy.clientFindTherapistBtn}
+            </button>
+            <button
+              type="button"
               onClick={() => selectTab("appointments")}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-teal-700 px-3.5 py-2 text-xs font-semibold text-white shadow-xs transition-colors hover:bg-teal-800"
+              className="min-h-11 inline-flex items-center gap-1.5 rounded-xl bg-teal-700 px-3.5 py-2 text-xs font-semibold text-white shadow-xs transition-colors hover:bg-teal-800"
             >
               <i className="bi bi-calendar-plus" aria-hidden="true" />
               {copy.clientBookSessionCta}
             </button>
           </div>
         </div>
-
-        <div className="mt-4 flex flex-wrap gap-1.5 border-t border-slate-100 pt-3">
-          {clientTabs.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => selectTab(tab.id)}
-              data-testid={`client-tab-${tab.id}`}
-              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
-                activeTab === tab.id
-                  ? "bg-teal-50 text-teal-800 border border-teal-200 shadow-xs"
-                  : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-              }`}
-            >
-              <i className={`bi ${tab.icon}`} aria-hidden="true" />
-              <span>{tab.label}</span>
-            </button>
-          ))}
-        </div>
       </header>
 
       {activeTab === "overview" && (
         <div className="space-y-5">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <button
               type="button"
               onClick={() => selectTab("appointments")}
-              className="flex items-start gap-3 rounded-2xl border border-slate-200/80 bg-white p-4 text-left shadow-xs transition-colors hover:border-teal-300 hover:bg-teal-50/30"
+              className="min-h-11 flex items-start gap-3 rounded-2xl border border-slate-200/80 bg-white p-4 text-left shadow-xs transition-colors hover:border-teal-300 hover:bg-teal-50/30"
             >
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-teal-100 text-teal-700">
                 <i className="bi bi-calendar-check text-lg" aria-hidden="true" />
@@ -1873,8 +2407,27 @@ export const ClientPortalWorkspace: React.FC<ClientPortalWorkspaceProps> = ({
 
             <button
               type="button"
+              data-testid="client-card-journal"
+              onClick={() => selectTab("journal")}
+              className="min-h-11 flex items-start gap-3 rounded-2xl border border-slate-200/80 bg-white p-4 text-left shadow-xs transition-colors hover:border-teal-300 hover:bg-teal-50/30"
+            >
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
+                <i className="bi bi-journal-bookmark text-lg" aria-hidden="true" />
+              </span>
+              <div>
+                <div className="text-sm font-semibold text-slate-900">
+                  {copy.clientCardJournalTitle}
+                </div>
+                <div className="mt-0.5 text-xs text-slate-500">
+                  {copy.clientCardJournalDesc}
+                </div>
+              </div>
+            </button>
+
+            <button
+              type="button"
               onClick={() => selectTab("consents")}
-              className="flex items-start gap-3 rounded-2xl border border-slate-200/80 bg-white p-4 text-left shadow-xs transition-colors hover:border-teal-300 hover:bg-teal-50/30"
+              className="min-h-11 flex items-start gap-3 rounded-2xl border border-slate-200/80 bg-white p-4 text-left shadow-xs transition-colors hover:border-teal-300 hover:bg-teal-50/30"
             >
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-100 text-sky-700">
                 <i className="bi bi-shield-check text-lg" aria-hidden="true" />
@@ -1892,7 +2445,7 @@ export const ClientPortalWorkspace: React.FC<ClientPortalWorkspaceProps> = ({
             <button
               type="button"
               onClick={() => selectTab("pcl5")}
-              className="flex items-start gap-3 rounded-2xl border border-slate-200/80 bg-white p-4 text-left shadow-xs transition-colors hover:border-teal-300 hover:bg-teal-50/30"
+              className="min-h-11 flex items-start gap-3 rounded-2xl border border-slate-200/80 bg-white p-4 text-left shadow-xs transition-colors hover:border-teal-300 hover:bg-teal-50/30"
             >
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-100 text-indigo-700">
                 <i
@@ -1912,7 +2465,7 @@ export const ClientPortalWorkspace: React.FC<ClientPortalWorkspaceProps> = ({
           </div>
 
           <section className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs">
-            <BookingFeatureView />
+            <BookingFeatureView portalMode="client" />
           </section>
         </div>
       )}
@@ -1922,7 +2475,16 @@ export const ClientPortalWorkspace: React.FC<ClientPortalWorkspaceProps> = ({
           className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs"
           data-testid="client-appointments-panel"
         >
-          <BookingFeatureView />
+          <BookingFeatureView portalMode="client" />
+        </section>
+      )}
+
+      {activeTab === "journal" && (
+        <section
+          className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs"
+          data-testid="client-journal-panel"
+        >
+          <JournalFeatureView portalMode="client" />
         </section>
       )}
 
@@ -1949,7 +2511,7 @@ export const ClientPortalWorkspace: React.FC<ClientPortalWorkspaceProps> = ({
           className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs"
           data-testid="client-pcl5-panel"
         >
-          <PsychotraumatologyFeatureView />
+          <PsychotraumatologyFeatureView portalMode="client" />
         </section>
       )}
 
@@ -1958,7 +2520,7 @@ export const ClientPortalWorkspace: React.FC<ClientPortalWorkspaceProps> = ({
           className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs"
           data-testid="client-finance-panel"
         >
-          <FinanceFeatureView onRoleUpgraded={onRoleUpgraded} />
+          <FinanceFeatureView portalMode="client" onRoleUpgraded={onRoleUpgraded} />
         </section>
       )}
     </div>
@@ -1974,6 +2536,7 @@ export const ClientMarketplaceView: React.FC = () => {
   const [handshakes, setHandshakes] = useState<ClientTherapistHandshakeDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<ProblemDetail | null>(null);
+  const [page, setPage] = useState(1);
 
   const clientUuid = auth?.user.id || "";
   const clientName = auth?.user.name || "";
@@ -2025,8 +2588,14 @@ export const ClientMarketplaceView: React.FC = () => {
     }
   };
 
-  const visibleProviders = providers.filter(
-    (p) => !clientUuid || p.userUuid !== clientUuid
+  const visibleProviders = deduplicateClinicProviders(
+    providers.filter((p) => !clientUuid || p.userUuid !== clientUuid)
+  );
+  const totalPages = Math.max(1, Math.ceil(visibleProviders.length / CLINIC_PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pagedProviders = visibleProviders.slice(
+    (safePage - 1) * CLINIC_PAGE_SIZE,
+    safePage * CLINIC_PAGE_SIZE
   );
 
   return (
@@ -2052,73 +2621,104 @@ export const ClientMarketplaceView: React.FC = () => {
           {copy.emptyProviders}
         </p>
       ) : (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2" data-testid="marketplace-provider-list">
-          {visibleProviders.map((provider) => {
-            const pUuid = provider.userUuid || "";
-            const providerServices = services.filter(
-              (s) => s.provider?.id === provider.id
-            );
-            const activeHandshake = handshakes.find(
-              (h) => h.therapistUuid === pUuid
-            );
-            return (
-              <div
-                key={provider.id || pUuid}
-                data-testid={`marketplace-provider-${pUuid}`}
-                className="flex flex-col justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-xs"
-              >
-                <div className="space-y-1.5">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <h3 className="text-base font-bold text-slate-900">
-                        {provider.displayName}
-                      </h3>
-                      <p className="text-xs text-slate-500">
-                        {provider.organisation?.name} ({copy.regIdLabel}: {provider.organisation?.cvrNumber})
-                      </p>
+        <>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2" data-testid="marketplace-provider-list">
+            {pagedProviders.map((provider) => {
+              const pUuid = provider.userUuid || "";
+              const providerServices = deduplicateClinicServices(
+                services.filter((s) => s.provider?.id === provider.id)
+              );
+              const activeHandshake = handshakes.find(
+                (h) => h.therapistUuid === pUuid
+              );
+              return (
+                <div
+                  key={provider.id || pUuid}
+                  data-testid={`marketplace-provider-${pUuid}`}
+                  className="flex flex-col justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-xs"
+                >
+                  <div className="space-y-1.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <h3 className="text-base font-bold text-slate-900">
+                          {provider.displayName}
+                        </h3>
+                        <p className="text-xs text-slate-500">
+                          {provider.organisation?.name} ({copy.regIdLabel}: {provider.organisation?.cvrNumber})
+                        </p>
+                      </div>
+                      {activeHandshake && (
+                        <span
+                          data-testid={`handshake-status-${pUuid}`}
+                          className="rounded-full bg-teal-50 px-2.5 py-0.5 text-xs font-semibold text-teal-800"
+                        >
+                          {localizeHandshakeStatus(activeHandshake.status, locale)}
+                        </span>
+                      )}
                     </div>
-                    {activeHandshake && (
-                      <span
-                        data-testid={`handshake-status-${pUuid}`}
-                        className="rounded-full bg-teal-50 px-2.5 py-0.5 text-xs font-semibold text-teal-800"
-                      >
-                        {activeHandshake.status}
-                      </span>
+                    {providerServices.length > 0 && (
+                      <ul className="space-y-1 pt-1 text-xs text-slate-700">
+                        {providerServices.map((srv) => (
+                          <li
+                            key={srv.id}
+                            className="flex items-center justify-between rounded-lg bg-slate-50 px-2.5 py-1.5"
+                          >
+                            <span>
+                              {srv.name} ({srv.durationMinutes} min)
+                            </span>
+                            <strong>
+                              {srv.price ?? srv.priceDkk} {srv.currency || "DKK"}
+                            </strong>
+                          </li>
+                        ))}
+                      </ul>
                     )}
                   </div>
-                  {providerServices.length > 0 && (
-                    <ul className="space-y-1 pt-1 text-xs text-slate-700">
-                      {providerServices.map((srv) => (
-                        <li
-                          key={srv.id}
-                          className="flex items-center justify-between rounded-lg bg-slate-50 px-2.5 py-1.5"
-                        >
-                          <span>
-                            {srv.name} ({srv.durationMinutes} min)
-                          </span>
-                          <strong>
-                            {srv.price} {srv.currency}
-                          </strong>
-                        </li>
-                      ))}
-                    </ul>
+
+                  {!activeHandshake && clientUuid && pUuid && (
+                    <button
+                      type="button"
+                      data-testid={`request-handshake-${pUuid}`}
+                      onClick={() => void requestHandshake(provider)}
+                      className="min-h-11 inline-flex items-center justify-center gap-1.5 rounded-xl bg-teal-700 px-3.5 py-2 text-xs font-semibold text-white hover:bg-teal-800"
+                    >
+                      {copy.requestCourseBtn}
+                    </button>
                   )}
                 </div>
+              );
+            })}
+          </div>
 
-                {!activeHandshake && clientUuid && pUuid && (
-                  <button
-                    type="button"
-                    data-testid={`request-handshake-${pUuid}`}
-                    onClick={() => void requestHandshake(provider)}
-                    className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-teal-700 px-3.5 py-2 text-xs font-semibold text-white hover:bg-teal-800"
-                  >
-                    {copy.requestCourseBtn}
-                  </button>
-                )}
-              </div>
-            );
-          })}
-        </div>
+          {visibleProviders.length > CLINIC_PAGE_SIZE && (
+            <div
+              className="flex items-center justify-between gap-2 pt-2"
+              data-testid="marketplace-pagination"
+            >
+              <button
+                type="button"
+                disabled={safePage <= 1}
+                data-testid="marketplace-prev"
+                onClick={() => setPage(Math.max(1, safePage - 1))}
+                className="min-h-11 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+              >
+                {copy.prevPageBtn}
+              </button>
+              <span className="text-xs font-medium text-slate-600">
+                {copy.pageLabel} {safePage} {copy.ofLabel} {totalPages}
+              </span>
+              <button
+                type="button"
+                disabled={safePage >= totalPages}
+                data-testid="marketplace-next"
+                onClick={() => setPage(Math.min(totalPages, safePage + 1))}
+                className="min-h-11 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+              >
+                {copy.nextPageBtn}
+              </button>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -2137,6 +2737,12 @@ export const ClientConsentAndProfileView: React.FC = () => {
   const [postalCode, setPostalCode] = useState("");
   const [handshakes, setHandshakes] = useState<ClientTherapistHandshakeDto[]>([]);
   const [savedBanner, setSavedBanner] = useState(false);
+  const [sharingSavedId, setSharingSavedId] = useState<string | null>(null);
+  const [expandedHandshakeId, setExpandedHandshakeId] = useState<string | null>(null);
+  const [historyStartDate, setHistoryStartDate] = useState("");
+  const [historyEndDate, setHistoryEndDate] = useState("");
+  const [noMoodScores, setNoMoodScores] = useState(false);
+  const [pendingRevokeId, setPendingRevokeId] = useState<string | null>(null);
   const [error, setError] = useState<ProblemDetail | null>(null);
 
   const loadProfileAndConsents = useCallback(async () => {
@@ -2190,6 +2796,43 @@ export const ClientConsentAndProfileView: React.FC = () => {
     }
   };
 
+  const handleToggleSettings = (hs: ClientTherapistHandshakeDto) => {
+    if (!hs.id) {
+      return;
+    }
+    if (expandedHandshakeId === hs.id) {
+      setExpandedHandshakeId(null);
+      return;
+    }
+    setSharingSavedId(null);
+    setExpandedHandshakeId(hs.id);
+    setHistoryStartDate(hs.historyStartDate || "");
+    setHistoryEndDate(hs.historyEndDate || "");
+    setNoMoodScores((hs.customRestrictions || "").includes("NO_MOOD_SCORES"));
+  };
+
+  const handleSaveDataSharing = async (handshakeId: string) => {
+    setSharingSavedId(null);
+    try {
+      await requestClinicJson(
+        `/api/backend/clinic/handshakes/${encodeURIComponent(handshakeId)}/status`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            historyStartDate: historyStartDate.trim() || "",
+            historyEndDate: historyEndDate.trim() || "",
+            customRestrictions: noMoodScores ? "NO_MOOD_SCORES" : "",
+          }),
+        }
+      );
+      setSharingSavedId(handshakeId);
+      setError(null);
+      await loadProfileAndConsents();
+    } catch (err) {
+      setError(toProblemDetail(err));
+    }
+  };
+
   const handleRevokeHandshake = async (handshakeId: string) => {
     try {
       await requestClinicJson(
@@ -2199,6 +2842,9 @@ export const ClientConsentAndProfileView: React.FC = () => {
           body: JSON.stringify({ status: "REVOKED" }),
         }
       );
+      if (expandedHandshakeId === handshakeId) {
+        setExpandedHandshakeId(null);
+      }
       await loadProfileAndConsents();
     } catch (err) {
       setError(toProblemDetail(err));
@@ -2228,59 +2874,123 @@ export const ClientConsentAndProfileView: React.FC = () => {
         </div>
       )}
 
+      {sharingSavedId && (
+        <div
+          data-testid="handshake-settings-saved"
+          className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-xs font-semibold text-emerald-800"
+        >
+          {copy.dataSharingSavedBanner}
+        </div>
+      )}
+
       <form
+        noValidate
         onSubmit={handleSaveProfile}
         data-testid="personal-profile-form"
         className="grid grid-cols-1 gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:grid-cols-2"
       >
-        <input
-          data-testid="input-profile-fullName"
-          placeholder={copy.profileFullNamePlaceholder}
-          value={fullName}
-          onChange={(e) => setFullName(e.target.value)}
-          className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
-        />
-        <input
-          data-testid="input-profile-email"
-          type="email"
-          placeholder={copy.profileEmailPlaceholder}
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
-        />
-        <input
-          data-testid="input-profile-phone"
-          placeholder={copy.profilePhonePlaceholder}
-          value={phoneNumber}
-          onChange={(e) => setPhoneNumber(e.target.value)}
-          className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
-        />
-        <input
-          data-testid="input-profile-dob"
-          placeholder={copy.profileDobPlaceholder}
-          value={dateOfBirth}
-          onChange={(e) => setDateOfBirth(e.target.value)}
-          className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
-        />
-        <input
-          data-testid="input-profile-address"
-          placeholder={copy.profileAddressPlaceholder}
-          value={homeAddress}
-          onChange={(e) => setHomeAddress(e.target.value)}
-          className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
-        />
-        <input
-          data-testid="input-profile-postalCode"
-          placeholder={copy.profilePostalCodePlaceholder}
-          value={postalCode}
-          onChange={(e) => setPostalCode(e.target.value)}
-          className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
-        />
-        <div className="sm:col-span-2 flex justify-end">
+        <div className="flex flex-col gap-1">
+          <label
+            htmlFor="profile-fullName"
+            className="text-xs font-semibold uppercase tracking-wide text-slate-600"
+          >
+            {copy.profileFullNamePlaceholder}
+          </label>
+          <input
+            id="profile-fullName"
+            data-testid="input-profile-fullName"
+            placeholder={copy.profileFullNamePlaceholder}
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+            className="min-h-11 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label
+            htmlFor="profile-email"
+            className="text-xs font-semibold uppercase tracking-wide text-slate-600"
+          >
+            {copy.profileEmailPlaceholder}
+          </label>
+          <input
+            id="profile-email"
+            data-testid="input-profile-email"
+            type="email"
+            placeholder={copy.profileEmailPlaceholder}
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="min-h-11 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label
+            htmlFor="profile-phone"
+            className="text-xs font-semibold uppercase tracking-wide text-slate-600"
+          >
+            {copy.profilePhonePlaceholder}
+          </label>
+          <input
+            id="profile-phone"
+            data-testid="input-profile-phone"
+            placeholder={copy.profilePhonePlaceholder}
+            value={phoneNumber}
+            onChange={(e) => setPhoneNumber(e.target.value)}
+            className="min-h-11 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label
+            htmlFor="profile-dob"
+            className="text-xs font-semibold uppercase tracking-wide text-slate-600"
+          >
+            {copy.profileDobPlaceholder}
+          </label>
+          <input
+            id="profile-dob"
+            data-testid="input-profile-dob"
+            placeholder={copy.profileDobPlaceholder}
+            value={dateOfBirth}
+            onChange={(e) => setDateOfBirth(e.target.value)}
+            className="min-h-11 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label
+            htmlFor="profile-address"
+            className="text-xs font-semibold uppercase tracking-wide text-slate-600"
+          >
+            {copy.profileAddressPlaceholder}
+          </label>
+          <input
+            id="profile-address"
+            data-testid="input-profile-address"
+            placeholder={copy.profileAddressPlaceholder}
+            value={homeAddress}
+            onChange={(e) => setHomeAddress(e.target.value)}
+            className="min-h-11 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label
+            htmlFor="profile-postalCode"
+            className="text-xs font-semibold uppercase tracking-wide text-slate-600"
+          >
+            {copy.profilePostalCodePlaceholder}
+          </label>
+          <input
+            id="profile-postalCode"
+            data-testid="input-profile-postalCode"
+            placeholder={copy.profilePostalCodePlaceholder}
+            value={postalCode}
+            onChange={(e) => setPostalCode(e.target.value)}
+            className="min-h-11 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
+          />
+        </div>
+        <div className="sm:col-span-2 flex justify-end pt-1">
           <button
             type="submit"
             data-testid="submit-personal-profile"
-            className="rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800"
+            className="min-h-11 rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800"
           >
             {copy.saveProfileBtn}
           </button>
@@ -2296,33 +3006,129 @@ export const ClientConsentAndProfileView: React.FC = () => {
             {copy.emptyConsents}
           </p>
         ) : (
-          <ul className="space-y-2" data-testid="client-handshakes-consent-list">
-            {handshakes.map((hs) => (
-              <li
-                key={hs.id}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm"
-              >
-                <div>
-                  <strong>{hs.therapistName || hs.organisationName}</strong> —{' '}
-                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700">
-                    {hs.status}
-                  </span>
-                </div>
-                {hs.id && hs.status !== "REVOKED" && hs.status !== "TERMINATED" && (
-                  <button
-                    type="button"
-                    data-testid={`revoke-handshake-${hs.id}`}
-                    onClick={() => void handleRevokeHandshake(hs.id!)}
-                    className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-100"
-                  >
-                    {copy.revokeConsentBtn}
-                  </button>
-                )}
-              </li>
-            ))}
+          <ul className="space-y-2.5" data-testid="client-handshakes-consent-list">
+            {handshakes.map((hs) => {
+              const isInactive = hs.status === "REVOKED" || hs.status === "TERMINATED";
+              const isExpanded = Boolean(hs.id && expandedHandshakeId === hs.id);
+              return (
+                <li
+                  key={hs.id}
+                  className="space-y-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <strong>{hs.therapistName || hs.organisationName}</strong> —{" "}
+                      <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-700">
+                        {localizeHandshakeStatus(hs.status, locale)}
+                      </span>
+                    </div>
+                    {hs.id && !isInactive && (
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          data-testid={`toggle-handshake-settings-${hs.id}`}
+                          onClick={() => handleToggleSettings(hs)}
+                          className="min-h-11 inline-flex items-center gap-1.5 rounded-lg border border-teal-200 bg-teal-50 px-3 py-1.5 text-xs font-semibold text-teal-800 hover:bg-teal-100"
+                        >
+                          <i className="bi bi-sliders2" aria-hidden="true" />
+                          {copy.dataSharingBtn}
+                        </button>
+                        <button
+                          type="button"
+                          data-testid={`revoke-handshake-${hs.id}`}
+                          onClick={() => setPendingRevokeId(hs.id!)}
+                          className="min-h-11 inline-flex items-center rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100"
+                        >
+                          {copy.revokeConsentBtn}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {isExpanded && hs.id && (
+                    <div
+                      data-testid={`handshake-settings-panel-${hs.id}`}
+                      className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 space-y-3"
+                    >
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div className="flex flex-col gap-1">
+                          <label
+                            htmlFor={`hs-start-${hs.id}`}
+                            className="text-xs font-semibold text-slate-700"
+                          >
+                            {copy.historyStartLabel}
+                          </label>
+                          <input
+                            id={`hs-start-${hs.id}`}
+                            type="date"
+                            data-testid={`input-hs-start-${hs.id}`}
+                            value={historyStartDate}
+                            onChange={(e) => setHistoryStartDate(e.target.value)}
+                            className="min-h-11 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <label
+                            htmlFor={`hs-end-${hs.id}`}
+                            className="text-xs font-semibold text-slate-700"
+                          >
+                            {copy.historyEndLabel}
+                          </label>
+                          <input
+                            id={`hs-end-${hs.id}`}
+                            type="date"
+                            data-testid={`input-hs-end-${hs.id}`}
+                            value={historyEndDate}
+                            onChange={(e) => setHistoryEndDate(e.target.value)}
+                            className="min-h-11 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+                          />
+                        </div>
+                      </div>
+                      <label className="min-h-11 inline-flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          data-testid={`input-hs-no-mood-${hs.id}`}
+                          checked={noMoodScores}
+                          onChange={(e) => setNoMoodScores(e.target.checked)}
+                          className="h-4 w-4 rounded border-slate-300 text-teal-700"
+                        />
+                        <span>{copy.hideMoodScoresLabel}</span>
+                      </label>
+                      <div className="flex justify-end">
+                        <button
+                          type="button"
+                          data-testid={`save-handshake-settings-${hs.id}`}
+                          onClick={() => void handleSaveDataSharing(hs.id!)}
+                          className="min-h-11 rounded-xl bg-teal-700 px-3.5 py-2 text-xs font-semibold text-white hover:bg-teal-800"
+                        >
+                          {copy.saveDataSharingBtn}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
+
+      <ConfirmActionDialog
+        open={Boolean(pendingRevokeId)}
+        title={copy.confirmRevokeTitle}
+        description={copy.confirmRevokeDesc}
+        confirmLabel={copy.revokeConsentBtn}
+        cancelLabel={copy.cancelBtn}
+        tone="danger"
+        onCancel={() => setPendingRevokeId(null)}
+        onConfirm={() => {
+          const id = pendingRevokeId;
+          setPendingRevokeId(null);
+          if (id) {
+            void handleRevokeHandshake(id);
+          }
+        }}
+      />
     </div>
   );
 };
@@ -2347,12 +3153,17 @@ export const TherapistClinicOnboardingView: React.FC<
   const [phoneNumber, setPhoneNumber] = useState("");
   const [workingHoursJson, setWorkingHoursJson] = useState("09:00-17:00");
   const [serviceName, setServiceName] = useState("");
-  const [servicePrice, setServicePrice] = useState("1200");
+  const [servicePrice, setServicePrice] = useState("2");
   const [serviceDuration, setServiceDuration] = useState("60");
   const [serviceLocation, setServiceLocation] = useState("Klinik");
   const [services, setServices] = useState<ServiceDto[]>([]);
+  const [servicesPage, setServicesPage] = useState(1);
   const [handshakes, setHandshakes] = useState<ClientTherapistHandshakeDto[]>([]);
   const [savedNotice, setSavedNotice] = useState(false);
+  const [pendingAction, setPendingAction] = useState<
+    | { kind: "delete-service" | "terminate-handshake"; id: string }
+    | null
+  >(null);
   const [error, setError] = useState<ProblemDetail | null>(null);
 
   const loadClinicData = useCallback(async () => {
@@ -2484,6 +3295,14 @@ export const TherapistClinicOnboardingView: React.FC<
     }
   };
 
+  const uniqueServices = deduplicateClinicServices(services);
+  const totalServicePages = Math.max(1, Math.ceil(uniqueServices.length / CLINIC_PAGE_SIZE));
+  const safeServicePage = Math.min(servicesPage, totalServicePages);
+  const pagedServices = uniqueServices.slice(
+    (safeServicePage - 1) * CLINIC_PAGE_SIZE,
+    safeServicePage * CLINIC_PAGE_SIZE
+  );
+
   return (
     <div className="space-y-6" data-testid="therapist-onboarding-view">
       <div>
@@ -2503,7 +3322,10 @@ export const TherapistClinicOnboardingView: React.FC<
           data-testid="onboarding-missing-fields"
           className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-medium text-amber-900"
         >
-          {copy.missingBeforePublishPrefix}: {me.missingProfileFields.join(", ")}
+          {copy.missingBeforePublishPrefix}:{" "}
+          {me.missingProfileFields
+            .map((field) => localizeMissingField(field, locale))
+            .join(", ")}
         </div>
       )}
 
@@ -2517,80 +3339,162 @@ export const TherapistClinicOnboardingView: React.FC<
       )}
 
       <form
+        noValidate
         onSubmit={handleOnboardSubmit}
         data-testid="therapist-onboarding-form"
         className="grid grid-cols-1 gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:grid-cols-3"
       >
-        <input
-          data-testid="input-onboard-orgName"
-          placeholder={copy.onboardOrgPlaceholder}
-          value={organisationName}
-          onChange={(e) => setOrganisationName(e.target.value)}
-          className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
-        />
-        <input
-          data-testid="input-onboard-cvr"
-          placeholder={copy.onboardCvrPlaceholder}
-          value={cvrNumber}
-          onChange={(e) => setCvrNumber(e.target.value)}
-          className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
-        />
-        <input
-          data-testid="input-onboard-displayName"
-          placeholder={copy.onboardDisplayNamePlaceholder}
-          value={displayName}
-          onChange={(e) => setDisplayName(e.target.value)}
-          className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
-        />
-        <input
-          data-testid="input-onboard-iban"
-          placeholder={copy.onboardIbanPlaceholder}
-          value={iban}
-          onChange={(e) => setIban(e.target.value)}
-          className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
-        />
-        <select
-          data-testid="input-onboard-currency"
-          value={currency}
-          onChange={(e) => setCurrency(e.target.value)}
-          className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
-        >
-          <option value="DKK">DKK</option>
-          <option value="EUR">EUR</option>
-        </select>
-        <input
-          data-testid="input-onboard-hours"
-          placeholder={copy.onboardHoursPlaceholder}
-          value={workingHoursJson}
-          onChange={(e) => setWorkingHoursJson(e.target.value)}
-          className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
-        />
-        <input
-          data-testid="input-onboard-address"
-          placeholder={copy.onboardAddressPlaceholder}
-          value={address}
-          onChange={(e) => setAddress(e.target.value)}
-          className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
-        />
-        <input
-          data-testid="input-onboard-postalCode"
-          placeholder={copy.onboardPostalPlaceholder}
-          value={postalCode}
-          onChange={(e) => setPostalCode(e.target.value)}
-          className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
-        />
-        <input
-          data-testid="input-onboard-phone"
-          placeholder={copy.onboardPhonePlaceholder}
-          value={phoneNumber}
-          onChange={(e) => setPhoneNumber(e.target.value)}
-          className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
-        />
-        <div className="sm:col-span-3 flex justify-end">
+        <div className="flex flex-col gap-1">
+          <label
+            htmlFor="onboard-orgName"
+            className="text-xs font-semibold uppercase tracking-wide text-slate-600"
+          >
+            {copy.onboardOrgPlaceholder}
+          </label>
+          <input
+            id="onboard-orgName"
+            data-testid="input-onboard-orgName"
+            placeholder={copy.onboardOrgPlaceholder}
+            value={organisationName}
+            onChange={(e) => setOrganisationName(e.target.value)}
+            className="min-h-11 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label
+            htmlFor="onboard-cvr"
+            className="text-xs font-semibold uppercase tracking-wide text-slate-600"
+          >
+            {copy.onboardCvrPlaceholder}
+          </label>
+          <input
+            id="onboard-cvr"
+            data-testid="input-onboard-cvr"
+            placeholder={copy.onboardCvrPlaceholder}
+            value={cvrNumber}
+            onChange={(e) => setCvrNumber(e.target.value)}
+            className="min-h-11 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label
+            htmlFor="onboard-displayName"
+            className="text-xs font-semibold uppercase tracking-wide text-slate-600"
+          >
+            {copy.onboardDisplayNamePlaceholder}
+          </label>
+          <input
+            id="onboard-displayName"
+            data-testid="input-onboard-displayName"
+            placeholder={copy.onboardDisplayNamePlaceholder}
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            className="min-h-11 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label
+            htmlFor="onboard-iban"
+            className="text-xs font-semibold uppercase tracking-wide text-slate-600"
+          >
+            {copy.onboardIbanPlaceholder}
+          </label>
+          <input
+            id="onboard-iban"
+            data-testid="input-onboard-iban"
+            placeholder={copy.onboardIbanPlaceholder}
+            value={iban}
+            onChange={(e) => setIban(e.target.value)}
+            className="min-h-11 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label
+            htmlFor="onboard-currency"
+            className="text-xs font-semibold uppercase tracking-wide text-slate-600"
+          >
+            {copy.currencyLabel}
+          </label>
+          <select
+            id="onboard-currency"
+            data-testid="input-onboard-currency"
+            value={currency}
+            onChange={(e) => setCurrency(e.target.value)}
+            className="min-h-11 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
+          >
+            <option value="DKK">DKK</option>
+            <option value="EUR">EUR</option>
+          </select>
+        </div>
+        <div className="flex flex-col gap-1">
+          <label
+            htmlFor="onboard-hours"
+            className="text-xs font-semibold uppercase tracking-wide text-slate-600"
+          >
+            {copy.onboardHoursPlaceholder}
+          </label>
+          <input
+            id="onboard-hours"
+            data-testid="input-onboard-hours"
+            placeholder={copy.onboardHoursPlaceholder}
+            value={workingHoursJson}
+            onChange={(e) => setWorkingHoursJson(e.target.value)}
+            className="min-h-11 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label
+            htmlFor="onboard-address"
+            className="text-xs font-semibold uppercase tracking-wide text-slate-600"
+          >
+            {copy.onboardAddressPlaceholder}
+          </label>
+          <input
+            id="onboard-address"
+            data-testid="input-onboard-address"
+            placeholder={copy.onboardAddressPlaceholder}
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            className="min-h-11 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label
+            htmlFor="onboard-postalCode"
+            className="text-xs font-semibold uppercase tracking-wide text-slate-600"
+          >
+            {copy.onboardPostalPlaceholder}
+          </label>
+          <input
+            id="onboard-postalCode"
+            data-testid="input-onboard-postalCode"
+            placeholder={copy.onboardPostalPlaceholder}
+            value={postalCode}
+            onChange={(e) => setPostalCode(e.target.value)}
+            className="min-h-11 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label
+            htmlFor="onboard-phone"
+            className="text-xs font-semibold uppercase tracking-wide text-slate-600"
+          >
+            {copy.onboardPhonePlaceholder}
+          </label>
+          <input
+            id="onboard-phone"
+            data-testid="input-onboard-phone"
+            placeholder={copy.onboardPhonePlaceholder}
+            value={phoneNumber}
+            onChange={(e) => setPhoneNumber(e.target.value)}
+            className="min-h-11 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
+          />
+        </div>
+        <div className="sm:col-span-3 flex justify-end pt-1">
           <button
             type="submit"
             data-testid="submit-therapist-onboarding"
-            className="rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800"
+            className="min-h-11 rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800"
           >
             {copy.saveOnboardingBtn}
           </button>
@@ -2599,54 +3503,95 @@ export const TherapistClinicOnboardingView: React.FC<
 
       <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4" data-testid="therapist-services-card">
         <h3 className="text-sm font-semibold text-slate-900">{copy.servicesHeading}</h3>
-        <form onSubmit={handleCreateService} data-testid="therapist-service-form" className="grid grid-cols-1 gap-2 sm:grid-cols-5">
-          <input
-            data-testid="input-service-name"
-            placeholder={copy.serviceNamePlaceholder}
-            value={serviceName}
-            onChange={(e) => setServiceName(e.target.value)}
-            className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
-          />
-          <input
-            data-testid="input-service-price"
-            type="number"
-            placeholder={copy.servicePricePlaceholder}
-            value={servicePrice}
-            onChange={(e) => setServicePrice(e.target.value)}
-            className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
-          />
-          <input
-            data-testid="input-service-duration"
-            type="number"
-            placeholder={copy.serviceDurationPlaceholder}
-            value={serviceDuration}
-            onChange={(e) => setServiceDuration(e.target.value)}
-            className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
-          />
-          <input
-            data-testid="input-service-location"
-            placeholder={copy.serviceLocationPlaceholder}
-            value={serviceLocation}
-            onChange={(e) => setServiceLocation(e.target.value)}
-            className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
-          />
+        <form
+          noValidate
+          onSubmit={handleCreateService}
+          data-testid="therapist-service-form"
+          className="grid grid-cols-1 gap-2 sm:grid-cols-5 items-end"
+        >
+          <div className="flex flex-col gap-1">
+            <label
+              htmlFor="service-name"
+              className="text-xs font-semibold uppercase tracking-wide text-slate-600"
+            >
+              {copy.serviceNamePlaceholder}
+            </label>
+            <input
+              id="service-name"
+              data-testid="input-service-name"
+              placeholder={copy.serviceNamePlaceholder}
+              value={serviceName}
+              onChange={(e) => setServiceName(e.target.value)}
+              className="min-h-11 rounded-xl border border-slate-300 px-3 py-2 text-sm"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label
+              htmlFor="service-price"
+              className="text-xs font-semibold uppercase tracking-wide text-slate-600"
+            >
+              {copy.servicePricePlaceholder}
+            </label>
+            <input
+              id="service-price"
+              data-testid="input-service-price"
+              type="number"
+              placeholder={copy.servicePricePlaceholder}
+              value={servicePrice}
+              onChange={(e) => setServicePrice(e.target.value)}
+              className="min-h-11 rounded-xl border border-slate-300 px-3 py-2 text-sm"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label
+              htmlFor="service-duration"
+              className="text-xs font-semibold uppercase tracking-wide text-slate-600"
+            >
+              {copy.serviceDurationPlaceholder}
+            </label>
+            <input
+              id="service-duration"
+              data-testid="input-service-duration"
+              type="number"
+              placeholder={copy.serviceDurationPlaceholder}
+              value={serviceDuration}
+              onChange={(e) => setServiceDuration(e.target.value)}
+              className="min-h-11 rounded-xl border border-slate-300 px-3 py-2 text-sm"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label
+              htmlFor="service-location"
+              className="text-xs font-semibold uppercase tracking-wide text-slate-600"
+            >
+              {copy.serviceLocationPlaceholder}
+            </label>
+            <input
+              id="service-location"
+              data-testid="input-service-location"
+              placeholder={copy.serviceLocationPlaceholder}
+              value={serviceLocation}
+              onChange={(e) => setServiceLocation(e.target.value)}
+              className="min-h-11 rounded-xl border border-slate-300 px-3 py-2 text-sm"
+            />
+          </div>
           <button
             type="submit"
             data-testid="submit-clinic-service"
-            className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800"
+            className="min-h-11 rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800"
           >
             {copy.addServiceBtn}
           </button>
         </form>
 
         <ul className="space-y-2" data-testid="therapist-services-list">
-          {services.map((srv) => (
+          {pagedServices.map((srv) => (
             <li
               key={srv.id}
               className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm"
             >
               <span>
-                <strong>{srv.name}</strong> — {srv.price} {srv.currency} ({srv.durationMinutes} min){" "}
+                <strong>{srv.name}</strong> — {srv.price ?? srv.priceDkk} {srv.currency || "DKK"} ({srv.durationMinutes} min){" "}
                 <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs">
                   {srv.isActive ? copy.serviceActiveLabel : copy.serviceInactiveLabel}
                 </span>
@@ -2657,15 +3602,15 @@ export const TherapistClinicOnboardingView: React.FC<
                     type="button"
                     data-testid={`toggle-service-${srv.id}`}
                     onClick={() => void handleToggleService(srv.id!)}
-                    className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700"
+                    className="min-h-11 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700"
                   >
                     {copy.toggleServiceStatusBtn}
                   </button>
                   <button
                     type="button"
                     data-testid={`delete-service-${srv.id}`}
-                    onClick={() => void handleDeleteService(srv.id!)}
-                    className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700"
+                    onClick={() => setPendingAction({ kind: "delete-service", id: srv.id! })}
+                    className="min-h-11 rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700"
                   >
                     {copy.deleteBtn}
                   </button>
@@ -2674,6 +3619,35 @@ export const TherapistClinicOnboardingView: React.FC<
             </li>
           ))}
         </ul>
+
+        {uniqueServices.length > CLINIC_PAGE_SIZE && (
+          <div
+            className="flex items-center justify-between gap-2 pt-2"
+            data-testid="services-pagination"
+          >
+            <button
+              type="button"
+              disabled={safeServicePage <= 1}
+              data-testid="services-prev"
+              onClick={() => setServicesPage(Math.max(1, safeServicePage - 1))}
+              className="min-h-11 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+            >
+              {copy.prevPageBtn}
+            </button>
+            <span className="text-xs font-medium text-slate-600">
+              {copy.pageLabel} {safeServicePage} {copy.ofLabel} {totalServicePages}
+            </span>
+            <button
+              type="button"
+              disabled={safeServicePage >= totalServicePages}
+              data-testid="services-next"
+              onClick={() => setServicesPage(Math.min(totalServicePages, safeServicePage + 1))}
+              className="min-h-11 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+            >
+              {copy.nextPageBtn}
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="space-y-2 rounded-2xl border border-slate-200 bg-white p-4" data-testid="therapist-handshakes-card">
@@ -2685,7 +3659,8 @@ export const TherapistClinicOnboardingView: React.FC<
               className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm"
             >
               <span>
-                <strong>{hs.clientName || hs.clientUuid}</strong> — {hs.status}
+                <strong>{hs.clientName || hs.clientUuid}</strong> —{" "}
+                {localizeHandshakeStatus(hs.status, locale)}
               </span>
               {hs.id && (
                 <div className="flex gap-2">
@@ -2694,7 +3669,7 @@ export const TherapistClinicOnboardingView: React.FC<
                       type="button"
                       data-testid={`approve-handshake-${hs.id}`}
                       onClick={() => void handleUpdateHandshake(hs.id!, "ACTIVE")}
-                      className="rounded-lg bg-teal-700 px-2.5 py-1 text-xs font-semibold text-white"
+                      className="min-h-11 rounded-lg bg-teal-700 px-3 py-1.5 text-xs font-semibold text-white"
                     >
                       {copy.approveBtn}
                     </button>
@@ -2703,8 +3678,10 @@ export const TherapistClinicOnboardingView: React.FC<
                     <button
                       type="button"
                       data-testid={`terminate-handshake-${hs.id}`}
-                      onClick={() => void handleUpdateHandshake(hs.id!, "TERMINATED")}
-                      className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700"
+                      onClick={() =>
+                        setPendingAction({ kind: "terminate-handshake", id: hs.id! })
+                      }
+                      className="min-h-11 rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700"
                     >
                       {copy.terminateBtn}
                     </button>
@@ -2715,17 +3692,79 @@ export const TherapistClinicOnboardingView: React.FC<
           ))}
         </ul>
       </div>
+
+      <ConfirmActionDialog
+        open={Boolean(pendingAction)}
+        title={
+          pendingAction?.kind === "delete-service"
+            ? copy.confirmDeleteServiceTitle
+            : copy.confirmTerminateTitle
+        }
+        description={
+          pendingAction?.kind === "delete-service"
+            ? copy.confirmDeleteServiceDesc
+            : copy.confirmTerminateDesc
+        }
+        confirmLabel={
+          pendingAction?.kind === "delete-service"
+            ? copy.deleteBtn
+            : copy.terminateBtn
+        }
+        cancelLabel={copy.cancelBtn}
+        tone="danger"
+        onCancel={() => setPendingAction(null)}
+        onConfirm={() => {
+          const action = pendingAction;
+          setPendingAction(null);
+          if (!action) {
+            return;
+          }
+          if (action.kind === "delete-service") {
+            void handleDeleteService(action.id);
+          } else {
+            void handleUpdateHandshake(action.id, "TERMINATED");
+          }
+        }}
+      />
     </div>
   );
 };
 
 export const ProfileSettingsWorkspace: React.FC = () => {
   const auth = useOptionalAuth();
+  const locale = useUiLocale();
+  const copy = CLINIC_INNER_COPY[locale];
   const isProviderOrAdmin = Boolean(auth?.hasRole("PROVIDER", "MANAGEMENT"));
   return (
     <div className="space-y-6" data-testid="profile-settings-workspace">
       <ClientConsentAndProfileView />
-      {isProviderOrAdmin && <TherapistClinicOnboardingView />}
+      {isProviderOrAdmin && (
+        <section
+          data-testid="settings-clinic-shortcut-card"
+          className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs flex flex-wrap items-center justify-between gap-4"
+        >
+          <div className="space-y-1.5 max-w-xl">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-teal-200 bg-teal-50 px-3 py-1 text-xs font-semibold text-teal-800">
+              <i className="bi bi-building" aria-hidden="true" />
+              {copy.onboardingBadge}
+            </span>
+            <h2 className="text-lg font-bold tracking-tight text-slate-900">
+              {copy.onboardingHeading}
+            </h2>
+            <p className="text-sm text-slate-600">
+              {copy.settingsClinicShortcutDesc}
+            </p>
+          </div>
+          <a
+            href={`/${locale}/dashboard/clinic`}
+            data-testid="settings-open-clinic-cvr-link"
+            className="min-h-11 inline-flex items-center gap-2 rounded-xl bg-teal-700 px-4 py-2.5 text-sm font-semibold text-white shadow-xs transition-colors hover:bg-teal-800"
+          >
+            <i className="bi bi-arrow-right-circle" aria-hidden="true" />
+            {copy.settingsOpenClinicBtn}
+          </a>
+        </section>
+      )}
     </div>
   );
 };

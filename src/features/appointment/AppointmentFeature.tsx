@@ -38,6 +38,7 @@ import {
   ProblemDetail,
 } from "../../core/baseDomainCore";
 import {
+  ConfirmActionDialog,
   ProblemAlert,
   useBaseCrud,
   useOptionalAuth,
@@ -325,16 +326,79 @@ export function formatAppointmentDateParts(
 }
 
 /**
- * Filtrerer aftaler efter status-fane (`active`, `cancelled`, `all`) og valgfrit datointerval (`fromDate`..`toDate`).
+ * Deduplikerer behandlerliste på normaliseret nøgle (`userUuid` -> `id` -> normaliseret `displayName`).
+ */
+export function deduplicateProviders(
+  providers: DirectoryProviderDto[] | null | undefined
+): DirectoryProviderDto[] {
+  if (!Array.isArray(providers) || providers.length === 0) return [];
+  const seenIds = new Set<string>();
+  const seenNames = new Map<string, number>();
+  const result: DirectoryProviderDto[] = [];
+  for (const p of providers) {
+    if (!p || typeof p !== "object") continue;
+    const idKey = (p.userUuid || p.id || "").trim();
+    const nameKey = (p.displayName || "").trim().toLowerCase();
+    if ((!idKey && !nameKey) || (idKey && seenIds.has(idKey))) {
+      continue;
+    }
+    if (nameKey && seenNames.has(nameKey)) {
+      if (!idKey) {
+        continue;
+      }
+      const existingIdx = seenNames.get(nameKey)!;
+      seenIds.add(idKey);
+      result[existingIdx] = {
+        ...p,
+        displayName: result[existingIdx].displayName,
+      };
+      continue;
+    }
+    if (idKey) seenIds.add(idKey);
+    if (nameKey) seenNames.set(nameKey, result.length);
+    result.push(p);
+  }
+  return result;
+}
+
+/**
+ * Deduplikerer ydelsesliste både på `id` og på normaliseret `${name}|${duration}|${providerProfileId}`.
+ */
+export function deduplicateServices(
+  services: DirectoryServiceDto[] | null | undefined
+): DirectoryServiceDto[] {
+  if (!Array.isArray(services) || services.length === 0) return [];
+  const seenIds = new Set<string>();
+  const seenSignatures = new Set<string>();
+  const result: DirectoryServiceDto[] = [];
+  for (const s of services) {
+    if (!s || typeof s !== "object") continue;
+    const idKey = (s.id || "").trim();
+    const signature = `${(s.name || "").trim().toLowerCase()}|${s.durationMinutes ?? 0}|${(s.providerProfileId || "").trim()}`;
+    if ((idKey && seenIds.has(idKey)) || seenSignatures.has(signature)) {
+      continue;
+    }
+    if (idKey) seenIds.add(idKey);
+    seenSignatures.add(signature);
+    result.push(s);
+  }
+  return result;
+}
+
+/**
+ * Filtrerer aftaler efter status-fane (`active`, `cancelled`, `all`), valgfrit datointerval (`fromDate`..`toDate`)
+ * samt valgfri fritekst-søgning på klient, titel, behandler, klinik eller lokation.
  */
 export function filterAppointments(
   appointments: AppointmentDto[],
   statusFilter: AppointmentStatusFilter,
   fromDate?: string,
-  toDate?: string
+  toDate?: string,
+  searchQuery?: string
 ): AppointmentDto[] {
   const fromKey = fromDate?.trim() || "";
   const toKey = toDate?.trim() || "";
+  const query = searchQuery?.trim().toLowerCase() || "";
 
   return appointments
     .filter((item) => {
@@ -351,6 +415,21 @@ export function filterAppointments(
       }
       if (toKey && /^\d{4}-\d{2}-\d{2}$/.test(datePart) && datePart > toKey) {
         return false;
+      }
+      if (query) {
+        const haystack = [
+          item.clientName,
+          item.title,
+          item.therapistName,
+          item.organisationName,
+          item.location,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        if (!haystack.includes(query)) {
+          return false;
+        }
       }
       return true;
     })
@@ -438,6 +517,17 @@ interface AppointmentCopy {
   gitHistoryTitle: string;
   loadingHistory: string;
   emptyHistory: string;
+  searchPlaceholder: string;
+  searchAriaLabel: string;
+  technicalAuditSummary: string;
+  confirmCancelTitle: string;
+  confirmCancelDescPrefix: string;
+  confirmCancelBtn: string;
+  dismissDialogBtn: string;
+  paginationPrev: string;
+  paginationNext: string;
+  paginationPageLabel: string;
+  paginationOfLabel: string;
 }
 
 const APPOINTMENT_COPY: Record<SupportedUiLocale, AppointmentCopy> = {
@@ -519,9 +609,20 @@ const APPOINTMENT_COPY: Record<SupportedUiLocale, AppointmentCopy> = {
     newEndLabel: "Ny sluttid",
     saveNewTimeBtn: "Gem ny tid",
     cancelRescheduleBtn: "Annuller",
-    gitHistoryTitle: "JGit Audit-historik",
+    gitHistoryTitle: "Ændringshistorik",
     loadingHistory: "Henter revisionshistorik...",
-    emptyHistory: "Ingen Git-commits registreret endnu for denne aftale.",
+    emptyHistory: "Ingen ændringer registreret endnu for denne aftale.",
+    searchPlaceholder: "Søg efter klient, titel eller behandler...",
+    searchAriaLabel: "Søg i aftaler",
+    technicalAuditSummary: "Teknisk revisionsdetalje",
+    confirmCancelTitle: "Bekræft aflysning af aftale",
+    confirmCancelDescPrefix: "Er du sikker på, at du vil aflyse aftalen",
+    confirmCancelBtn: "Ja, aflys aftale",
+    dismissDialogBtn: "Behold aftale",
+    paginationPrev: "Forrige",
+    paginationNext: "Næste",
+    paginationPageLabel: "Side",
+    paginationOfLabel: "af",
   },
   en: {
     activeBadgeSuffix: "active",
@@ -601,9 +702,20 @@ const APPOINTMENT_COPY: Record<SupportedUiLocale, AppointmentCopy> = {
     newEndLabel: "New end time",
     saveNewTimeBtn: "Save new time",
     cancelRescheduleBtn: "Dismiss",
-    gitHistoryTitle: "JGit Audit History",
+    gitHistoryTitle: "Change History",
     loadingHistory: "Loading revision history...",
-    emptyHistory: "No Git commits recorded yet for this appointment.",
+    emptyHistory: "No changes recorded yet for this appointment.",
+    searchPlaceholder: "Search by client, title, or therapist...",
+    searchAriaLabel: "Search appointments",
+    technicalAuditSummary: "Technical audit details",
+    confirmCancelTitle: "Confirm appointment cancellation",
+    confirmCancelDescPrefix: "Are you sure you want to cancel the appointment",
+    confirmCancelBtn: "Yes, cancel appointment",
+    dismissDialogBtn: "Keep appointment",
+    paginationPrev: "Previous",
+    paginationNext: "Next",
+    paginationPageLabel: "Page",
+    paginationOfLabel: "of",
   },
   fr: {
     activeBadgeSuffix: "actifs",
@@ -683,9 +795,20 @@ const APPOINTMENT_COPY: Record<SupportedUiLocale, AppointmentCopy> = {
     newEndLabel: "Nouvelle fin",
     saveNewTimeBtn: "Enregistrer l'horaire",
     cancelRescheduleBtn: "Fermer",
-    gitHistoryTitle: "Historique d'Audit JGit",
+    gitHistoryTitle: "Historique des modifications",
     loadingHistory: "Chargement de l'historique...",
-    emptyHistory: "Aucun commit Git enregistré pour ce rendez-vous.",
+    emptyHistory: "Aucune modification enregistrée pour ce rendez-vous.",
+    searchPlaceholder: "Rechercher par client, titre ou praticien...",
+    searchAriaLabel: "Rechercher des rendez-vous",
+    technicalAuditSummary: "Détails techniques d'audit",
+    confirmCancelTitle: "Confirmer l'annulation du rendez-vous",
+    confirmCancelDescPrefix: "Voulez-vous vraiment annuler le rendez-vous",
+    confirmCancelBtn: "Oui, annuler le rendez-vous",
+    dismissDialogBtn: "Conserver le rendez-vous",
+    paginationPrev: "Précédent",
+    paginationNext: "Suivant",
+    paginationPageLabel: "Page",
+    paginationOfLabel: "sur",
   },
   es: {
     activeBadgeSuffix: "activas",
@@ -765,9 +888,20 @@ const APPOINTMENT_COPY: Record<SupportedUiLocale, AppointmentCopy> = {
     newEndLabel: "Nuevo fin",
     saveNewTimeBtn: "Guardar horario",
     cancelRescheduleBtn: "Cerrar",
-    gitHistoryTitle: "Historial de Auditoría JGit",
+    gitHistoryTitle: "Historial de cambios",
     loadingHistory: "Cargando historial de revisiones...",
-    emptyHistory: "Aún no hay commits Git registrados para esta cita.",
+    emptyHistory: "Aún no hay cambios registrados para esta cita.",
+    searchPlaceholder: "Buscar por cliente, título o terapeuta...",
+    searchAriaLabel: "Buscar citas",
+    technicalAuditSummary: "Detalles técnicos de auditoría",
+    confirmCancelTitle: "Confirmar cancelación de cita",
+    confirmCancelDescPrefix: "¿Está seguro de que desea cancelar la cita",
+    confirmCancelBtn: "Sí, cancelar cita",
+    dismissDialogBtn: "Mantener cita",
+    paginationPrev: "Anterior",
+    paginationNext: "Siguiente",
+    paginationPageLabel: "Página",
+    paginationOfLabel: "de",
   },
   de: {
     activeBadgeSuffix: "aktiv",
@@ -847,9 +981,20 @@ const APPOINTMENT_COPY: Record<SupportedUiLocale, AppointmentCopy> = {
     newEndLabel: "Neue Endzeit",
     saveNewTimeBtn: "Neue Zeit speichern",
     cancelRescheduleBtn: "Abbrechen",
-    gitHistoryTitle: "JGit Audit-Verlauf",
+    gitHistoryTitle: "Änderungsverlauf",
     loadingHistory: "Lade Revisionsverlauf...",
-    emptyHistory: "Noch keine Git-Commits für diesen Termin erfasst.",
+    emptyHistory: "Noch keine Änderungen für diesen Termin erfasst.",
+    searchPlaceholder: "Nach Klient, Titel oder Therapeut suchen...",
+    searchAriaLabel: "Termine suchen",
+    technicalAuditSummary: "Technische Revisionsdetails",
+    confirmCancelTitle: "Terminstornierung bestätigen",
+    confirmCancelDescPrefix: "Möchten Sie den Termin wirklich stornieren",
+    confirmCancelBtn: "Ja, Termin stornieren",
+    dismissDialogBtn: "Termin behalten",
+    paginationPrev: "Zurück",
+    paginationNext: "Weiter",
+    paginationPageLabel: "Seite",
+    paginationOfLabel: "von",
   },
 };
 
@@ -1009,10 +1154,22 @@ class ClinicIntegrationApiService extends BaseApiService<HasId<string>, string> 
     return this.request<ClinicDirectoryDto>("/directory");
   }
 
-  public saveWorkingHours(workingHoursJson: string): Promise<unknown> {
+  public async saveWorkingHours(workingHoursJson: string): Promise<unknown> {
+    const me = await this.request<{
+      userUuid?: string;
+      providerProfile?: {
+        organisation?: { cvrNumber?: string; name?: string };
+      };
+    }>("/me");
+    const org = me?.providerProfile?.organisation;
     return this.request("/therapist-onboarding", {
       method: "POST",
-      body: JSON.stringify({ workingHoursJson }),
+      body: JSON.stringify({
+        workingHoursJson,
+        ...(me?.userUuid ? { userUuid: me.userUuid } : {}),
+        ...(org?.cvrNumber ? { cvrNumber: org.cvrNumber } : {}),
+        ...(org?.name ? { organisationName: org.name } : {}),
+      }),
     });
   }
 }
@@ -1038,7 +1195,15 @@ function toProblemDetail(err: unknown): ProblemDetail {
 // 3. EXPORTED FEATURE VIEW (Præsentationslag koblet via useBaseCrud)
 // ============================================================================
 
-export const AppointmentFeatureView: React.FC = () => {
+export interface AppointmentFeatureViewProps {
+  portalMode?: "client" | "provider";
+}
+
+const APPOINTMENTS_PAGE_SIZE = 10;
+
+export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
+  portalMode,
+}) => {
   const auth = useOptionalAuth();
   const locale = useUiLocale();
   const copy = APPOINTMENT_COPY[locale];
@@ -1046,7 +1211,10 @@ export const AppointmentFeatureView: React.FC = () => {
     auth?.user.id && UUID_PATTERN.test(auth.user.id)
   );
   const isTherapist = Boolean(auth?.hasRole("PROVIDER"));
-  const canEditWeeklySchedule = isTherapist || !auth;
+  const isClientMode =
+    portalMode === "client" ||
+    (portalMode !== "provider" && Boolean(auth && !isTherapist));
+  const canEditWeeklySchedule = !isClientMode && (isTherapist || !auth);
 
   const {
     items,
@@ -1073,13 +1241,19 @@ export const AppointmentFeatureView: React.FC = () => {
   const [services, setServices] = useState<DirectoryServiceDto[]>([]);
   const [directoryLoaded, setDirectoryLoaded] = useState(false);
 
-  // Filter- & fanetilstand (`Aktive` skjuler gamle CANCELLED rækker som standard)
+  // Filter-, søge-, paginerings- & fanetilstand (`Aktive` skjuler gamle CANCELLED rækker som standard)
   const [statusFilter, setStatusFilter] =
     useState<AppointmentStatusFilter>("active");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [windowItems, setWindowItems] = useState<AppointmentDto[] | null>(null);
   const [filterLoading, setFilterLoading] = useState(false);
+
+  // Bekræftelsesdialog før aflysning
+  const [pendingCancelAppointment, setPendingCancelAppointment] =
+    useState<AppointmentDto | null>(null);
 
   // Timefold AI-panel
   const [showTimefold, setShowTimefold] = useState(false);
@@ -1099,7 +1273,7 @@ export const AppointmentFeatureView: React.FC = () => {
   const [scheduleSaving, setScheduleSaving] = useState(false);
   const [scheduleSavedMsg, setScheduleSavedMsg] = useState<string | null>(null);
 
-  // Inline Ombook + JGit Revisionshistorik
+  // Inline Ombook + Ændringshistorik
   const [rescheduleId, setRescheduleId] = useState<string | null>(null);
   const [rescheduleStart, setRescheduleStart] = useState("");
   const [rescheduleEnd, setRescheduleEnd] = useState("");
@@ -1120,8 +1294,8 @@ export const AppointmentFeatureView: React.FC = () => {
     setDirectoryLoaded(true);
     try {
       const dir = await appointmentApi.getClinicDirectory();
-      const loadedProviders = dir.providers ?? [];
-      const loadedServices = dir.services ?? [];
+      const loadedProviders = deduplicateProviders(dir.providers);
+      const loadedServices = deduplicateServices(dir.services);
       setProviders(loadedProviders);
       setServices(loadedServices);
       if (loadedProviders.length > 0) {
@@ -1146,17 +1320,18 @@ export const AppointmentFeatureView: React.FC = () => {
   }, [hasLiveUuid, directoryLoaded, loadDirectory]);
 
   const filteredServices = useMemo(() => {
-    if (!selectedTherapistUuid) return services;
+    const cleanServices = deduplicateServices(services);
+    if (!selectedTherapistUuid) return cleanServices;
     const provider = providers.find(
       (p) => p.userUuid === selectedTherapistUuid
     );
-    if (!provider) return services;
-    const matched = services.filter(
+    if (!provider) return cleanServices;
+    const matched = cleanServices.filter(
       (s) =>
         (provider.id && s.providerProfileId === provider.id) ||
         (provider.organisationId && s.organisationId === provider.organisationId)
     );
-    return matched.length > 0 ? matched : services;
+    return matched.length > 0 ? matched : cleanServices;
   }, [providers, services, selectedTherapistUuid]);
 
   const activeSourceItems = windowItems ?? items;
@@ -1173,9 +1348,32 @@ export const AppointmentFeatureView: React.FC = () => {
 
   const displayedAppointments = useMemo(
     () =>
-      filterAppointments(activeSourceItems, statusFilter, dateFrom, dateTo),
-    [activeSourceItems, statusFilter, dateFrom, dateTo]
+      filterAppointments(
+        activeSourceItems,
+        statusFilter,
+        dateFrom,
+        dateTo,
+        searchQuery
+      ),
+    [activeSourceItems, statusFilter, dateFrom, dateTo, searchQuery]
   );
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(displayedAppointments.length / APPOINTMENTS_PAGE_SIZE)
+  );
+  const safePage = Math.min(currentPage, totalPages);
+  const paginatedAppointments = useMemo(() => {
+    const startIdx = (safePage - 1) * APPOINTMENTS_PAGE_SIZE;
+    return displayedAppointments.slice(
+      startIdx,
+      startIdx + APPOINTMENTS_PAGE_SIZE
+    );
+  }, [displayedAppointments, safePage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilter, searchQuery, dateFrom, dateTo, windowItems]);
 
   const handleSelectService = (serviceId: string) => {
     setSelectedServiceId(serviceId);
@@ -1548,7 +1746,7 @@ export const AppointmentFeatureView: React.FC = () => {
                     value={timefoldTherapistUuid}
                     onChange={(e) => setTimefoldTherapistUuid(e.target.value)}
                     data-testid="timefold-therapist"
-                    className="w-full"
+                    className="min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
                   >
                     {providers.map((p) => (
                       <option key={p.userUuid} value={p.userUuid}>
@@ -1563,7 +1761,7 @@ export const AppointmentFeatureView: React.FC = () => {
                     value={timefoldTherapistUuid}
                     onChange={(e) => setTimefoldTherapistUuid(e.target.value)}
                     data-testid="timefold-therapist"
-                    className="w-full"
+                    className="min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
                   />
                 )}
               </div>
@@ -1577,7 +1775,7 @@ export const AppointmentFeatureView: React.FC = () => {
                   value={timefoldDate}
                   onChange={(e) => setTimefoldDate(e.target.value)}
                   data-testid="timefold-date"
-                  className="w-full"
+                  className="min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
                 />
               </div>
 
@@ -1589,7 +1787,7 @@ export const AppointmentFeatureView: React.FC = () => {
                   value={timefoldDuration}
                   onChange={(e) => setTimefoldDuration(Number(e.target.value))}
                   data-testid="timefold-duration"
-                  className="w-full"
+                  className="min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
                 >
                   <option value={30}>30 {copy.minutesUnit}</option>
                   <option value={45}>45 {copy.minutesUnit}</option>
@@ -1607,7 +1805,7 @@ export const AppointmentFeatureView: React.FC = () => {
                   value={timefoldPreferredTime}
                   onChange={(e) => setTimefoldPreferredTime(e.target.value)}
                   data-testid="timefold-preferred-time"
-                  className="w-full"
+                  className="min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
                 />
               </div>
 
@@ -1616,7 +1814,7 @@ export const AppointmentFeatureView: React.FC = () => {
                 onClick={handleFetchTimefoldSlots}
                 disabled={timefoldLoading}
                 data-testid="fetch-timefold-slots"
-                className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-teal-700 hover:bg-teal-800 text-white px-4 py-2.5 text-xs font-semibold shadow-xs transition-colors"
+                className="min-h-11 inline-flex items-center justify-center gap-1.5 rounded-xl bg-teal-700 hover:bg-teal-800 text-white px-4 py-2.5 text-xs font-semibold shadow-xs transition-colors"
               >
                 <i className="bi bi-search" aria-hidden="true" />
                 {timefoldLoading ? copy.searchingSlots : copy.findSlotsBtn}
@@ -1815,8 +2013,29 @@ export const AppointmentFeatureView: React.FC = () => {
           </section>
         )}
 
+        {/* Bekræftelsesdialog før aflysning */}
+        <ConfirmActionDialog
+          open={Boolean(pendingCancelAppointment)}
+          title={copy.confirmCancelTitle}
+          description={`${copy.confirmCancelDescPrefix}${
+            pendingCancelAppointment?.title || pendingCancelAppointment?.clientName
+              ? ` "${pendingCancelAppointment.title || pendingCancelAppointment.clientName}"`
+              : ""
+          }?`}
+          confirmLabel={copy.confirmCancelBtn}
+          cancelLabel={copy.dismissDialogBtn}
+          tone="danger"
+          onCancel={() => setPendingCancelAppointment(null)}
+          onConfirm={() => {
+            const targetId = pendingCancelAppointment?.id;
+            setPendingCancelAppointment(null);
+            if (targetId) void handleCancelAppointment(targetId);
+          }}
+        />
+
         {/* Moderne Booking-formular (Klient/Behandler) */}
         <form
+          noValidate
           onSubmit={handleSubmit}
           className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4 sm:p-5 space-y-4"
         >
@@ -1831,7 +2050,7 @@ export const AppointmentFeatureView: React.FC = () => {
                 value={clientName}
                 onChange={(e) => setClientName(e.target.value)}
                 data-testid="input-clientName"
-                className="w-full h-[42px]"
+                className="w-full min-h-11"
               />
             </div>
 
@@ -1843,11 +2062,11 @@ export const AppointmentFeatureView: React.FC = () => {
                 value={selectedTherapistUuid}
                 onChange={(e) => setSelectedTherapistUuid(e.target.value)}
                 data-testid="select-therapist"
-                className="w-full h-[42px]"
+                className="w-full min-h-11"
               >
                 <option value="">{copy.selectTherapistOption}</option>
                 {providers.map((p) => (
-                  <option key={p.userUuid} value={p.userUuid}>
+                  <option key={p.userUuid || p.id || p.displayName} value={p.userUuid}>
                     {p.displayName}
                     {p.organisationName ? ` (${p.organisationName})` : ""}
                   </option>
@@ -1863,7 +2082,7 @@ export const AppointmentFeatureView: React.FC = () => {
                 value={selectedServiceId}
                 onChange={(e) => handleSelectService(e.target.value)}
                 data-testid="select-service"
-                className="w-full h-[42px]"
+                className="w-full min-h-11"
               >
                 <option value="">{copy.selectServiceOption}</option>
                 {filteredServices.map((s) => (
@@ -1885,7 +2104,7 @@ export const AppointmentFeatureView: React.FC = () => {
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 data-testid="input-title"
-                className="w-full h-[42px]"
+                className="w-full min-h-11"
               />
             </div>
           </div>
@@ -1900,7 +2119,7 @@ export const AppointmentFeatureView: React.FC = () => {
                 value={startTime}
                 onChange={(e) => setStartTime(e.target.value)}
                 data-testid="input-startTime"
-                className="w-full h-[42px]"
+                className="w-full min-h-11"
               />
             </div>
 
@@ -1928,7 +2147,7 @@ export const AppointmentFeatureView: React.FC = () => {
                 value={endTime}
                 onChange={(e) => setEndTime(e.target.value)}
                 data-testid="input-endTime"
-                className="w-full h-[42px]"
+                className="w-full min-h-11"
               />
             </div>
 
@@ -1937,7 +2156,7 @@ export const AppointmentFeatureView: React.FC = () => {
                 type="submit"
                 disabled={busy}
                 data-testid="submit-booking"
-                className="w-full h-[42px] inline-flex items-center justify-center gap-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white px-5 text-sm font-semibold shadow-sm transition-colors whitespace-nowrap"
+                className="w-full min-h-11 inline-flex items-center justify-center gap-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white px-5 text-sm font-semibold shadow-sm transition-colors whitespace-nowrap"
               >
                 <i className="bi bi-calendar-plus" aria-hidden="true" />
                 {copy.bookBtn}
@@ -1946,76 +2165,90 @@ export const AppointmentFeatureView: React.FC = () => {
           </div>
         </form>
 
-        {/* Status-faner + Datointerval-filter */}
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between border-b border-slate-200 pb-3">
-          <div className="flex flex-wrap items-center gap-1.5">
-            {(
-              [
-                { id: "active", label: `${copy.filterActive} (${activeCount})` },
-                { id: "cancelled", label: `${copy.filterCancelled} (${cancelledCount})` },
-                { id: "all", label: `${copy.filterAll} (${activeSourceItems.length})` },
-              ] as const
-            ).map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setStatusFilter(tab.id)}
-                data-testid={`filter-status-${tab.id}`}
-                className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors ${
-                  statusFilter === tab.id
-                    ? "bg-slate-900 text-white shadow-xs"
-                    : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-100"
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
+        {/* Status-faner + Søgning + Datointerval-filter */}
+        <div className="flex flex-col gap-3 border-b border-slate-200 pb-3">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-wrap items-center gap-1.5">
+              {(
+                [
+                  { id: "active", label: `${copy.filterActive} (${activeCount})` },
+                  { id: "cancelled", label: `${copy.filterCancelled} (${cancelledCount})` },
+                  { id: "all", label: `${copy.filterAll} (${activeSourceItems.length})` },
+                ] as const
+              ).map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setStatusFilter(tab.id)}
+                  data-testid={`filter-status-${tab.id}`}
+                  className={`min-h-11 rounded-full px-4 py-2 text-xs font-semibold transition-colors ${
+                    statusFilter === tab.id
+                      ? "bg-slate-900 text-white shadow-xs"
+                      : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-100"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              type="date"
-              aria-label={copy.dateFromAria}
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-              data-testid="filter-date-from"
-              className="!py-1.5 !px-2.5 !text-xs"
-            />
-            <span className="text-xs text-slate-400">{copy.dateToConnector}</span>
-            <input
-              type="date"
-              aria-label={copy.dateToAria}
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-              data-testid="filter-date-to"
-              className="!py-1.5 !px-2.5 !text-xs"
-            />
-            <button
-              type="button"
-              onClick={handleApplyDateFilter}
-              data-testid="apply-date-filter"
-              className="rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700"
-            >
-              {copy.applyFilterBtn}
-            </button>
-            {(dateFrom || dateTo || windowItems) && (
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="search"
+                aria-label={copy.searchAriaLabel}
+                placeholder={copy.searchPlaceholder}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                data-testid="filter-appointment-search"
+                className="min-h-11 w-full sm:w-56 !py-2 !px-3 !text-xs"
+              />
+              <input
+                type="date"
+                aria-label={copy.dateFromAria}
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                data-testid="filter-date-from"
+                className="min-h-11 !py-2 !px-2.5 !text-xs"
+              />
+              <span className="text-xs text-slate-400">{copy.dateToConnector}</span>
+              <input
+                type="date"
+                aria-label={copy.dateToAria}
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+                data-testid="filter-date-to"
+                className="min-h-11 !py-2 !px-2.5 !text-xs"
+              />
               <button
                 type="button"
-                onClick={handleResetDateFilter}
-                data-testid="reset-date-filter"
-                className="rounded-xl px-2.5 py-1.5 text-xs font-semibold text-teal-700 hover:bg-teal-50"
+                onClick={handleApplyDateFilter}
+                data-testid="apply-date-filter"
+                className="min-h-11 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-3.5 py-2 text-xs font-semibold text-slate-700"
               >
-                {copy.resetFilterBtn}
+                {copy.applyFilterBtn}
               </button>
-            )}
-            <button
-              type="button"
-              onClick={() => void fetchAll()}
-              className="rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-2.5 py-1.5 text-xs text-slate-600"
-              title={copy.refreshTitle}
-            >
-              <i className="bi bi-arrow-clockwise" aria-hidden="true" />
-            </button>
+              {(dateFrom || dateTo || searchQuery || windowItems) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery("");
+                    handleResetDateFilter();
+                  }}
+                  data-testid="reset-date-filter"
+                  className="min-h-11 rounded-xl px-3 py-2 text-xs font-semibold text-teal-700 hover:bg-teal-50"
+                >
+                  {copy.resetFilterBtn}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => void fetchAll()}
+                className="min-h-11 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-3 py-2 text-xs text-slate-600"
+                title={copy.refreshTitle}
+              >
+                <i className="bi bi-arrow-clockwise" aria-hidden="true" />
+              </button>
+            </div>
           </div>
         </div>
 
@@ -2046,242 +2279,298 @@ export const AppointmentFeatureView: React.FC = () => {
             </p>
           </div>
         ) : (
-          <ul className="space-y-3" data-testid="booking-list">
-            {displayedAppointments.map((item) => {
-              const dateParts = formatAppointmentDateParts(
-                item.startTime,
-                item.endTime,
-                locale
-              );
-              const badge = getStatusPresentation(item.status, copy);
-              const isCancelled = item.status === "CANCELLED";
-              const isRescheduling = Boolean(item.id && rescheduleId === item.id);
-              const isHistoryOpen = Boolean(item.id && openHistoryId === item.id);
-              const historyEntries = item.id ? gitHistoryById[item.id] : undefined;
+          <>
+            <ul className="space-y-3" data-testid="booking-list">
+              {paginatedAppointments.map((item) => {
+                const dateParts = formatAppointmentDateParts(
+                  item.startTime,
+                  item.endTime,
+                  locale
+                );
+                const badge = getStatusPresentation(item.status, copy);
+                const isCancelled = item.status === "CANCELLED";
+                const isRescheduling = Boolean(item.id && rescheduleId === item.id);
+                const isHistoryOpen = Boolean(item.id && openHistoryId === item.id);
+                const historyEntries = item.id ? gitHistoryById[item.id] : undefined;
 
-              return (
-                <li
-                  key={item.id ?? `${item.clientName}-${item.startTime}`}
-                  className={`rounded-2xl border bg-white p-4 shadow-xs transition-colors ${
-                    isCancelled
-                      ? "border-slate-200/80 opacity-85"
-                      : "border-slate-200 hover:border-teal-300"
-                  }`}
-                >
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    {/* Venstre: Kalenderbadge + metadata */}
-                    <div className="flex items-start gap-3.5 min-w-0">
-                      <div
-                        className={`flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-2xl border text-center ${
-                          isCancelled
-                            ? "border-slate-200 bg-slate-100 text-slate-500"
-                            : "border-teal-200 bg-teal-50 text-teal-900"
-                        }`}
-                      >
-                        <span className="text-[10px] font-bold uppercase tracking-wider leading-none">
-                          {dateParts.monthShort}
-                        </span>
-                        <span className="text-lg font-extrabold leading-tight">
-                          {dateParts.dayNumber}
-                        </span>
-                      </div>
-
-                      <div className="min-w-0 space-y-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          {item.clientName ? (
-                            <>
-                              <strong className="text-sm font-bold text-slate-900">
-                                {item.clientName}
-                              </strong>
-                              {item.title && (
-                                <span className="text-sm text-slate-600">
-                                  — {item.title}
-                                </span>
-                              )}
-                            </>
-                          ) : (
-                            <strong className="text-sm font-bold text-slate-900">
-                              {item.title || copy.fallbackCardTitle}
-                            </strong>
-                          )}
-                          <span
-                            className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${badge.badgeClass}`}
-                          >
-                            {badge.label} ({item.status || "SCHEDULED"})
-                          </span>
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
-                          <span className="inline-flex items-center gap-1 font-medium text-slate-700">
-                            <i className="bi bi-clock" aria-hidden="true" />
-                            {dateParts.weekdayShort ? `${dateParts.weekdayShort} ` : ""}
-                            {dateParts.fullDate} · {dateParts.timeRange}
-                          </span>
-                          {item.therapistName && (
-                            <span className="inline-flex items-center gap-1">
-                              <i className="bi bi-person-badge" aria-hidden="true" />
-                              {item.therapistName}
-                            </span>
-                          )}
-                          {item.organisationName && (
-                            <span className="inline-flex items-center gap-1">
-                              <i className="bi bi-building" aria-hidden="true" />
-                              {item.organisationName}
-                            </span>
-                          )}
-                          {item.location && (
-                            <span className="inline-flex items-center gap-1">
-                              <i className="bi bi-geo-alt" aria-hidden="true" />
-                              {item.location}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Højre: Handlingspiller */}
-                    {item.id && (
-                      <div className="flex flex-wrap items-center gap-2 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => handleToggleGitHistory(item.id!)}
-                          data-testid={`git-history-btn-${item.id}`}
-                          className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors ${
-                            isHistoryOpen
-                              ? "border-slate-900 bg-slate-900 text-white"
-                              : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                return (
+                  <li
+                    key={item.id ?? `${item.clientName}-${item.startTime}`}
+                    className={`rounded-2xl border bg-white p-4 shadow-xs transition-colors ${
+                      isCancelled
+                        ? "border-slate-200/80 opacity-85"
+                        : "border-slate-200 hover:border-teal-300"
+                    }`}
+                  >
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      {/* Venstre: Kalenderbadge + metadata */}
+                      <div className="flex items-start gap-3.5 min-w-0">
+                        <div
+                          className={`flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-2xl border text-center ${
+                            isCancelled
+                              ? "border-slate-200 bg-slate-100 text-slate-500"
+                              : "border-teal-200 bg-teal-50 text-teal-900"
                           }`}
                         >
-                          <i className="bi bi-git" aria-hidden="true" />
-                          {copy.historyBtn}
-                        </button>
+                          <span className="text-[10px] font-bold uppercase tracking-wider leading-none">
+                            {dateParts.monthShort}
+                          </span>
+                          <span className="text-lg font-extrabold leading-tight">
+                            {dateParts.dayNumber}
+                          </span>
+                        </div>
 
-                        {!isCancelled && (
+                        <div className="min-w-0 space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            {item.clientName ? (
+                              <>
+                                <strong className="text-sm font-bold text-slate-900">
+                                  {item.clientName}
+                                </strong>
+                                {item.title && (
+                                  <span className="text-sm text-slate-600">
+                                    — {item.title}
+                                  </span>
+                                )}
+                              </>
+                            ) : (
+                              <strong className="text-sm font-bold text-slate-900">
+                                {item.title || copy.fallbackCardTitle}
+                              </strong>
+                            )}
+                            <span
+                              className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${badge.badgeClass}`}
+                            >
+                              {badge.label}
+                            </span>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+                            <span className="inline-flex items-center gap-1 font-medium text-slate-700">
+                              <i className="bi bi-clock" aria-hidden="true" />
+                              {dateParts.weekdayShort ? `${dateParts.weekdayShort} ` : ""}
+                              {dateParts.fullDate} · {dateParts.timeRange}
+                            </span>
+                            {item.therapistName && (
+                              <span className="inline-flex items-center gap-1">
+                                <i className="bi bi-person-badge" aria-hidden="true" />
+                                {item.therapistName}
+                              </span>
+                            )}
+                            {item.organisationName && (
+                              <span className="inline-flex items-center gap-1">
+                                <i className="bi bi-building" aria-hidden="true" />
+                                {item.organisationName}
+                              </span>
+                            )}
+                            {item.location && (
+                              <span className="inline-flex items-center gap-1">
+                                <i className="bi bi-geo-alt" aria-hidden="true" />
+                                {item.location}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Højre: Handlingspiller */}
+                      {item.id && (
+                        <div className="flex flex-wrap items-center gap-2 shrink-0">
                           <button
                             type="button"
-                            onClick={() =>
-                              isRescheduling
-                                ? setRescheduleId(null)
-                                : startReschedule(item)
-                            }
-                            data-testid={`reschedule-btn-${item.id}`}
-                            className="inline-flex items-center gap-1.5 rounded-xl border border-teal-200 bg-teal-50 hover:bg-teal-100 text-teal-800 px-3 py-1.5 text-xs font-semibold transition-colors"
+                            onClick={() => handleToggleGitHistory(item.id!)}
+                            data-testid={`git-history-btn-${item.id}`}
+                            className={`min-h-11 inline-flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-xs font-semibold transition-colors ${
+                              isHistoryOpen
+                                ? "border-slate-900 bg-slate-900 text-white"
+                                : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                            }`}
                           >
-                            <i className="bi bi-calendar-event" aria-hidden="true" />
-                            {copy.rescheduleBtn}
+                            <i className="bi bi-clock-history" aria-hidden="true" />
+                            {copy.historyBtn}
                           </button>
-                        )}
 
+                          {!isCancelled && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                isRescheduling
+                                  ? setRescheduleId(null)
+                                  : startReschedule(item)
+                              }
+                              data-testid={`reschedule-btn-${item.id}`}
+                              className="min-h-11 inline-flex items-center gap-1.5 rounded-xl border border-teal-200 bg-teal-50 hover:bg-teal-100 text-teal-800 px-3.5 py-2 text-xs font-semibold transition-colors"
+                            >
+                              <i className="bi bi-calendar-event" aria-hidden="true" />
+                              {copy.rescheduleBtn}
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => setPendingCancelAppointment(item)}
+                            data-testid={`delete-booking-${item.id}`}
+                            className="min-h-11 inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 px-3.5 py-2 text-xs font-semibold transition-colors"
+                          >
+                            <i className="bi bi-x-circle" aria-hidden="true" />
+                            {copy.cancelBtn}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Inline Ombookning */}
+                    {isRescheduling && item.id && (
+                      <div
+                        className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap items-end gap-2.5"
+                        data-testid={`reschedule-panel-${item.id}`}
+                      >
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[11px] font-semibold text-slate-600">
+                            {copy.newStartLabel}
+                          </label>
+                          <input
+                            type="datetime-local"
+                            value={rescheduleStart}
+                            onChange={(e) => setRescheduleStart(e.target.value)}
+                            data-testid={`reschedule-start-${item.id}`}
+                            className="min-h-11 !py-2 !px-2.5 !text-xs"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[11px] font-semibold text-slate-600">
+                            {copy.newEndLabel}
+                          </label>
+                          <input
+                            type="datetime-local"
+                            value={rescheduleEnd}
+                            onChange={(e) => setRescheduleEnd(e.target.value)}
+                            data-testid={`reschedule-end-${item.id}`}
+                            className="min-h-11 !py-2 !px-2.5 !text-xs"
+                          />
+                        </div>
                         <button
                           type="button"
-                          onClick={() => handleCancelAppointment(item.id!)}
-                          data-testid={`delete-booking-${item.id}`}
-                          className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 px-3 py-1.5 text-xs font-semibold transition-colors"
+                          onClick={() => void handleSaveReschedule(item)}
+                          data-testid={`reschedule-save-${item.id}`}
+                          className="min-h-11 rounded-xl bg-teal-700 hover:bg-teal-800 text-white px-4 py-2 text-xs font-semibold"
                         >
-                          <i className="bi bi-x-circle" aria-hidden="true" />
-                          {copy.cancelBtn}
+                          {copy.saveNewTimeBtn}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setRescheduleId(null)}
+                          className="min-h-11 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                        >
+                          {copy.cancelRescheduleBtn}
                         </button>
                       </div>
                     )}
-                  </div>
 
-                  {/* Inline Ombookning */}
-                  {isRescheduling && item.id && (
-                    <div
-                      className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap items-end gap-2.5"
-                      data-testid={`reschedule-panel-${item.id}`}
-                    >
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[11px] font-semibold text-slate-600">
-                          {copy.newStartLabel}
-                        </label>
-                        <input
-                          type="datetime-local"
-                          value={rescheduleStart}
-                          onChange={(e) => setRescheduleStart(e.target.value)}
-                          data-testid={`reschedule-start-${item.id}`}
-                          className="!py-1.5 !px-2.5 !text-xs"
-                        />
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[11px] font-semibold text-slate-600">
-                          {copy.newEndLabel}
-                        </label>
-                        <input
-                          type="datetime-local"
-                          value={rescheduleEnd}
-                          onChange={(e) => setRescheduleEnd(e.target.value)}
-                          data-testid={`reschedule-end-${item.id}`}
-                          className="!py-1.5 !px-2.5 !text-xs"
-                        />
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => void handleSaveReschedule(item)}
-                        data-testid={`reschedule-save-${item.id}`}
-                        className="rounded-xl bg-teal-700 hover:bg-teal-800 text-white px-3.5 py-2 text-xs font-semibold"
+                    {/* Ændringshistorik (teknisk SHA gemt i diskret sammenklappelig detalje for behandlere) */}
+                    {isHistoryOpen && item.id && (
+                      <div
+                        className="mt-3 pt-3 border-t border-slate-100 space-y-2"
+                        data-testid={`git-history-panel-${item.id}`}
                       >
-                        {copy.saveNewTimeBtn}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setRescheduleId(null)}
-                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50"
-                      >
-                        {copy.cancelRescheduleBtn}
-                      </button>
-                    </div>
-                  )}
-
-                  {/* JGit Audit-historik */}
-                  {isHistoryOpen && item.id && (
-                    <div
-                      className="mt-3 pt-3 border-t border-slate-100 space-y-2"
-                      data-testid={`git-history-panel-${item.id}`}
-                    >
-                      <div className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
-                        <i className="bi bi-journal-code" aria-hidden="true" />
-                        {copy.gitHistoryTitle}
-                      </div>
-                      {historyLoadingId === item.id && (
-                        <p className="text-xs text-slate-500 m-0">
-                          {copy.loadingHistory}
-                        </p>
-                      )}
-                      {historyLoadingId !== item.id &&
-                        (!historyEntries || historyEntries.length === 0) && (
+                        <div className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+                          <i className="bi bi-clock-history" aria-hidden="true" />
+                          {copy.gitHistoryTitle}
+                        </div>
+                        {historyLoadingId === item.id && (
                           <p className="text-xs text-slate-500 m-0">
-                            {copy.emptyHistory}
+                            {copy.loadingHistory}
                           </p>
                         )}
-                      {historyEntries && historyEntries.length > 0 && (
-                        <ul className="space-y-1.5">
-                          {historyEntries.map((commit) => (
-                            <li
-                              key={commit.commitHash}
-                              className="rounded-xl bg-slate-50 border border-slate-200 px-3 py-2 text-xs flex flex-wrap items-center justify-between gap-2"
-                            >
-                              <div className="flex items-center gap-2 min-w-0">
-                                <code className="rounded bg-slate-200 px-1.5 py-0.5 font-mono text-[11px] text-slate-800">
-                                  {commit.commitHash.slice(0, 8)}
-                                </code>
-                                <span className="font-medium text-slate-800">
-                                  {commit.message}
-                                </span>
-                              </div>
-                              <span className="text-slate-500">
-                                {commit.author} · {commit.timestamp}
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
+                        {historyLoadingId !== item.id &&
+                          (!historyEntries || historyEntries.length === 0) && (
+                            <p className="text-xs text-slate-500 m-0">
+                              {copy.emptyHistory}
+                            </p>
+                          )}
+                        {historyEntries && historyEntries.length > 0 && (
+                          <>
+                            <ul className="space-y-1.5">
+                              {historyEntries.map((commit) => (
+                                <li
+                                  key={commit.commitHash}
+                                  className="rounded-xl bg-slate-50 border border-slate-200 px-3 py-2 text-xs flex flex-wrap items-center justify-between gap-2"
+                                >
+                                  <span className="font-medium text-slate-800">
+                                    {commit.message}
+                                  </span>
+                                  <span className="text-slate-500">
+                                    {commit.author} · {commit.timestamp}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                            {!isClientMode && (
+                              <details
+                                data-testid={`technical-audit-history-${item.id}`}
+                                className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2 text-[11px] text-slate-600"
+                              >
+                                <summary className="cursor-pointer font-semibold text-slate-700 select-none">
+                                  {copy.technicalAuditSummary}
+                                </summary>
+                                <ul className="mt-2 space-y-1">
+                                  {historyEntries.map((commit) => (
+                                    <li
+                                      key={`sha-${commit.commitHash}`}
+                                      className="flex items-center gap-2 font-mono text-[11px]"
+                                    >
+                                      <code className="rounded bg-slate-200 px-1.5 py-0.5 text-slate-800">
+                                        {commit.commitHash.slice(0, 8)}
+                                      </code>
+                                      <span className="font-sans text-slate-500">
+                                        {commit.timestamp}
+                                      </span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </details>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+
+            {totalPages > 1 && (
+              <div
+                className="flex flex-wrap items-center justify-between gap-2 pt-2"
+                data-testid="booking-pagination"
+              >
+                <button
+                  type="button"
+                  disabled={safePage <= 1}
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  data-testid="booking-prev-page"
+                  className="min-h-11 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-50 px-4 py-2 text-xs font-semibold text-slate-700"
+                >
+                  {copy.paginationPrev}
+                </button>
+                <span className="text-xs font-medium text-slate-600">
+                  {copy.paginationPageLabel} {safePage} {copy.paginationOfLabel}{" "}
+                  {totalPages}
+                </span>
+                <button
+                  type="button"
+                  disabled={safePage >= totalPages}
+                  onClick={() =>
+                    setCurrentPage((p) => Math.min(totalPages, p + 1))
+                  }
+                  data-testid="booking-next-page"
+                  className="min-h-11 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-50 px-4 py-2 text-xs font-semibold text-slate-700"
+                >
+                  {copy.paginationNext}
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

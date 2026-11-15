@@ -24,7 +24,7 @@ describe("BookingFeature Vertical Slice (RoleGuard RBAC)", () => {
           roles: ["CLIENT"],
         }}
       >
-        <BookingFeatureView />
+        <BookingFeatureView portalMode="client" />
       </AuthProvider>
     );
 
@@ -32,6 +32,7 @@ describe("BookingFeature Vertical Slice (RoleGuard RBAC)", () => {
       expect(screen.getByTestId("booking-feature-view")).toBeDefined();
       expect(screen.getByText("Aftaler & Tidsbestilling")).toBeDefined();
     });
+    expect(screen.queryByTestId("toggle-weekly-schedule")).toBeNull();
     unmount();
 
     render(
@@ -43,11 +44,12 @@ describe("BookingFeature Vertical Slice (RoleGuard RBAC)", () => {
           roles: ["THERAPIST"],
         }}
       >
-        <BookingFeatureView />
+        <BookingFeatureView portalMode="provider" />
       </AuthProvider>
     );
     await waitFor(() => {
       expect(screen.getByTestId("booking-feature-view")).toBeDefined();
+      expect(screen.getByTestId("toggle-weekly-schedule")).toBeDefined();
     });
   });
 

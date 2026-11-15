@@ -51,10 +51,16 @@ const BOOKING_FORBIDDEN_COPY: Record<
   },
 };
 
+export interface BookingFeatureViewProps {
+  portalMode?: "client" | "provider";
+}
+
 /**
  * Role-Guarded Booking Vertical Slice (Shared between CLIENT and PROVIDER / THERAPIST).
  */
-export const BookingFeatureView: React.FC = () => {
+export const BookingFeatureView: React.FC<BookingFeatureViewProps> = ({
+  portalMode,
+}) => {
   const locale = useUiLocale();
   const copy = BOOKING_FORBIDDEN_COPY[locale];
 
@@ -74,7 +80,7 @@ export const BookingFeatureView: React.FC = () => {
         </div>
       }
     >
-      <AppointmentFeatureView />
+      <AppointmentFeatureView portalMode={portalMode} />
     </RoleGuard>
   );
 };

@@ -40,7 +40,7 @@ import {
   ErrorCode,
   HasId,
 } from "../../core/baseDomainCore";
-import { ProblemAlert, useBaseCrud } from "../../core/baseUiCore";
+import { ConfirmActionDialog, ProblemAlert, useBaseCrud } from "../../core/baseUiCore";
 
 // ==========================================
 // 1. DTOs & DOMAIN MODELS (1:1 with I18nFeature.java)
@@ -85,6 +85,8 @@ export const SUPPORTED_LOCALES = [
   "es",
   "it",
 ] as const;
+
+export const I18N_PAGE_SIZE = 25;
 
 export type SupportedUiLocale = "da" | "en" | "fr" | "es" | "de";
 
@@ -174,6 +176,16 @@ interface I18nViewCopy {
   loadingText: string;
   deleteBtn: string;
   switcherAriaLabel: string;
+  searchPlaceholder: string;
+  allLocalesBtn: string;
+  showingCountLabel: string;
+  emptyFilterText: string;
+  pageLabel: string;
+  prevPageBtn: string;
+  nextPageBtn: string;
+  deleteConfirmTitle: string;
+  deleteConfirmDesc: string;
+  cancelBtn: string;
 }
 
 const I18N_VIEW_COPY: Record<SupportedUiLocale, I18nViewCopy> = {
@@ -187,6 +199,16 @@ const I18N_VIEW_COPY: Record<SupportedUiLocale, I18nViewCopy> = {
     loadingText: "Indlæser...",
     deleteBtn: "Slet",
     switcherAriaLabel: "Vælg sprog",
+    searchPlaceholder: "Søg nøgle eller tekst...",
+    allLocalesBtn: "Alle sprog",
+    showingCountLabel: "nøgler",
+    emptyFilterText: "Ingen oversættelser matcher dit søgefilter.",
+    pageLabel: "Side",
+    prevPageBtn: "Forrige",
+    nextPageBtn: "Næste",
+    deleteConfirmTitle: "Slet oversættelse?",
+    deleteConfirmDesc: "Nøglen fjernes permanent fra sprogordbogen.",
+    cancelBtn: "Annuller",
   },
   en: {
     badge: "Localization",
@@ -198,6 +220,16 @@ const I18N_VIEW_COPY: Record<SupportedUiLocale, I18nViewCopy> = {
     loadingText: "Loading...",
     deleteBtn: "Delete",
     switcherAriaLabel: "Select language",
+    searchPlaceholder: "Search key or text...",
+    allLocalesBtn: "All locales",
+    showingCountLabel: "keys",
+    emptyFilterText: "No translations match your filter.",
+    pageLabel: "Page",
+    prevPageBtn: "Previous",
+    nextPageBtn: "Next",
+    deleteConfirmTitle: "Delete translation?",
+    deleteConfirmDesc: "This translation key will be permanently removed from the dictionary.",
+    cancelBtn: "Cancel",
   },
   fr: {
     badge: "Localisation",
@@ -209,6 +241,16 @@ const I18N_VIEW_COPY: Record<SupportedUiLocale, I18nViewCopy> = {
     loadingText: "Chargement...",
     deleteBtn: "Supprimer",
     switcherAriaLabel: "Choisir la langue",
+    searchPlaceholder: "Rechercher une clé ou un texte...",
+    allLocalesBtn: "Toutes les langues",
+    showingCountLabel: "clés",
+    emptyFilterText: "Aucune traduction ne correspond à votre filtre.",
+    pageLabel: "Page",
+    prevPageBtn: "Précédent",
+    nextPageBtn: "Suivant",
+    deleteConfirmTitle: "Supprimer la traduction ?",
+    deleteConfirmDesc: "Cette clé sera supprimée définitivement du dictionnaire.",
+    cancelBtn: "Annuler",
   },
   es: {
     badge: "Localización",
@@ -220,6 +262,16 @@ const I18N_VIEW_COPY: Record<SupportedUiLocale, I18nViewCopy> = {
     loadingText: "Cargando...",
     deleteBtn: "Eliminar",
     switcherAriaLabel: "Seleccionar idioma",
+    searchPlaceholder: "Buscar clave o texto...",
+    allLocalesBtn: "Todos los idiomas",
+    showingCountLabel: "claves",
+    emptyFilterText: "Ninguna traducción coincide con su filtro.",
+    pageLabel: "Página",
+    prevPageBtn: "Anterior",
+    nextPageBtn: "Siguiente",
+    deleteConfirmTitle: "¿Eliminar traducción?",
+    deleteConfirmDesc: "Esta clave se eliminará permanentemente del diccionario.",
+    cancelBtn: "Cancelar",
   },
   de: {
     badge: "Lokalisierung",
@@ -231,6 +283,16 @@ const I18N_VIEW_COPY: Record<SupportedUiLocale, I18nViewCopy> = {
     loadingText: "Wird geladen...",
     deleteBtn: "Löschen",
     switcherAriaLabel: "Sprache wählen",
+    searchPlaceholder: "Schlüssel oder Text suchen...",
+    allLocalesBtn: "Alle Sprachen",
+    showingCountLabel: "Schlüssel",
+    emptyFilterText: "Keine Übersetzungen entsprechen Ihrem Filter.",
+    pageLabel: "Seite",
+    prevPageBtn: "Zurück",
+    nextPageBtn: "Weiter",
+    deleteConfirmTitle: "Übersetzung löschen?",
+    deleteConfirmDesc: "Dieser Übersetzungsschlüssel wird dauerhaft aus dem Wörterbuch entfernt.",
+    cancelBtn: "Abbrechen",
   },
 };
 
@@ -243,6 +305,28 @@ export const I18nFeatureView: React.FC = () => {
   const [locale, setLocale] = useState("da");
   const [translationKey, setTranslationKey] = useState("");
   const [translationValue, setTranslationValue] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [localeFilter, setLocaleFilter] = useState<string>("all");
+  const [page, setPage] = useState<number>(1);
+  const [pendingDelete, setPendingDelete] = useState<I18nDictionaryDto | null>(null);
+
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const filteredItems = items.filter((item) => {
+    if (localeFilter !== "all" && item.locale.toLowerCase() !== localeFilter) {
+      return false;
+    }
+    if (!normalizedQuery) return true;
+    return (
+      item.translationKey.toLowerCase().includes(normalizedQuery) ||
+      item.translationValue.toLowerCase().includes(normalizedQuery)
+    );
+  });
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / I18N_PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const visibleItems = filteredItems.slice(
+    (currentPage - 1) * I18N_PAGE_SIZE,
+    currentPage * I18N_PAGE_SIZE
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -282,7 +366,7 @@ export const I18nFeatureView: React.FC = () => {
           placeholder={copy.localePlaceholder}
           value={locale}
           onChange={(e) => setLocale(e.target.value)}
-          className="w-28 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
+          className="min-h-11 w-28 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
           data-testid="input-i18n-locale"
         />
         <input
@@ -290,7 +374,7 @@ export const I18nFeatureView: React.FC = () => {
           placeholder={copy.keyPlaceholder}
           value={translationKey}
           onChange={(e) => setTranslationKey(e.target.value)}
-          className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
+          className="min-h-11 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
           data-testid="input-i18n-key"
         />
         <input
@@ -298,18 +382,76 @@ export const I18nFeatureView: React.FC = () => {
           placeholder={copy.valuePlaceholder}
           value={translationValue}
           onChange={(e) => setTranslationValue(e.target.value)}
-          className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
+          className="min-h-11 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
           data-testid="input-i18n-value"
         />
         <button
           type="submit"
           disabled={loading}
-          className="rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-50"
+          className="min-h-11 rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-50"
           data-testid="submit-i18n"
         >
           {copy.saveBtn}
         </button>
       </form>
+
+      <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2.5">
+          <input
+            type="search"
+            aria-label={copy.searchPlaceholder}
+            placeholder={copy.searchPlaceholder}
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setPage(1);
+            }}
+            className="min-h-11 flex-1 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
+            data-testid="input-i18n-search"
+          />
+          <span
+            data-testid="i18n-filtered-count"
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600"
+          >
+            {filteredItems.length} / {items.length} {copy.showingCountLabel}
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => {
+              setLocaleFilter("all");
+              setPage(1);
+            }}
+            data-testid="filter-i18n-locale-all"
+            className={`min-h-11 rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
+              localeFilter === "all"
+                ? "bg-teal-700 text-white"
+                : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-100"
+            }`}
+          >
+            {copy.allLocalesBtn}
+          </button>
+          {SUPPORTED_LOCALES.map((loc) => (
+            <button
+              key={loc}
+              type="button"
+              onClick={() => {
+                setLocaleFilter(loc);
+                setPage(1);
+              }}
+              data-testid={`filter-i18n-locale-${loc}`}
+              className={`min-h-11 rounded-lg px-3 py-2 text-xs font-semibold uppercase transition-colors ${
+                localeFilter === loc
+                  ? "bg-teal-700 text-white"
+                  : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-100"
+              }`}
+            >
+              {loc}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {loading && (
         <p data-testid="loading-indicator" className="text-sm text-slate-500">
@@ -317,34 +459,91 @@ export const I18nFeatureView: React.FC = () => {
         </p>
       )}
 
-      <ul className="space-y-2" data-testid="i18n-list">
-        {items.map((item) => (
-          <li
-            key={item.id}
-            className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-3 text-sm"
-          >
-            <div>
-              <span className="mr-2 rounded-md bg-slate-200/80 px-2 py-0.5 font-mono text-xs font-semibold text-slate-700">
-                {item.locale}
-              </span>
-              <strong className="text-slate-900">{item.translationKey}</strong>:{" "}
-              <span className="text-slate-700">{item.translationValue}</span>
-            </div>
+      {!loading && filteredItems.length === 0 ? (
+        <p
+          data-testid="i18n-empty-filter"
+          className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-6 text-center text-sm text-slate-600"
+        >
+          {copy.emptyFilterText}
+        </p>
+      ) : (
+        <ul className="space-y-2" data-testid="i18n-list">
+          {visibleItems.map((item) => (
+            <li
+              key={item.id}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-3 text-sm"
+            >
+              <div>
+                <span className="mr-2 rounded-md bg-slate-200/80 px-2 py-0.5 font-mono text-xs font-semibold text-slate-700">
+                  {item.locale}
+                </span>
+                <strong className="text-slate-900">{item.translationKey}</strong>:{" "}
+                <span className="text-slate-700">{item.translationValue}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPendingDelete(item)}
+                className="min-h-11 rounded-lg border border-rose-200 bg-rose-50 px-3.5 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-100"
+                data-testid={`delete-i18n-${item.id}`}
+              >
+                {copy.deleteBtn}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {totalPages > 1 && (
+        <div
+          className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3"
+          data-testid="i18n-pagination"
+        >
+          <span className="text-xs font-medium text-slate-600">
+            {copy.pageLabel} {currentPage} / {totalPages}
+          </span>
+          <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={async () => {
-                if (item.id && (await remove(item.id))) {
-                  i18nCache?.invalidateI18nCache(item.locale);
-                }
-              }}
-              className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-100"
-              data-testid={`delete-i18n-${item.id}`}
+              disabled={currentPage <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              className="min-h-11 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+              data-testid="i18n-prev-page"
             >
-              {copy.deleteBtn}
+              {copy.prevPageBtn}
             </button>
-          </li>
-        ))}
-      </ul>
+            <button
+              type="button"
+              disabled={currentPage >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              className="min-h-11 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+              data-testid="i18n-next-page"
+            >
+              {copy.nextPageBtn}
+            </button>
+          </div>
+        </div>
+      )}
+
+      <ConfirmActionDialog
+        open={Boolean(pendingDelete)}
+        title={copy.deleteConfirmTitle}
+        description={
+          pendingDelete
+            ? `${copy.deleteConfirmDesc} (${pendingDelete.locale}: ${pendingDelete.translationKey})`
+            : copy.deleteConfirmDesc
+        }
+        confirmLabel={copy.deleteBtn}
+        cancelLabel={copy.cancelBtn}
+        tone="danger"
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={async () => {
+          const target = pendingDelete;
+          setPendingDelete(null);
+          if (target?.id && (await remove(target.id))) {
+            i18nCache?.invalidateI18nCache(target.locale);
+          }
+        }}
+      />
     </div>
   );
 };
@@ -586,14 +785,14 @@ export const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({
 
   return (
     <div
-      className={`inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 shadow-xs transition-colors hover:border-slate-300 ${className}`.trim()}
+      className={`inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 shadow-xs transition-colors hover:border-slate-300 ${className}`.trim()}
     >
       <i className="bi bi-globe2 text-xs text-slate-500" aria-hidden="true" />
       <select
         aria-label={copy.switcherAriaLabel}
         value={activeLocale}
         onChange={handleLocaleChange}
-        className="cursor-pointer border-0 bg-transparent pr-1 text-xs font-medium text-slate-700 focus:outline-none"
+        className="min-h-11 cursor-pointer border-0 bg-transparent pr-1 text-xs font-medium text-slate-700 focus:outline-none"
         data-testid="language-switcher-select"
       >
         {LANGUAGE_OPTIONS.map((option) => (

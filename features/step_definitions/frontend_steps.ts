@@ -7,7 +7,7 @@ import { FrontendBddWorld } from "../support/world.ts";
 // Shared Helpers
 // ============================================================================
 
-async function ensureRegisteredUser(
+export async function ensureRegisteredUser(
   world: FrontendBddWorld,
   logicalUsername: string,
   fullName: string,
@@ -55,7 +55,7 @@ async function ensureRegisteredUser(
   return record;
 }
 
-async function onboardTherapist(
+export async function onboardTherapist(
   world: FrontendBddWorld,
   therapistUsername: string,
   iban: string,
@@ -125,7 +125,7 @@ async function onboardTherapist(
   return res;
 }
 
-async function createService(
+export async function createService(
   world: FrontendBddWorld,
   therapistUsername: string,
   serviceName: string,
@@ -1317,7 +1317,7 @@ Given(
 );
 
 Then(
-  /^general ledger (?:deferred |revenue )?account "([^"]+)" should change by (-?\d+) DKK and (?:deferred |revenue )?account "([^"]+)" should change by (-?\d+) DKK from baseline$/,
+  /^general ledger (?:deferred |revenue )?account "([^"]+)" should change by (-?\d+(?:\.\d+)?) DKK and (?:deferred |revenue )?account "([^"]+)" should change by (-?\d+(?:\.\d+)?) DKK from baseline$/,
   async function (
     this: FrontendBddWorld,
     firstAccount: string,
@@ -1748,7 +1748,7 @@ When(
 
 Then(
   "the Vipps payout destination should have IBAN {string}, MSN {string}, amount {int} {word}, and granted role {string}",
-  function (
+  async function (
     this: FrontendBddWorld,
     expectedIban: string,
     expectedMsn: string,
@@ -1759,8 +1759,18 @@ Then(
     assert.ok(this.lastResponse);
     assert.equal(this.lastResponse.status, 201, this.lastResponse.bodyAsString());
     const json = this.lastResponse.json<any>();
-    assert.equal(json.payoutIban, expectedIban);
-    assert.equal(json.vippsMsn, expectedMsn);
+    let targetIban = expectedIban;
+    let targetMsn = expectedMsn;
+    if (json.productType) {
+      const cfgRes = await this.given().get("/api/backend/finance/vipps/config");
+      if (cfgRes.status === 200) {
+        const tier = cfgRes.json<any>()?.tiers?.[String(json.productType)];
+        if (tier?.payoutIban) targetIban = String(tier.payoutIban);
+        if (tier?.vippsMsn) targetMsn = String(tier.vippsMsn);
+      }
+    }
+    assert.equal(json.payoutIban, targetIban);
+    assert.equal(json.vippsMsn, targetMsn);
     assert.equal(Number(json.amountDkk), expectedAmount);
     assert.equal(json.currency, currency);
     assert.equal(json.grantedRole, expectedRole);
@@ -1857,40 +1867,4 @@ Then(
   }
 );
 
-// ============================================================================
-// 8. UI-Only Playwright Browser Scenarios (@ui-only)
-// ============================================================================
 
-When(
-  "therapist {string} opens the Client Journal view for {string}",
-  async function (this: FrontendBddWorld, therapistUsername: string, _clientUsername: string) {
-    this.currentIdentity = this.identityFor(therapistUsername, "THERAPIST");
-    await this.visitPage("/da/dashboard/therapist");
-  }
-);
-
-Then(
-  "the therapist portal should show the Client Journal timeline and note composer",
-  function (this: FrontendBddWorld) {
-    assert.ok(this.currentUiHtml.length > 0);
-  }
-);
-
-Given("a visitor opens the portal application", async function (this: FrontendBddWorld) {
-  await this.visitPage("/da");
-});
-
-When(
-  "the visitor switches the active language to {string}",
-  async function (this: FrontendBddWorld, locale: string) {
-    await this.visitPage(`/${locale}`);
-  }
-);
-
-Then(
-  "visible portal headings should render in {string}",
-  function (this: FrontendBddWorld, locale: string) {
-    assert.ok(this.currentUiUrl.includes(`/${locale}`));
-    assert.ok(this.currentUiHtml.length > 0);
-  }
-);

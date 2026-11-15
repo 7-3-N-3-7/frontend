@@ -34,11 +34,17 @@ export default async function PersonalDashboard({
 
   const userName = session?.user?.name || t("defaultUser");
 
+  const rawSecure = typeof secureData?.data === "string" ? secureData.data.trim() : "";
+  const secureStatus =
+    rawSecure && !/sensitive enterprise data/i.test(rawSecure)
+      ? rawSecure
+      : null;
+
   return (
     <SyncedClientPortalWorkspace
       locale={locale}
       userName={userName}
-      secureStatus={secureData?.data || null}
+      secureStatus={secureStatus}
     />
   );
 }

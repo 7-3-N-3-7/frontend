@@ -4,7 +4,9 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { sessionCookieName } from '@/lib/auth-cookies';
 
-const BACKEND_URL = process.env.BACKEND_INTERNAL_URL || 'http://localhost:8081';
+function resolveBackendUrl(): string {
+  return process.env.BACKEND_INTERNAL_URL || 'http://localhost:8081';
+}
 
 async function proxyRequest(
   req: NextRequest,
@@ -12,7 +14,7 @@ async function proxyRequest(
 ) {
   const { path } = await context.params;
   const targetPath = path.join('/');
-  const targetUrl = `${BACKEND_URL}/api/v1/${targetPath}${req.nextUrl.search}`;
+  const targetUrl = `${resolveBackendUrl()}/api/v1/${targetPath}${req.nextUrl.search}`;
 
   // getServerSession triggers NextAuth's jwt() callback which refreshes expired Keycloak tokens
   const session: any = await getServerSession(authOptions);

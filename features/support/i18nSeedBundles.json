@@ -1,0 +1,643 @@
+{
+  "da": {
+    "landing": {
+      "nav": {
+        "title": "EduJournal",
+        "loginButton": "Opret / Log ind"
+      },
+      "hero": {
+        "badge": "Til Uddannelsesformål",
+        "titleLine1": "Reflekter, Lær, og Voks",
+        "titleLine2": "med",
+        "titleLine3": "EduJournal",
+        "subtitle": "En dedikeret platform til sikker journalsporing og problemfri tidsbestilling designet specielt til terapeuter og deres klienter."
+      },
+      "features": {
+        "card1Title": "Daglige Optegnelser",
+        "card1Desc": "Skriv dine daglige læringer og refleksioner ned med en intuitiv, distraktionsfri editor.",
+        "card2Title": "Privat & Sikkert",
+        "card2Desc": "Dine journaler er krypterede og private, hvilket sikrer et trygt rum for personlig pædagogisk refleksion.",
+        "card3Title": "Kognitiv Vækst",
+        "card3Desc": "Se tilbage på tidligere optegnelser for at se, hvordan din forståelse har udviklet sig over tid."
+      },
+      "footer": {
+        "text": "© 2026 EduJournal. Dette er et uddannelsesprojekt."
+      },
+      "auth": {
+        "signInTab": "Log ind",
+        "createAccountTab": "Opret Konto",
+        "invalidLogin": "Ugyldigt brugernavn eller adgangskode",
+        "autoLoginFailed": "Konto oprettet, men auto-login fejlede. Log venligst ind.",
+        "username": "Brugernavn",
+        "password": "Adgangskode",
+        "email": "E-mail adresse",
+        "firstName": "Fornavn",
+        "lastName": "Efternavn",
+        "signInButton": "Log ind",
+        "signingIn": "Logger ind...",
+        "createAccountButton": "Opret Konto",
+        "creatingAccount": "Opretter konto..."
+      }
+    },
+    "dashboard": {
+      "personal": {
+        "defaultUser": "Bruger",
+        "welcome": "Velkommen, {name}!",
+        "title": "Personligt Dashboard",
+        "description": "Du er i øjeblikket logget ind med en standard personlig konto.",
+        "integrationTest": {
+          "title": "Backend Integrationstest",
+          "success": "Succes:",
+          "successMessage": "Backend validerede din session succesfuldt.",
+          "failed": "Kunne ikke nå backend:",
+          "noSession": "Ingen session fundet."
+        },
+        "upsell": {
+          "title": "Er du en Terapeut?",
+          "description": "Opgrader din konto for at låse op for Terapeut Dashboardet og administrere din praksis og aftaler.",
+          "button": "Opgrader til Terapeut (Kommer Snart)"
+        }
+      },
+      "layout": {
+        "main": "Hoved",
+        "home": "Hjem",
+        "search": "Søg på platformen..."
+      },
+      "dropdown": {
+        "account": "Konto",
+        "settings": "Kontoindstillinger",
+        "signOut": "Log ud"
+      },
+      "therapist": {
+        "defaultUser": "Bruger",
+        "welcome": "Velkommen, Terapeut {name}!",
+        "accessGrantedTitle": "Terapeut Adgang Bevilget",
+        "accessGrantedDesc": "Du er sikkert blevet dirigeret til dette dashboard, fordi din Keycloak-token indeholder <code>therapist</code> rollen.",
+        "appointmentsTitle": "Tidsbestilling",
+        "appointmentsDesc": "Administrer dine patientaftaler ved hjælp af vores sikre MongoDB-backend.",
+        "appointmentsButton": "Vis Aftaler (Kommer Snart)",
+        "dictionaryTitle": "Ordbogsadministration",
+        "dictionaryDesc": "Rediger platformsoversættelser drevet af vores robuste PostgreSQL-database.",
+        "dictionaryButton": "Åbn i18n Editor (Kommer Snart)"
+      }
+    },
+    "portal": {
+      "brandTitle": "EduJournal Klinik",
+      "therapistPortalSub": "Terapeut & Klinikportal",
+      "adminPortalSub": "Platform Administration (i18n)",
+      "clientPortalSub": "Personlig Klientportal",
+      "navClientOverview": "Mit Overblik, Journal & Booking",
+      "navClientSettings": "Mine Stamdata",
+      "navTherapistCalendar": "Klinik Kalender & Klient-Workspaces",
+      "navTherapistSettings": "Klinik CVR & Arbejdstid",
+      "dbLiveBadge": "PostgreSQL & JGit Live",
+      "activeWorkspace": "Aktivt Workspace",
+      "therapistClinicProfile": "Terapeut Klinik-Profil",
+      "personalClientProfile": "Personlig Klient-Profil",
+      "switchWorkspaceHeader": "Skift Workspace / Profil",
+      "switchToTherapist": "Skift til Terapeut Klinik-Profil",
+      "switchToClient": "Skift til Klient-Profil",
+      "registerAsTherapistBtn": "Registrer som Terapeut (CVR)",
+      "adminI18nBtn": "Admin Sprog- & i18n Styring",
+      "profileSettingsBtn": "Min Profil & Indstillinger",
+      "signOutBtn": "Log ud",
+      "welcomeBack": "Velkommen tilbage, {name}",
+      "nextScheduledSession": "Næste Planlagte Session",
+      "noUpcomingAppointments": "Ingen kommende aftaler",
+      "latestMoodScore": "Seneste Humør-score",
+      "therapistConsentCard": "Behandler-Samtykke",
+      "activeTherapistsCount": "{count} Aktiv(e) Terapeut(er)",
+      "pcl5DrawerBtn": "PCL-5 Selvevaluering",
+      "bookNewSessionBtn": "Book Ny Samtale",
+      "tabJournal": "Min Dagbog & PCL-5",
+      "tabAppointments": "Mine Aftaler ({count})",
+      "tabMarketplace": "Find Behandler & Book",
+      "tabConsent": "Behandler-Adgang ({count})",
+      "therapistCalendarTitle": "Klinik Kalender & Multi-Window Workspaces",
+      "newAppointmentBtn": "Ny Aftale",
+      "addServiceBtn": "Tilføj Service",
+      "tabCalendar": "Månedskalender & Dagsprogram",
+      "tabClients": "Klientkartotek",
+      "tabServices": "Servicekatalog",
+      "appointmentsCountBadge": "{count} aftaler",
+      "singleAppointmentBadge": "1 aftale",
+      "activeWorkspacesTitle": "Aktive Workspaces",
+      "closeAllWindowsBtn": "Luk alle vinduer",
+      "available": "Tilgængelig",
+      "unavailable": "Utilgængelig",
+      "welcome": "Velkommen til EduJournal"
+    }
+  },
+  "en": {
+    "landing": {
+      "nav": {
+        "title": "EduJournal",
+        "loginButton": "Register / Login"
+      },
+      "hero": {
+        "badge": "For Educational Purposes",
+        "titleLine1": "Reflect, Learn, and Grow",
+        "titleLine2": "with",
+        "titleLine3": "EduJournal",
+        "subtitle": "A dedicated platform for secure journal tracking and seamless appointment booking designed specifically for therapists and their clients."
+      },
+      "features": {
+        "card1Title": "Daily Entries",
+        "card1Desc": "Write down your daily learnings and reflections with an intuitive, distraction-free editor.",
+        "card2Title": "Private & Secure",
+        "card2Desc": "Your journals are encrypted and private, ensuring a safe space for personal educational reflection.",
+        "card3Title": "Cognitive Growth",
+        "card3Desc": "Look back at past entries to see how your understanding has evolved over time."
+      },
+      "footer": {
+        "text": "© 2026 EduJournal. This is an educational project."
+      },
+      "auth": {
+        "signInTab": "Sign In",
+        "createAccountTab": "Create Account",
+        "invalidLogin": "Invalid username or password",
+        "autoLoginFailed": "Account created, but auto-login failed. Please sign in.",
+        "username": "Username",
+        "password": "Password",
+        "email": "Email address",
+        "firstName": "First Name",
+        "lastName": "Last Name",
+        "signInButton": "Sign In",
+        "signingIn": "Signing in...",
+        "createAccountButton": "Create Account",
+        "creatingAccount": "Creating account..."
+      }
+    },
+    "dashboard": {
+      "personal": {
+        "defaultUser": "User",
+        "welcome": "Welcome, {name}!",
+        "title": "Personal Dashboard",
+        "description": "You are currently logged in with a standard personal account.",
+        "integrationTest": {
+          "title": "Backend Integration Test",
+          "success": "Success:",
+          "successMessage": "Backend successfully validated your session.",
+          "failed": "Failed to reach backend:",
+          "noSession": "No session found."
+        },
+        "upsell": {
+          "title": "Are you a Therapist?",
+          "description": "Upgrade your account to unlock the Therapist Dashboard and manage your practice and appointments.",
+          "button": "Upgrade to Therapist (Coming Soon)"
+        }
+      },
+      "layout": {
+        "main": "Main",
+        "home": "Home",
+        "search": "Search platform..."
+      },
+      "dropdown": {
+        "account": "Account",
+        "settings": "Account Settings",
+        "signOut": "Sign Out"
+      },
+      "therapist": {
+        "defaultUser": "User",
+        "welcome": "Welcome, Therapist {name}!",
+        "accessGrantedTitle": "Therapist Access Granted",
+        "accessGrantedDesc": "You have been securely routed to this dashboard because your Keycloak token contains the <code>therapist</code> role.",
+        "appointmentsTitle": "Appointment Management",
+        "appointmentsDesc": "Manage your patient appointments using our secure MongoDB backend.",
+        "appointmentsButton": "View Appointments (Coming Soon)",
+        "dictionaryTitle": "Dictionary Management",
+        "dictionaryDesc": "Edit platform translations powered by our robust PostgreSQL database.",
+        "dictionaryButton": "Open i18n Editor (Coming Soon)"
+      }
+    },
+    "portal": {
+      "brandTitle": "EduJournal Clinic",
+      "therapistPortalSub": "Therapist & Clinic Portal",
+      "adminPortalSub": "Platform Administration (i18n)",
+      "clientPortalSub": "Personal Client Portal",
+      "navClientOverview": "My Overview, Journal & Booking",
+      "navClientSettings": "My Personal Details",
+      "navTherapistCalendar": "Clinic Calendar & Client Workspaces",
+      "navTherapistSettings": "Clinic CVR & Working Hours",
+      "dbLiveBadge": "PostgreSQL & JGit Live",
+      "activeWorkspace": "Active Workspace",
+      "therapistClinicProfile": "Therapist Clinic Profile",
+      "personalClientProfile": "Personal Client Profile",
+      "switchWorkspaceHeader": "Switch Workspace / Profile",
+      "switchToTherapist": "Switch to Therapist Clinic Profile",
+      "switchToClient": "Switch to Personal Client Profile",
+      "registerAsTherapistBtn": "Register as Therapist (CVR)",
+      "adminI18nBtn": "Admin Language & i18n Manager",
+      "profileSettingsBtn": "My Profile & Settings",
+      "signOutBtn": "Sign out",
+      "welcomeBack": "Welcome back, {name}",
+      "nextScheduledSession": "Next Scheduled Session",
+      "noUpcomingAppointments": "No upcoming appointments",
+      "latestMoodScore": "Latest Mood Score",
+      "therapistConsentCard": "Therapist Consent",
+      "activeTherapistsCount": "{count} Active Therapist(s)",
+      "pcl5DrawerBtn": "PCL-5 Self-Assessment",
+      "bookNewSessionBtn": "Book New Session",
+      "tabJournal": "My Journal & PCL-5",
+      "tabAppointments": "My Appointments ({count})",
+      "tabMarketplace": "Find Therapist & Book",
+      "tabConsent": "Therapist Access ({count})",
+      "therapistCalendarTitle": "Clinic Calendar & Multi-Window Workspaces",
+      "newAppointmentBtn": "New Appointment",
+      "addServiceBtn": "Add Service",
+      "tabCalendar": "Monthly Calendar & Daily Schedule",
+      "tabClients": "Client Directory",
+      "tabServices": "Service Catalog",
+      "appointmentsCountBadge": "{count} appointments",
+      "singleAppointmentBadge": "1 appointment",
+      "activeWorkspacesTitle": "Active Workspaces",
+      "closeAllWindowsBtn": "Close all windows",
+      "available": "Available",
+      "unavailable": "Unavailable"
+    }
+  },
+  "fr": {
+    "landing": {
+      "nav": {
+        "title": "EduJournal",
+        "loginButton": "Inscription / Connexion"
+      },
+      "hero": {
+        "badge": "À des fins éducatives",
+        "titleLine1": "Réfléchissez, Apprenez et Grandissez",
+        "titleLine2": "avec",
+        "titleLine3": "EduJournal",
+        "subtitle": "Une plateforme dédiée pour le suivi sécurisé de votre journal et la prise de rendez-vous fluide."
+      },
+      "features": {
+        "card1Title": "Entrées Quotidiennes",
+        "card1Desc": "Notez vos apprentissages avec un éditeur intuitif sans distractions.",
+        "card2Title": "Privé & Sécurisé",
+        "card2Desc": "Vos journaux sont cryptés, assurant un espace sûr pour votre réflexion.",
+        "card3Title": "Croissance Cognitive",
+        "card3Desc": "Revoyez vos anciennes entrées pour voir comment votre compréhension a évolué."
+      },
+      "footer": {
+        "text": "© 2026 EduJournal. Ceci est un projet éducatif."
+      },
+      "auth": {
+        "signInTab": "Se connecter",
+        "createAccountTab": "Créer un compte",
+        "invalidLogin": "Nom d'utilisateur ou mot de passe invalide",
+        "autoLoginFailed": "Compte créé, mais la connexion auto a échoué.",
+        "username": "Nom d'utilisateur",
+        "password": "Mot de passe",
+        "email": "Adresse e-mail",
+        "firstName": "Prénom",
+        "lastName": "Nom de famille",
+        "signInButton": "Se connecter",
+        "signingIn": "Connexion en cours...",
+        "createAccountButton": "Créer un compte",
+        "creatingAccount": "Création du compte..."
+      }
+    },
+    "dashboard": {
+      "personal": {
+        "defaultUser": "Utilisateur",
+        "welcome": "Bienvenue, {name} !",
+        "title": "Tableau de bord personnel",
+        "description": "Vous êtes connecté avec un compte personnel standard.",
+        "integrationTest": {
+          "title": "Test d'intégration",
+          "success": "Succès :",
+          "successMessage": "Le backend a validé votre session.",
+          "failed": "Impossible de joindre le backend :",
+          "noSession": "Aucune session trouvée."
+        },
+        "upsell": {
+          "title": "Êtes-vous Thérapeute ?",
+          "description": "Mettez à niveau votre compte pour débloquer le tableau de bord Thérapeute.",
+          "button": "Devenir Thérapeute (Bientôt)"
+        }
+      },
+      "layout": {
+        "main": "Principal",
+        "home": "Accueil",
+        "search": "Rechercher sur la plateforme..."
+      },
+      "dropdown": {
+        "account": "Compte",
+        "settings": "Paramètres du compte",
+        "signOut": "Déconnexion"
+      },
+      "therapist": {
+        "defaultUser": "Utilisateur",
+        "welcome": "Bienvenue, Thérapeute {name} !",
+        "accessGrantedTitle": "Accès Thérapeute Accordé",
+        "accessGrantedDesc": "Vous avez été dirigé vers ce tableau de bord car votre jeton Keycloak contient le rôle <code>therapist</code>.",
+        "appointmentsTitle": "Gestion des Rendez-vous",
+        "appointmentsDesc": "Gérez les rendez-vous de vos patients avec notre backend sécurisé MongoDB.",
+        "appointmentsButton": "Voir les Rendez-vous (Bientôt)",
+        "dictionaryTitle": "Gestion du Dictionnaire",
+        "dictionaryDesc": "Modifiez les traductions de la plateforme avec notre base de données PostgreSQL.",
+        "dictionaryButton": "Ouvrir l'Éditeur i18n (Bientôt)"
+      }
+    },
+    "portal": {
+      "brandTitle": "EduJournal Clinic",
+      "therapistPortalSub": "Portail Thérapeute & Clinique",
+      "adminPortalSub": "Administration de la Plateforme (i18n)",
+      "clientPortalSub": "Portail Client Personnel",
+      "navClientOverview": "Mon Aperçu, Journal & Réservation",
+      "navClientSettings": "Mes Informations",
+      "navTherapistCalendar": "Calendrier Clinique & Espaces Clients",
+      "navTherapistSettings": "Clinique CVR & Horaires",
+      "dbLiveBadge": "PostgreSQL & JGit en direct",
+      "activeWorkspace": "Espace Actif",
+      "therapistClinicProfile": "Profil Clinique Thérapeute",
+      "personalClientProfile": "Profil Client Personnel",
+      "switchWorkspaceHeader": "Changer d'Espace / Profil",
+      "switchToTherapist": "Passer au Profil Thérapeute",
+      "switchToClient": "Passer au Profil Client",
+      "registerAsTherapistBtn": "S'inscrire comme Thérapeute (CVR)",
+      "adminI18nBtn": "Administration des Langues (i18n)",
+      "profileSettingsBtn": "Mon Profil & Paramètres",
+      "signOutBtn": "Se déconnecter",
+      "welcomeBack": "Bon retour, {name}",
+      "nextScheduledSession": "Prochaine Séance Prévue",
+      "noUpcomingAppointments": " aucun rendez-vous à venir",
+      "latestMoodScore": "Dernier Score d'Humeur",
+      "therapistConsentCard": "Consentement Thérapeute",
+      "activeTherapistsCount": "{count} Thérapeute(s) Actif(s)",
+      "pcl5DrawerBtn": "Auto-évaluation PCL-5",
+      "bookNewSessionBtn": "Réserver une Séance",
+      "tabJournal": "Mon Journal & PCL-5",
+      "tabAppointments": "Mes Rendez-vous ({count})",
+      "tabMarketplace": "Trouver un Thérapeute",
+      "tabConsent": "Accès Thérapeutes ({count})",
+      "therapistCalendarTitle": "Calendrier Clinique & Espaces Multi-Fenêtres",
+      "newAppointmentBtn": "Nouveau Rendez-vous",
+      "addServiceBtn": "Ajouter un Service",
+      "tabCalendar": "Calendrier Mensuel & Programme",
+      "tabClients": "Répertoire Clients",
+      "tabServices": "Catalogue des Services",
+      "appointmentsCountBadge": "{count} rdv",
+      "singleAppointmentBadge": "1 rdv",
+      "activeWorkspacesTitle": "Espaces Actifs",
+      "closeAllWindowsBtn": "Fermer toutes les fenêtres",
+      "available": "Available",
+      "unavailable": "Unavailable"
+    }
+  },
+  "es": {
+    "landing": {
+      "nav": {
+        "title": "EduJournal",
+        "loginButton": "Registrarse / Iniciar Sesión"
+      },
+      "hero": {
+        "badge": "Para Fines Educativos",
+        "titleLine1": "Reflexiona, Aprende y Crece",
+        "titleLine2": "con",
+        "titleLine3": "EduJournal",
+        "subtitle": "Una plataforma dedicada para el seguimiento seguro de diarios y reservas perfectas, diseñada específicamente para terapeutas y sus clientes."
+      },
+      "features": {
+        "card1Title": "Entradas Diarias",
+        "card1Desc": "Anota tus aprendizajes y reflexiones diarias con un editor intuitivo y sin distracciones.",
+        "card2Title": "Privado y Seguro",
+        "card2Desc": "Tus diarios están encriptados y son privados, garantizando un espacio seguro para la reflexión educativa.",
+        "card3Title": "Crecimiento Cognitivo",
+        "card3Desc": "Revisa entradas pasadas para ver cómo ha evolucionado tu comprensión con el tiempo."
+      },
+      "footer": {
+        "text": "© 2026 EduJournal. Este es un proyecto educativo."
+      },
+      "auth": {
+        "signInTab": "Iniciar Sesión",
+        "createAccountTab": "Crear Cuenta",
+        "invalidLogin": "Usuario o contraseña inválidos",
+        "autoLoginFailed": "Cuenta creada, pero falló el auto-inicio de sesión. Por favor, inicia sesión.",
+        "username": "Nombre de usuario",
+        "password": "Contraseña",
+        "email": "Correo electrónico",
+        "firstName": "Nombre",
+        "lastName": "Apellido",
+        "signInButton": "Iniciar Sesión",
+        "signingIn": "Iniciando sesión...",
+        "createAccountButton": "Crear Cuenta",
+        "creatingAccount": "Creando cuenta..."
+      }
+    },
+    "dashboard": {
+      "personal": {
+        "defaultUser": "Usuario",
+        "welcome": "¡Bienvenido, {name}!",
+        "title": "Panel Personal",
+        "description": "Actualmente has iniciado sesión con una cuenta personal estándar.",
+        "integrationTest": {
+          "title": "Prueba de Integración",
+          "success": "Éxito:",
+          "successMessage": "El backend validó tu sesión con éxito.",
+          "failed": "Fallo al contactar el backend:",
+          "noSession": "No se encontró sesión."
+        },
+        "upsell": {
+          "title": "¿Eres Terapeuta?",
+          "description": "Actualiza tu cuenta para desbloquear el Panel de Terapeuta y gestionar tus citas.",
+          "button": "Actualizar a Terapeuta (Próximamente)"
+        }
+      },
+      "layout": {
+        "main": "Principal",
+        "home": "Inicio",
+        "search": "Buscar plataforma..."
+      },
+      "dropdown": {
+        "account": "Cuenta",
+        "settings": "Configuración de la cuenta",
+        "signOut": "Cerrar sesión"
+      },
+      "therapist": {
+        "defaultUser": "Usuario",
+        "welcome": "¡Bienvenido, Terapeuta {name}!",
+        "accessGrantedTitle": "Acceso de Terapeuta Concedido",
+        "accessGrantedDesc": "Has sido dirigido de forma segura a este panel porque tu token de Keycloak contiene el rol <code>therapist</code>.",
+        "appointmentsTitle": "Gestión de Citas",
+        "appointmentsDesc": "Gestiona las citas de tus pacientes utilizando nuestro seguro backend MongoDB.",
+        "appointmentsButton": "Ver Citas (Próximamente)",
+        "dictionaryTitle": "Gestión de Diccionarios",
+        "dictionaryDesc": "Edita las traducciones de la plataforma impulsadas por nuestra robusta base de datos PostgreSQL.",
+        "dictionaryButton": "Abrir Editor i18n (Próximamente)"
+      }
+    },
+    "portal": {
+      "brandTitle": "EduJournal Clinic",
+      "therapistPortalSub": "Portal de Terapeuta y Clínica",
+      "adminPortalSub": "Administración de Plataforma (i18n)",
+      "clientPortalSub": "Portal Personal del Cliente",
+      "navClientOverview": "Mi Resumen, Diario y Reservas",
+      "navClientSettings": "Mis Datos Personales",
+      "navTherapistCalendar": "Calendario Clínico y Espacios",
+      "navTherapistSettings": "Clínica CVR y Horario",
+      "dbLiveBadge": "PostgreSQL y JGit Activo",
+      "activeWorkspace": "Espacio Activo",
+      "therapistClinicProfile": "Perfil Clínico de Terapeuta",
+      "personalClientProfile": "Perfil Personal del Cliente",
+      "switchWorkspaceHeader": "Cambiar Espacio / Perfil",
+      "switchToTherapist": "Cambiar a Perfil de Terapeuta",
+      "switchToClient": "Cambiar a Perfil de Cliente",
+      "registerAsTherapistBtn": "Registrarse como Terapeuta (CVR)",
+      "adminI18nBtn": "Gestión de Idiomas (i18n)",
+      "profileSettingsBtn": "Mi Perfil y Configuración",
+      "signOutBtn": "Cerrar sesión",
+      "welcomeBack": "Bienvenido de nuevo, {name}",
+      "nextScheduledSession": "Próxima Sesión Programada",
+      "noUpcomingAppointments": "Sin citas próximas",
+      "latestMoodScore": "Última Puntuación de Ánimo",
+      "therapistConsentCard": "Consentimiento Terapéutico",
+      "activeTherapistsCount": "{count} Terapeuta(s) Activo(s)",
+      "pcl5DrawerBtn": "Autoevaluación PCL-5",
+      "bookNewSessionBtn": "Reservar Nueva Sesión",
+      "tabJournal": "Mi Diario y PCL-5",
+      "tabAppointments": "Mis Citas ({count})",
+      "tabMarketplace": "Buscar Terapeuta y Reservar",
+      "tabConsent": "Acceso de Terapeutas ({count})",
+      "therapistCalendarTitle": "Calendario Clínico y Espacios Multi-Ventana",
+      "newAppointmentBtn": "Nueva Cita",
+      "addServiceBtn": "Añadir Servicio",
+      "tabCalendar": "Calendario Mensual y Agenda",
+      "tabClients": "Directorio de Clientes",
+      "tabServices": "Catálogo de Servicios",
+      "appointmentsCountBadge": "{count} citas",
+      "singleAppointmentBadge": "1 cita",
+      "activeWorkspacesTitle": "Espacios Activos",
+      "closeAllWindowsBtn": "Cerrar todas las ventanas",
+      "available": "Available",
+      "unavailable": "Unavailable"
+    }
+  },
+  "de": {
+    "landing": {
+      "nav": {
+        "title": "EduJournal",
+        "loginButton": "Registrieren / Anmelden"
+      },
+      "hero": {
+        "badge": "Für Bildungszwecke",
+        "titleLine1": "Reflektieren, Lernen und Wachsen",
+        "titleLine2": "mit",
+        "titleLine3": "EduJournal",
+        "subtitle": "Eine spezielle Plattform für sicheres Journal-Tracking und nahtlose Terminbuchung."
+      },
+      "features": {
+        "card1Title": "Tägliche Einträge",
+        "card1Desc": "Schreiben Sie Ihre Erkenntnisse mit einem ablenkungsfreien Editor auf.",
+        "card2Title": "Privat & Sicher",
+        "card2Desc": "Ihre Journale sind verschlüsselt und privat.",
+        "card3Title": "Kognitives Wachstum",
+        "card3Desc": "Blicken Sie auf vergangene Einträge zurück."
+      },
+      "footer": {
+        "text": "© 2026 EduJournal. Dies ist ein Bildungsprojekt."
+      },
+      "auth": {
+        "signInTab": "Anmelden",
+        "createAccountTab": "Konto erstellen",
+        "invalidLogin": "Ungültiger Benutzername oder Passwort",
+        "autoLoginFailed": "Konto erstellt, aber Auto-Login fehlgeschlagen.",
+        "username": "Benutzername",
+        "password": "Passwort",
+        "email": "E-Mail",
+        "firstName": "Vorname",
+        "lastName": "Nachname",
+        "signInButton": "Anmelden",
+        "signingIn": "Wird angemeldet...",
+        "createAccountButton": "Konto erstellen",
+        "creatingAccount": "Konto wird erstellt..."
+      }
+    },
+    "dashboard": {
+      "personal": {
+        "defaultUser": "Benutzer",
+        "welcome": "Willkommen, {name}!",
+        "title": "Persönliches Dashboard",
+        "description": "Sie sind mit einem Standard-Persönlichkeitskonto angemeldet.",
+        "integrationTest": {
+          "title": "Backend Integrationstest",
+          "success": "Erfolg:",
+          "successMessage": "Sitzung erfolgreich validiert.",
+          "failed": "Backend nicht erreichbar:",
+          "noSession": "Keine Sitzung gefunden."
+        },
+        "upsell": {
+          "title": "Sind Sie Therapeut?",
+          "description": "Aktualisieren Sie Ihr Konto, um das Therapeuten-Dashboard freizuschalten.",
+          "button": "Zum Therapeuten aktualisieren (Bald)"
+        }
+      },
+      "layout": {
+        "main": "Haupt",
+        "home": "Startseite",
+        "search": "Plattform durchsuchen..."
+      },
+      "dropdown": {
+        "account": "Konto",
+        "settings": "Kontoeinstellungen",
+        "signOut": "Abmelden"
+      },
+      "therapist": {
+        "defaultUser": "Benutzer",
+        "welcome": "Willkommen, Therapeut {name}!",
+        "accessGrantedTitle": "Therapeuten-Zugriff gewährt",
+        "accessGrantedDesc": "Sie wurden sicher zu diesem Dashboard weitergeleitet, da Ihr Keycloak-Token die Rolle <code>therapist</code> enthält.",
+        "appointmentsTitle": "Terminverwaltung",
+        "appointmentsDesc": "Verwalten Sie Ihre Patiententermine über unser sicheres MongoDB-Backend.",
+        "appointmentsButton": "Termine ansehen (Bald)",
+        "dictionaryTitle": "Wörterbuchverwaltung",
+        "dictionaryDesc": "Bearbeiten Sie Plattformübersetzungen, die von unserer robusten PostgreSQL-Datenbank betrieben werden.",
+        "dictionaryButton": "i18n-Editor öffnen (Bald)"
+      }
+    },
+    "portal": {
+      "brandTitle": "EduJournal Clinic",
+      "therapistPortalSub": "Therapeuten- & Klinikportal",
+      "adminPortalSub": "Plattform-Verwaltung (i18n)",
+      "clientPortalSub": "Persönliches Klientenportal",
+      "navClientOverview": "Übersicht, Tagebuch & Buchung",
+      "navClientSettings": "Meine Stammdaten",
+      "navTherapistCalendar": "Klinik-Kalender & Arbeitsbereiche",
+      "navTherapistSettings": "Klinik-CVR & Arbeitszeiten",
+      "dbLiveBadge": "PostgreSQL & JGit Aktiv",
+      "activeWorkspace": "Aktiver Arbeitsbereich",
+      "therapistClinicProfile": "Therapeuten-Klinikprofil",
+      "personalClientProfile": "Persönliches Klientenprofil",
+      "switchWorkspaceHeader": "Profil / Arbeitsbereich wechseln",
+      "switchToTherapist": "Zum Therapeutenprofil wechseln",
+      "switchToClient": "Zum Klientenprofil wechseln",
+      "registerAsTherapistBtn": "Als Therapeut registrieren (CVR)",
+      "adminI18nBtn": "Sprach- & i18n-Verwaltung",
+      "profileSettingsBtn": "Mein Profil & Einstellungen",
+      "signOutBtn": "Abmelden",
+      "welcomeBack": "Willkommen zurück, {name}",
+      "nextScheduledSession": "Nächste Geplante Sitzung",
+      "noUpcomingAppointments": "Keine anstehenden Termine",
+      "latestMoodScore": "Letzter Stimmungswert",
+      "therapistConsentCard": "Therapeuten-Freigabe",
+      "activeTherapistsCount": "{count} Aktive(r) Therapeut(en)",
+      "pcl5DrawerBtn": "PCL-5 Selbsteinschätzung",
+      "bookNewSessionBtn": "Neue Sitzung buchen",
+      "tabJournal": "Mein Tagebuch & PCL-5",
+      "tabAppointments": "Meine Termine ({count})",
+      "tabMarketplace": "Therapeuten finden & buchen",
+      "tabConsent": "Therapeuten-Zugriff ({count})",
+      "therapistCalendarTitle": "Klinik-Kalender & Multi-Fenster Arbeitsbereiche",
+      "newAppointmentBtn": "Neuer Termin",
+      "addServiceBtn": "Leistung hinzufügen",
+      "tabCalendar": "Monatskalender & Tagesplan",
+      "tabClients": "Klientenverzeichnis",
+      "tabServices": "Leistungskatalog",
+      "appointmentsCountBadge": "{count} Termine",
+      "singleAppointmentBadge": "1 Termin",
+      "activeWorkspacesTitle": "Aktive Arbeitsbereiche",
+      "closeAllWindowsBtn": "Alle Fenster schließen",
+      "available": "Available",
+      "unavailable": "Unavailable"
+    }
+  }
+}

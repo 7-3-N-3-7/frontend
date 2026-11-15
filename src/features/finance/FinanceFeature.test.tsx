@@ -1,7 +1,12 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { FinanceFeatureView } from "./FinanceFeature";
+import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
+import {
+  FinanceFeatureView,
+  filterFinanceClientOptions,
+  localizeFinanceStatus,
+  localizeGlAccountName,
+} from "./FinanceFeature";
 import { AuthProvider } from "../../core/baseUiCore";
 import { ErrorCode, ProblemDetail } from "../../core/baseDomainCore";
 
@@ -48,7 +53,7 @@ describe("FinanceFeature Vertical Slice", () => {
       target: { value: "Traumeterapi #2" },
     });
     fireEvent.change(screen.getByTestId("input-amount"), {
-      target: { value: "1200" },
+      target: { value: "2" },
     });
     fireEvent.change(screen.getByTestId("input-currency"), {
       target: { value: "EUR" },
@@ -61,7 +66,7 @@ describe("FinanceFeature Vertical Slice", () => {
         id: "inv-2",
         clientUuid: "client-2",
         description: "Traumeterapi #2",
-        amount: 1200,
+        amount: 2,
         currency: "DKK",
         status: "PAID",
       }),
@@ -78,6 +83,13 @@ describe("FinanceFeature Vertical Slice", () => {
       status: 204,
     });
     fireEvent.click(screen.getByTestId("delete-invoice-inv-2"));
+    expect(screen.getByTestId("confirm-action-dialog")).toBeDefined();
+    fireEvent.click(screen.getByTestId("confirm-action-cancel"));
+    expect(screen.queryByTestId("confirm-action-dialog")).toBeNull();
+    expect(screen.getByText("Traumeterapi #2")).toBeDefined();
+
+    fireEvent.click(screen.getByTestId("delete-invoice-inv-2"));
+    fireEvent.click(screen.getByTestId("confirm-action-accept"));
 
     await waitFor(() => {
       expect(screen.queryByText("Traumeterapi #2")).toBeNull();
@@ -172,14 +184,14 @@ describe("FinanceFeature Vertical Slice", () => {
               id: "KB-1",
               clientUuid: "c-1",
               description: "Traumesession",
-              amount: 1200,
+              amount: 2,
               currency: "DKK",
               status: "PAID",
             },
           ],
           prepaidSavings: {
             savingsAccountId: "SAV-1",
-            balance: 5000,
+            balance: 3,
             remainingClips: 5,
             currency: "DKK",
           },
@@ -187,7 +199,7 @@ describe("FinanceFeature Vertical Slice", () => {
             {
               subscriptionId: "SUB-1",
               planName: "monthly-therapy-care",
-              monthlyAmount: 499,
+              monthlyAmount: 3,
               currency: "DKK",
               status: "ACTIVE",
             },
@@ -196,8 +208,8 @@ describe("FinanceFeature Vertical Slice", () => {
             {
               loanId: "LOAN-1",
               description: "Forløb",
-              principalAmount: 3000,
-              remainingPrincipal: 2000,
+              principalAmount: 6,
+              remainingPrincipal: 4,
               installmentsCount: 3,
               paidInstallments: 1,
               currency: "DKK",
@@ -233,9 +245,12 @@ describe("FinanceFeature Vertical Slice", () => {
     await waitFor(() => {
       expect(screen.getByTestId("client-clips-balance").textContent).toContain("5 klip");
       expect(screen.getByTestId("client-invoice-item-KB-1")).toBeDefined();
-      expect(screen.getByTestId("client-finance-git-history")).toBeDefined();
+      expect(screen.getByTestId("client-invoice-item-KB-1").textContent).toContain("Betalt");
     });
 
+    expect(screen.queryByTestId("client-finance-git-history")).toBeNull();
+    expect(screen.queryByTestId("technical-audit-details")).toBeNull();
+    expect(screen.getByTestId("finance-feature-view").textContent).not.toMatch(/OSGi|Docker Secrets|JGit/i);
     expect(screen.queryByTestId("finance-form")).toBeNull();
 
     fireEvent.click(screen.getByTestId("btn-buy-clipcard"));
@@ -281,18 +296,52 @@ describe("FinanceFeature Vertical Slice", () => {
     fireEvent.click(screen.getByTestId("dismiss-error"));
   });
 
-  it("renders Fineract General Ledger, refunds, and installment loan creation for THERAPIST users", async () => {
+  it("renders Fineract General Ledger, confirmed refunds, pagination, and installment loan creation for THERAPIST users", async () => {
+    expect(localizeFinanceStatus("CUSTOM_STATE", "da")).toBe("CUSTOM_STATE");
+    expect(localizeGlAccountName("9999", "Specialkonto", "en")).toBe("Specialkonto");
+    expect(localizeGlAccountName("9999", undefined, "en")).toBe("");
+
+    const elevenInvoices = Array.from({ length: 11 }, (_, idx) => ({
+      id: idx === 0 ? "inv-t1" : `inv-t-${idx + 1}`,
+      clientUuid: "c-1",
+      description: `Session #${idx + 1}`,
+      amount: 2,
+      currency: "DKK",
+      status: "PAID",
+    }));
+
     const fetchMock = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
+      if (url.includes("/api/backend/clinic/clients")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            { id: "cp-self", userId: "t-1", fullName: "Dr. Maja", email: "maja@klinik.dk" },
+            { id: "cp-dr", userId: "t-dr", fullName: "Dr. Bo", email: "bo@klinik.dk" },
+            { id: "cp-ter", userId: "t-sofie", fullName: "sofie_terapeut", email: "sofie@klinik.dk" },
+            { id: "cp-1", userId: "c-1", fullName: "Anders Sand", email: "anders@sand.dk" },
+            { id: "cp-dup", userId: "c-dup", fullName: "anders sand ", email: "dup@sand.dk" },
+            { id: "cp-2", fullName: "Maja Holm" },
+          ],
+        };
+      }
       if (url.includes("/ledger/summary")) {
         return {
           ok: true,
           status: 200,
           json: async () => ({
             chartOfAccounts: [
-              { code: "1100", name: "Bank", type: "ASSET", balance: 1200 },
+              { code: "1100", name: "Bank", type: "ASSET", balance: 2 },
             ],
-            gitHistory: [],
+            gitHistory: [
+              {
+                commitHash: "sha-prov-1",
+                shortHash: "sha-pro",
+                message: "Faktura bogført",
+                authorName: "Bo Jensen",
+              },
+            ],
           }),
         };
       }
@@ -302,16 +351,7 @@ describe("FinanceFeature Vertical Slice", () => {
       return {
         ok: true,
         status: 200,
-        json: async () => [
-          {
-            id: "inv-t1",
-            clientUuid: "c-1",
-            description: "Session #1",
-            amount: 1200,
-            currency: "DKK",
-            status: "PAID",
-          },
-        ],
+        json: async () => elevenInvoices,
       };
     });
     global.fetch = fetchMock;
@@ -325,17 +365,55 @@ describe("FinanceFeature Vertical Slice", () => {
           roles: ["THERAPIST"],
         }}
       >
-        <FinanceFeatureView />
+        <FinanceFeatureView portalMode="provider" />
       </AuthProvider>
     );
 
     await waitFor(() => {
       expect(screen.getByTestId("ledger-accounts-grid")).toBeDefined();
       expect(screen.getByTestId("refund-invoice-inv-t1")).toBeDefined();
+      expect(screen.getByTestId("technical-audit-details")).toBeDefined();
+      expect(screen.getByTestId("provider-finance-git-history").textContent).toContain("sha-pro");
+      expect(screen.getByTestId("ledger-accounts-grid").textContent).toContain("Bank & likviditet");
+      expect(screen.getByTestId("select-finance-client")).toBeDefined();
+      expect(screen.getByTestId("vipps-sandbox-badge")).toBeDefined();
+      expect(screen.getByTestId("provider-invoice-pagination")).toBeDefined();
     });
+    const financePickerHtml = screen.getByTestId("select-finance-client").innerHTML;
+    expect(financePickerHtml).toContain("Anders Sand (anders@sand.dk)");
+    expect(financePickerHtml).toContain("Maja Holm");
+    expect(financePickerHtml).not.toContain("Dr. Maja");
+    expect(financePickerHtml).not.toContain("Dr. Bo");
+    expect(financePickerHtml).not.toContain("sofie_terapeut");
+    expect(financePickerHtml).not.toContain("dup@sand.dk");
+
+    // Pagination Next / Prev
+    fireEvent.click(screen.getByTestId("provider-invoice-next-page"));
+    expect(screen.getByText("Session #11")).toBeDefined();
+    fireEvent.click(screen.getByTestId("provider-invoice-prev-page"));
+    expect(screen.getByText("Session #1")).toBeDefined();
+
+    // Confirmed refund
+    fireEvent.click(screen.getByTestId("refund-invoice-inv-t1"));
+    expect(screen.getByTestId("confirm-action-dialog")).toBeDefined();
+    fireEvent.click(screen.getByTestId("confirm-action-cancel"));
+    expect(screen.queryByTestId("confirm-action-dialog")).toBeNull();
 
     fireEvent.click(screen.getByTestId("refund-invoice-inv-t1"));
+    fireEvent.click(screen.getByTestId("confirm-action-accept"));
+
+    // Select human client or toggle manual ID
+    fireEvent.change(screen.getByTestId("select-finance-client"), {
+      target: { value: "c-1" },
+    });
+    fireEvent.change(screen.getByTestId("select-finance-client"), {
+      target: { value: "__manual__" },
+    });
     fireEvent.change(screen.getByTestId("input-clientUuid"), {
+      target: { value: "c-1" },
+    });
+    fireEvent.click(screen.getByTestId("btn-finance-back-to-clients"));
+    fireEvent.change(screen.getByTestId("select-finance-client"), {
       target: { value: "c-1" },
     });
     fireEvent.click(screen.getByTestId("btn-create-loan"));
@@ -367,7 +445,7 @@ describe("FinanceFeature Vipps MobilePay OSGi Hub & Checkout", () => {
         agreementId: "agr-existing",
         productType: "SUBSCRIPTION",
         planName: "Klinik Abonnement",
-        amountDkk: 499,
+        amountDkk: 3,
         currency: "DKK",
         paymentMethod: "MOBILEPAY",
         maskedInstrument: "MobilePay +4520123456",
@@ -386,7 +464,7 @@ describe("FinanceFeature Vipps MobilePay OSGi Hub & Checkout", () => {
             agreementId: "agr-therapist-1",
             productType: "THERAPIST_ACCESS",
             planName: "Therapist-adgang",
-            amountDkk: 799,
+            amountDkk: 4,
             currency: "DKK",
             paymentMethod: "MOBILEPAY",
             maskedInstrument: "MobilePay +4520998877",
@@ -403,7 +481,7 @@ describe("FinanceFeature Vipps MobilePay OSGi Hub & Checkout", () => {
             status: "ACTIVE",
             productType: "THERAPIST_ACCESS",
             planName: "Therapist-adgang",
-            amountDkk: 799,
+            amountDkk: 4,
             currency: "DKK",
             maskedInstrument: "MobilePay +4520998877",
             payoutIban: "DK8130000012345678",
@@ -411,6 +489,7 @@ describe("FinanceFeature Vipps MobilePay OSGi Hub & Checkout", () => {
             grantedRole: "THERAPIST",
             agreementId: "agr-therapist-1",
             vippsReferenceId: "vref-therapist-1",
+            redirectUrl: "https://landing.vipps.no/therapist-1",
             gitCommitHash: "deadbeef",
           }),
         };
@@ -469,14 +548,16 @@ describe("FinanceFeature Vipps MobilePay OSGi Hub & Checkout", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("vipps-payment-hub")).toBeDefined();
+      expect(screen.getByTestId("professional-licenses-section")).toBeDefined();
+      expect(screen.getByTestId("btn-checkout-session")).toBeDefined();
       expect(screen.getByTestId("btn-checkout-therapist-access")).toBeDefined();
     });
 
+    fireEvent.click(screen.getByTestId("professional-licenses-toggle"));
     fireEvent.click(screen.getByTestId("btn-checkout-therapist-access"));
     await waitFor(() => {
       expect(screen.getByTestId("vipps-checkout-modal")).toBeDefined();
-      expect(screen.getByTestId("checkout-payout-routing").textContent).toContain("DK8130000012345678");
-      expect(screen.getByTestId("checkout-payout-routing").textContent).toContain("700101");
+      expect(screen.queryByTestId("checkout-payout-routing")).toBeNull();
     });
 
     fireEvent.change(screen.getByTestId("input-vipps-phone"), {
@@ -485,8 +566,13 @@ describe("FinanceFeature Vipps MobilePay OSGi Hub & Checkout", () => {
     fireEvent.click(screen.getByTestId("btn-confirm-vipps-checkout"));
 
     await waitFor(() => {
-      expect(screen.getByTestId("vipps-checkout-receipt").textContent).toContain("THERAPIST");
-      expect(screen.getByTestId("vipps-checkout-receipt").textContent).toContain("deadbeef");
+      const receiptText = screen.getByTestId("vipps-checkout-receipt").textContent || "";
+      expect(receiptText).toContain("THERAPIST");
+      expect(receiptText).not.toContain("deadbeef");
+      expect(receiptText).not.toContain("DK8130000012345678");
+      expect(screen.getByTestId("vipps-redirect-link").getAttribute("href")).toBe(
+        "https://landing.vipps.no/therapist-1"
+      );
       expect(onRoleUpgraded).toHaveBeenCalledTimes(1);
     });
 
@@ -498,9 +584,15 @@ describe("FinanceFeature Vipps MobilePay OSGi Hub & Checkout", () => {
     });
 
     fireEvent.click(screen.getByTestId("btn-cancel-agreement-agr-therapist-1"));
+    expect(screen.getByTestId("confirm-action-dialog")).toBeDefined();
+    fireEvent.click(screen.getByTestId("confirm-action-cancel"));
+    expect(screen.queryByTestId("confirm-action-dialog")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("btn-cancel-agreement-agr-therapist-1"));
+    fireEvent.click(screen.getByTestId("confirm-action-accept"));
     await waitFor(() => {
       expect(screen.getByTestId("vipps-agreement-item-agr-therapist-1").textContent).toContain(
-        "STOPPED"
+        "Opsagt"
       );
       expect(screen.queryByTestId("btn-charge-agreement-agr-therapist-1")).toBeNull();
     });
@@ -529,15 +621,15 @@ describe("FinanceFeature Vipps MobilePay OSGi Hub & Checkout", () => {
           status: 200,
           json: async () => ({
             chartOfAccounts: [
-              { code: "1100", name: "Bank", type: "ASSET", balance: 5000 },
-              { glCode: "4300", type: "INCOME", balance: 799 },
+              { code: "1100", name: "Bank", type: "ASSET", balance: 3 },
+              { glCode: "4300", type: "INCOME", balance: 4 },
             ],
             vippsAgreements: [
               {
                 agreementId: "agr-prov-1",
                 productType: "SUBSCRIPTION",
                 planName: "Clinic Subscription",
-                amountDkk: 499,
+                amountDkk: 3,
                 currency: "DKK",
                 paymentMethod: "CREDIT_CARD",
                 maskedInstrument: "MASTERCARD •••• 3456",
@@ -558,7 +650,7 @@ describe("FinanceFeature Vipps MobilePay OSGi Hub & Checkout", () => {
             status: "CAPTURED",
             productType: "CLIP_CARD",
             planName: "5-Session Clip Card",
-            amountDkk: 5000,
+            amountDkk: 3,
             currency: "DKK",
             maskedInstrument: "MASTERCARD •••• 3456",
             payoutIban: "DK5000400440116243",
@@ -604,7 +696,14 @@ describe("FinanceFeature Vipps MobilePay OSGi Hub & Checkout", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("vipps-payment-hub")).toBeDefined();
+      expect(screen.getByTestId("technical-audit-details")).toBeDefined();
+      expect(screen.getByTestId("technical-audit-details").textContent).toContain(
+        "com.platform.killbill.vipps-mobilepay-plugin"
+      );
       expect(screen.getByTestId("ledger-accounts-grid").textContent).toContain("Account 4300");
+      expect(screen.getByTestId("ledger-accounts-grid").textContent).toContain(
+        "Platform & License Revenue"
+      );
     });
 
     fireEvent.click(screen.getByTestId("btn-checkout-clipcard"));
@@ -648,6 +747,355 @@ describe("FinanceFeature Vipps MobilePay OSGi Hub & Checkout", () => {
         "Vipps Recurring charge rejected"
       );
     });
+    cleanup();
+  });
+
+  it("renders ClientFinanceOverview safely with portalMode='client' when unauthenticated and covers client pagination", async () => {
+    const { render, screen, fireEvent, waitFor, cleanup } = await import(
+      "@testing-library/react"
+    );
+    const { AuthProvider } = await import("../../core/baseUiCore");
+    cleanup();
+
+    render(<FinanceFeatureView portalMode="client" />);
+    await waitFor(() => {
+      expect(screen.getByTestId("finance-feature-view").getAttribute("data-finance-mode")).toBe(
+        "client"
+      );
+    });
+    cleanup();
+
+    const elevenClientInvoices = Array.from({ length: 11 }, (_, idx) => ({
+      id: `cinv-${idx + 1}`,
+      clientUuid: "c-page",
+      description: `Klientregning #${idx + 1}`,
+      amount: 500,
+      currency: "DKK",
+      status: "PAID",
+    }));
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        clientUuid: "c-page",
+        invoices: elevenClientInvoices,
+        prepaidSavings: { savingsAccountId: "s-1", balance: 0, remainingClips: 0, currency: "DKK" },
+        subscriptions: [],
+        installmentPlans: [],
+        gitHistory: [],
+      }),
+    }) as unknown as typeof fetch;
+
+    render(
+      <AuthProvider
+        user={{ id: "c-page", name: "Page Client", email: "p@c.dk", roles: ["CLIENT"] }}
+      >
+        <FinanceFeatureView />
+      </AuthProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("client-invoice-pagination")).toBeDefined();
+    });
+    fireEvent.click(screen.getByTestId("client-invoice-next-page"));
+    expect(screen.getByText("Klientregning #11")).toBeDefined();
+    fireEvent.click(screen.getByTestId("client-invoice-prev-page"));
+    expect(screen.getByText("Klientregning #1")).toBeDefined();
+    cleanup();
+  });
+
+  it("covers client/provider fallback branches, VISA tokenization, invoice delete confirm/cancel, and loan/refund errors", async () => {
+    expect(localizeFinanceStatus(undefined, "da")).toBe("Betalt");
+
+    let failCheckout = false;
+    let checkoutBodyRaw = "";
+    const clientFetch = vi.fn().mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/vipps/checkout")) {
+        if (failCheckout) {
+          return Promise.reject({
+            title: "Rejected",
+            status: 400,
+            detail: "Rejected",
+            errorCode: ErrorCode.BAD_REQUEST,
+          });
+        }
+        checkoutBodyRaw = String(init?.body || "{}");
+        return {
+          ok: true,
+          status: 201,
+          json: async () => ({
+            status: "ACTIVE",
+            productType: "CLIP_CARD_5",
+            planName: "Klippekort 5",
+            amountDkk: 3900,
+            currency: "DKK",
+            maskedInstrument: "VISA •••• 1111",
+            payoutIban: "DK5000400440116243",
+            vippsMsn: "700000",
+            agreementId: "agr-visa-1",
+            vippsReferenceId: "vref-visa-1",
+          }),
+        };
+      }
+      if (url.includes("/overview")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            clientUuid: "c-branch-1",
+            invoices: [
+              {
+                invoiceNumber: "KB-NO-ID-1",
+                description: "Regning kun med fakturanr",
+                amount: 350,
+                currency: "DKK",
+                status: "PAID",
+              },
+            ],
+            prepaidSavings: { savingsAccountId: "s-1", balance: 0, remainingClips: 0, currency: "DKK" },
+            subscriptions: [],
+            installmentPlans: [],
+            vippsAgreements: [],
+            gitHistory: [],
+          }),
+        };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    });
+    global.fetch = clientFetch;
+
+    render(
+      <AuthProvider
+        user={{ id: "c-branch-1", name: "Klient VISA", email: "visa@test.dk", roles: ["CLIENT"] }}
+      >
+        <FinanceFeatureView />
+      </AuthProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("client-invoice-item-KB-NO-ID-1")).toBeDefined();
+    });
+
+    // Single session checkout sends amount 2 DKK
+    fireEvent.click(screen.getByTestId("btn-checkout-session"));
+    fireEvent.click(screen.getByTestId("btn-confirm-vipps-checkout"));
+    await waitFor(() => {
+      expect(JSON.parse(checkoutBodyRaw).productType).toBe("SESSION_INVOICE");
+      expect(JSON.parse(checkoutBodyRaw).amount).toBe(2);
+    });
+
+    // VISA checkout with named cardholder
+    fireEvent.click(screen.getByTestId("btn-checkout-clipcard"));
+    fireEvent.click(screen.getByTestId("select-method-card"));
+    fireEvent.change(screen.getByTestId("input-card-holder"), { target: { value: "Anne Holm" } });
+    fireEvent.change(screen.getByTestId("input-card-number"), {
+      target: { value: "4111 1111 1111 1111" },
+    });
+    fireEvent.click(screen.getByTestId("btn-confirm-vipps-checkout"));
+    await waitFor(() => {
+      expect(screen.getByTestId("vipps-checkout-receipt")).toBeDefined();
+    });
+    expect(JSON.parse(checkoutBodyRaw).cardBrand).toBe("VISA");
+
+    // Non-Problem Error thrown during Vipps checkout
+    failCheckout = true;
+    fireEvent.click(screen.getByTestId("btn-checkout-subscription"));
+    fireEvent.click(screen.getByTestId("btn-confirm-vipps-checkout"));
+    await waitFor(() => {
+      expect(screen.getByTestId("error-banner")).toBeDefined();
+    });
+    cleanup();
+
+    // Provider branches: /clinic/clients ok:false, shortHash fallback, delete confirm/cancel, refund/loan errors
+    let clientsPayloadMode: "notOk" | "notArray" = "notOk";
+    const providerFetch = vi.fn().mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = String(init?.method || "GET").toUpperCase();
+      if (url.includes("/api/backend/clinic/clients")) {
+        if (clientsPayloadMode === "notOk") {
+          return { ok: false, status: 500, json: async () => [] };
+        }
+        return { ok: true, status: 200, json: async () => ({ invalid: true }) };
+      }
+      if (url.includes("/ledger/summary")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            chartOfAccounts: [],
+            gitHistory: [
+              { commitHash: "fullsha9988", message: "Bogført uden shortHash", authorName: "Bo" },
+            ],
+          }),
+        };
+      }
+      if (url.includes("/invoices/inv-del-1/refund") && method === "POST") {
+        return Promise.reject({
+          title: "Rejected",
+          status: 400,
+          detail: "Rejected",
+          errorCode: ErrorCode.BAD_REQUEST,
+        });
+      }
+      if (url.endsWith("/api/backend/finance/inv-del-1") && method === "DELETE") {
+        return { ok: true, status: 204 };
+      }
+      if (url.includes("/installment-plans") && method === "POST") {
+        return Promise.reject({
+          title: "Rejected",
+          status: 400,
+          detail: "Rejected",
+          errorCode: ErrorCode.BAD_REQUEST,
+        });
+      }
+      if (url.endsWith("/api/backend/finance") && method === "GET") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            {
+              id: "inv-del-1",
+              clientUuid: "c-1",
+              description: "Sletbar faktura",
+              amount: 900,
+              currency: "DKK",
+              status: "PAID",
+            },
+          ],
+        };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    });
+    global.fetch = providerFetch;
+
+    render(
+      <AuthProvider
+        user={{ id: "t-branch-1", name: "Dr. Bo", email: "bo@klinik.dk", roles: ["PROVIDER"] }}
+      >
+        <FinanceFeatureView portalMode="provider" />
+      </AuthProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("invoice-item-inv-del-1")).toBeDefined();
+      expect(screen.getByText("fullsha9988")).toBeDefined();
+    });
+
+    // Empty clientUuid loan hits DomainGuard branch, non-empty hits raw Error catch branch
+    fireEvent.click(screen.getByTestId("btn-create-loan"));
+    await waitFor(() => {
+      expect(screen.getByTestId("error-banner")).toBeDefined();
+    });
+    fireEvent.click(screen.getByTestId("dismiss-error"));
+
+    fireEvent.change(screen.getByTestId("input-clientUuid"), { target: { value: "c-manual-1" } });
+    fireEvent.click(screen.getByTestId("btn-create-loan"));
+    await waitFor(() => {
+      expect(screen.getByTestId("error-banner")).toBeDefined();
+    });
+    fireEvent.click(screen.getByTestId("dismiss-error"));
+
+    // Refund rejection error branch
+    fireEvent.click(screen.getByTestId("refund-invoice-inv-del-1"));
+    fireEvent.click(screen.getByTestId("confirm-action-accept"));
+    await waitFor(() => {
+      expect(screen.getByTestId("error-banner")).toBeDefined();
+    });
+    fireEvent.click(screen.getByTestId("dismiss-error"));
+
+    // Delete invoice cancel + accept
+    fireEvent.click(screen.getByTestId("delete-invoice-inv-del-1"));
+    fireEvent.click(screen.getByTestId("confirm-action-cancel"));
+    expect(screen.queryByTestId("confirm-action-dialog")).toBeNull();
+    fireEvent.click(screen.getByTestId("delete-invoice-inv-del-1"));
+    fireEvent.click(screen.getByTestId("confirm-action-accept"));
+    await waitFor(() => {
+      expect(providerFetch).toHaveBeenCalledWith(
+        "/api/backend/finance/inv-del-1",
+        expect.objectContaining({ method: "DELETE" })
+      );
+    });
+    cleanup();
+
+    // Non-array /clinic/clients payload branch
+    clientsPayloadMode = "notArray";
+    render(
+      <AuthProvider
+        user={{ id: "t-branch-2", name: "Dr. Bo 2", email: "bo2@klinik.dk", roles: ["PROVIDER"] }}
+      >
+        <FinanceFeatureView portalMode="provider" />
+      </AuthProvider>
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("invoice-item-inv-del-1")).toBeDefined();
+    });
+    cleanup();
+  });
+
+  it("filters clinic finance clients safely, shows sandbox badge, and avoids hardcoded card defaults", async () => {
+    expect(filterFinanceClientOptions(null)).toEqual([]);
+    const filtered = filterFinanceClientOptions(
+      [
+        null,
+        "invalid",
+        { id: 123, fullName: "Bad Id" },
+        { id: "no-name" },
+        { id: "blank-name", fullName: "   " },
+        { id: "   ", fullName: "Blank Id" },
+        { id: "self-id", userId: "p-1", fullName: "Self ID", email: "other@klinik.dk" },
+        { id: "self-mail", userId: "x", fullName: "Self Mail", email: " P@KLINIK.DK " },
+        { id: "dr-row", userId: "t-1", fullName: "Dr. Maja" },
+        { id: "ter-row", userId: "t-2", fullName: "bo_terapeut" },
+        { id: "cp-1", userId: "c-1", fullName: "  Anders Sand ", email: "anders@sand.dk" },
+        { id: "cp-dup-id", userId: "c-1", fullName: "Anders Rename", email: "rename@sand.dk" },
+        { id: "cp-dup-name", userId: "c-2", fullName: "anders sand", email: "dup@sand.dk" },
+        { id: "cp-2", userId: "   ", fullName: "Maria Hansen" },
+      ],
+      " p-1 ",
+      "p@klinik.dk"
+    );
+    expect(filtered).toEqual([
+      { id: "cp-1", userId: "c-1", fullName: "Anders Sand", email: "anders@sand.dk" },
+      { id: "cp-2", userId: null, fullName: "Maria Hansen", email: undefined },
+    ]);
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        clipCardBalance: 0,
+        activeSubscriptionsCount: 0,
+        installmentPlans: [],
+        invoices: [],
+        vippsAgreements: [],
+      }),
+    });
+
+    // Unauthenticated client view -> empty cardHolder & empty cardNumber defaults
+    render(<FinanceFeatureView portalMode="client" />);
+    expect(screen.getByTestId("vipps-sandbox-badge")).toBeDefined();
+    fireEvent.click(screen.getByTestId("btn-checkout-session"));
+    fireEvent.click(screen.getByTestId("select-method-card"));
+    expect((screen.getByTestId("input-card-holder") as HTMLInputElement).value).toBe("");
+    expect((screen.getByTestId("input-card-number") as HTMLInputElement).value).toBe("");
+    cleanup();
+
+    // Authenticated client view -> defaults cardHolder to signed-in user name, cardNumber stays empty
+    render(
+      <AuthProvider
+        user={{ id: "c-vip", name: "Klara Holm", email: "klara@holm.dk", roles: ["CLIENT"] }}
+      >
+        <FinanceFeatureView portalMode="client" />
+      </AuthProvider>
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("vipps-sandbox-badge")).toBeDefined();
+    });
+    fireEvent.click(screen.getByTestId("btn-checkout-session"));
+    fireEvent.click(screen.getByTestId("select-method-card"));
+    expect((screen.getByTestId("input-card-holder") as HTMLInputElement).value).toBe("Klara Holm");
+    expect((screen.getByTestId("input-card-number") as HTMLInputElement).value).toBe("");
     cleanup();
   });
 });

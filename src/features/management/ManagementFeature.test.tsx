@@ -82,6 +82,12 @@ describe("ManagementFeature Vertical Slice (RoleGuard + BaseApiService)", () => 
       status: 204,
     });
     fireEvent.click(screen.getByTestId("delete-kpi-kpi-2"));
+    expect(screen.getByTestId("confirm-action-dialog")).toBeDefined();
+    fireEvent.click(screen.getByTestId("confirm-action-cancel"));
+    expect(screen.queryByTestId("confirm-action-dialog")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("delete-kpi-kpi-2"));
+    fireEvent.click(screen.getByTestId("confirm-action-accept"));
 
     await waitFor(() => {
       expect(screen.queryByText(/Nye klientforløb/)).toBeNull();

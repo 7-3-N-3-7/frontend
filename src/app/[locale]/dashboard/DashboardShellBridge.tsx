@@ -20,6 +20,7 @@ import {
 const VALID_CLIENT_TABS: ReadonlySet<string> = new Set([
   "overview",
   "appointments",
+  "journal",
   "marketplace",
   "consents",
   "pcl5",
@@ -28,6 +29,7 @@ const VALID_CLIENT_TABS: ReadonlySet<string> = new Set([
 
 const VALID_THERAPIST_TABS: ReadonlySet<string> = new Set([
   "overview",
+  "timeline",
   "calendar",
   "clinic_cvr",
   "pcl5",

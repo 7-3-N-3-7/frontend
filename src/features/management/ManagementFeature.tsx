@@ -27,7 +27,12 @@ import {
   DomainGuard,
   HasId,
 } from "../../core/baseDomainCore";
-import { ProblemAlert, RoleGuard, useBaseCrud } from "../../core/baseUiCore";
+import {
+  ConfirmActionDialog,
+  ProblemAlert,
+  RoleGuard,
+  useBaseCrud,
+} from "../../core/baseUiCore";
 import { SupportedUiLocale, useUiLocale } from "../i18n/I18nFeature";
 
 // ============================================================================
@@ -79,12 +84,17 @@ interface ManagementCopy {
   heading: string;
   kpiNamePlaceholder: string;
   valuePlaceholder: string;
+  unitLabel: string;
   unitPlaceholder: string;
   departmentPlaceholder: string;
   defaultDepartment: string;
   createKpiBtn: string;
   loadingText: string;
   deleteBtn: string;
+  confirmDeleteTitle: string;
+  confirmDeleteDesc: string;
+  confirmDeleteBtn: string;
+  cancelBtn: string;
   forbiddenNotice: string;
 }
 
@@ -94,12 +104,17 @@ const MANAGEMENT_COPY: Record<SupportedUiLocale, ManagementCopy> = {
     heading: "Virksomhedsledelse — KPI, Klinikstyring & Audit",
     kpiNamePlaceholder: "KPI Navn",
     valuePlaceholder: "Værdi",
+    unitLabel: "Enhed",
     unitPlaceholder: "Enhed (DKK, %, sessioner)",
     departmentPlaceholder: "Afdeling",
     defaultDepartment: "Psykotraumatologi",
     createKpiBtn: "Opret KPI-mål",
     loadingText: "Indlæser...",
     deleteBtn: "Slet",
+    confirmDeleteTitle: "Slet KPI-mål?",
+    confirmDeleteDesc: "Er du sikker på, at du vil fjerne dette nøgletal?",
+    confirmDeleteBtn: "Ja, slet",
+    cancelBtn: "Annuller",
     forbiddenNotice:
       "Kun virksomhedsledelse (MANAGEMENT / ADMIN) har adgang til ledelsesoverblik og KPI-styring.",
   },
@@ -108,12 +123,17 @@ const MANAGEMENT_COPY: Record<SupportedUiLocale, ManagementCopy> = {
     heading: "Executive Management — KPI, Clinic Operations & Audit",
     kpiNamePlaceholder: "KPI Name",
     valuePlaceholder: "Value",
+    unitLabel: "Unit",
     unitPlaceholder: "Unit (DKK, %, sessions)",
     departmentPlaceholder: "Department",
     defaultDepartment: "Psychotraumatology",
     createKpiBtn: "Create KPI Target",
     loadingText: "Loading...",
     deleteBtn: "Delete",
+    confirmDeleteTitle: "Delete KPI target?",
+    confirmDeleteDesc: "Are you sure you want to remove this KPI metric?",
+    confirmDeleteBtn: "Yes, delete",
+    cancelBtn: "Cancel",
     forbiddenNotice:
       "Only executive management (MANAGEMENT / ADMIN) has access to management overview and KPI control.",
   },
@@ -122,12 +142,17 @@ const MANAGEMENT_COPY: Record<SupportedUiLocale, ManagementCopy> = {
     heading: "Direction — KPI, Pilotage Clinique & Audit",
     kpiNamePlaceholder: "Nom du KPI",
     valuePlaceholder: "Valeur",
+    unitLabel: "Unité",
     unitPlaceholder: "Unité (DKK, %, séances)",
     departmentPlaceholder: "Département",
     defaultDepartment: "Psychotraumatologie",
     createKpiBtn: "Créer un Objectif KPI",
     loadingText: "Chargement...",
     deleteBtn: "Supprimer",
+    confirmDeleteTitle: "Supprimer l'objectif KPI ?",
+    confirmDeleteDesc: "Voulez-vous vraiment supprimer cet indicateur KPI ?",
+    confirmDeleteBtn: "Oui, supprimer",
+    cancelBtn: "Annuler",
     forbiddenNotice:
       "Seule la direction (MANAGEMENT / ADMIN) a accès au tableau de bord exécutif et au suivi des KPI.",
   },
@@ -136,12 +161,17 @@ const MANAGEMENT_COPY: Record<SupportedUiLocale, ManagementCopy> = {
     heading: "Dirección Clínica — KPI, Gestión y Auditoría",
     kpiNamePlaceholder: "Nombre del KPI",
     valuePlaceholder: "Valor",
+    unitLabel: "Unidad",
     unitPlaceholder: "Unidad (DKK, %, sesiones)",
     departmentPlaceholder: "Departamento",
     defaultDepartment: "Psicotraumatología",
     createKpiBtn: "Crear Objetivo KPI",
     loadingText: "Cargando...",
     deleteBtn: "Eliminar",
+    confirmDeleteTitle: "¿Eliminar objetivo KPI?",
+    confirmDeleteDesc: "¿Seguro que deseas eliminar este indicador KPI?",
+    confirmDeleteBtn: "Sí, eliminar",
+    cancelBtn: "Cancelar",
     forbiddenNotice:
       "Solo la dirección ejecutiva (MANAGEMENT / ADMIN) tiene acceso al resumen directivo y control de KPI.",
   },
@@ -150,12 +180,17 @@ const MANAGEMENT_COPY: Record<SupportedUiLocale, ManagementCopy> = {
     heading: "Klinikleitung — KPI, Betriebsführung & Audit",
     kpiNamePlaceholder: "KPI-Name",
     valuePlaceholder: "Wert",
+    unitLabel: "Einheit",
     unitPlaceholder: "Einheit (DKK, %, Sitzungen)",
     departmentPlaceholder: "Abteilung",
     defaultDepartment: "Psychotraumatologie",
     createKpiBtn: "KPI-Ziel erstellen",
     loadingText: "Wird geladen...",
     deleteBtn: "Löschen",
+    confirmDeleteTitle: "KPI-Ziel löschen?",
+    confirmDeleteDesc: "Möchten Sie diese Kennzahl wirklich entfernen?",
+    confirmDeleteBtn: "Ja, löschen",
+    cancelBtn: "Abbrechen",
     forbiddenNotice:
       "Nur die Klinikleitung (MANAGEMENT / ADMIN) hat Zugriff auf die Managementübersicht und KPI-Steuerung.",
   },
@@ -170,6 +205,7 @@ const ManagementFeatureAuthorizedContent: React.FC = () => {
   const [metricValue, setMetricValue] = useState("100");
   const [unit, setUnit] = useState("DKK");
   const [department, setDepartment] = useState(copy.defaultDepartment);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -202,43 +238,97 @@ const ManagementFeatureAuthorizedContent: React.FC = () => {
 
       <ProblemAlert error={error} onDismiss={clearError} />
 
-      <form onSubmit={handleSubmit} className="flex flex-wrap items-center gap-2.5">
-        <input
-          type="text"
-          placeholder={copy.kpiNamePlaceholder}
-          value={metricName}
-          onChange={(e) => setMetricName(e.target.value)}
-          className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
-          data-testid="input-kpi-name"
-        />
-        <input
-          type="number"
-          placeholder={copy.valuePlaceholder}
-          value={metricValue}
-          onChange={(e) => setMetricValue(e.target.value)}
-          className="w-28 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
-          data-testid="input-kpi-value"
-        />
-        <input
-          type="text"
-          placeholder={copy.unitPlaceholder}
-          value={unit}
-          onChange={(e) => setUnit(e.target.value)}
-          className="w-36 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
-          data-testid="input-kpi-unit"
-        />
-        <input
-          type="text"
-          placeholder={copy.departmentPlaceholder}
-          value={department}
-          onChange={(e) => setDepartment(e.target.value)}
-          className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
-          data-testid="input-kpi-department"
-        />
+      <ConfirmActionDialog
+        open={pendingDeleteId !== null}
+        title={copy.confirmDeleteTitle}
+        description={copy.confirmDeleteDesc}
+        confirmLabel={copy.confirmDeleteBtn}
+        cancelLabel={copy.cancelBtn}
+        tone="danger"
+        onCancel={() => setPendingDeleteId(null)}
+        onConfirm={() => {
+          const targetId = pendingDeleteId;
+          setPendingDeleteId(null);
+          if (targetId) void remove(targetId);
+        }}
+      />
+
+      <form
+        onSubmit={handleSubmit}
+        className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5 items-end"
+      >
+        <div className="flex flex-col gap-1">
+          <label
+            htmlFor="kpi-name-input"
+            className="text-xs font-semibold text-slate-600"
+          >
+            {copy.kpiNamePlaceholder}
+          </label>
+          <input
+            id="kpi-name-input"
+            type="text"
+            placeholder={copy.kpiNamePlaceholder}
+            value={metricName}
+            onChange={(e) => setMetricName(e.target.value)}
+            className="min-h-11 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
+            data-testid="input-kpi-name"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label
+            htmlFor="kpi-value-input"
+            className="text-xs font-semibold text-slate-600"
+          >
+            {copy.valuePlaceholder}
+          </label>
+          <input
+            id="kpi-value-input"
+            type="number"
+            placeholder={copy.valuePlaceholder}
+            value={metricValue}
+            onChange={(e) => setMetricValue(e.target.value)}
+            className="min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
+            data-testid="input-kpi-value"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label
+            htmlFor="kpi-unit-input"
+            className="text-xs font-semibold text-slate-600"
+          >
+            {copy.unitLabel}
+          </label>
+          <input
+            id="kpi-unit-input"
+            type="text"
+            placeholder={copy.unitPlaceholder}
+            value={unit}
+            onChange={(e) => setUnit(e.target.value)}
+            className="min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
+            data-testid="input-kpi-unit"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label
+            htmlFor="kpi-dept-input"
+            className="text-xs font-semibold text-slate-600"
+          >
+            {copy.departmentPlaceholder}
+          </label>
+          <input
+            id="kpi-dept-input"
+            type="text"
+            placeholder={copy.departmentPlaceholder}
+            value={department}
+            onChange={(e) => setDepartment(e.target.value)}
+            className="min-h-11 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
+            data-testid="input-kpi-department"
+          />
+        </div>
         <button
           type="submit"
           disabled={loading}
-          className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+          className="min-h-11 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
           data-testid="submit-kpi"
         >
           {copy.createKpiBtn}
@@ -264,14 +354,16 @@ const ManagementFeatureAuthorizedContent: React.FC = () => {
                 {kpi.metricValue} {kpi.unit}
               </span>
             </div>
-            <button
-              type="button"
-              onClick={() => kpi.id && remove(kpi.id)}
-              className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-100"
-              data-testid={`delete-kpi-${kpi.id}`}
-            >
-              {copy.deleteBtn}
-            </button>
+            {kpi.id && (
+              <button
+                type="button"
+                onClick={() => setPendingDeleteId(kpi.id!)}
+                className="min-h-11 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-100"
+                data-testid={`delete-kpi-${kpi.id}`}
+              >
+                {copy.deleteBtn}
+              </button>
+            )}
           </li>
         ))}
       </ul>

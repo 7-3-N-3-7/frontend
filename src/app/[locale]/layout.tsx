@@ -19,8 +19,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Platform',
-  description: 'Server Side Rendered Platform',
+  title: 'EduJournal — Klinisk Praksis & Refleksionsportal',
+  description: 'Sikker og rolig sundhedsplatform til klinisk journaling, aftalebooking og patientrefleksion',
 };
 
 export default async function RootLayout({

@@ -18,7 +18,8 @@
     "test:coverage": "vitest run --coverage",
     "test:bdd": "node --import tsx node_modules/@cucumber/cucumber/bin/cucumber.js --tags \"not @backend-only\"",
     "test:bdd:api": "node --import tsx node_modules/@cucumber/cucumber/bin/cucumber.js --tags \"@fullstack and not @ui-only and not @backend-only\"",
-    "test:bdd:ui": "node --import tsx node_modules/@cucumber/cucumber/bin/cucumber.js --tags \"@ui and not @backend-only\""
+    "test:bdd:ui": "node --import tsx node_modules/@cucumber/cucumber/bin/cucumber.js --tags \"@ui and not @backend-only\"",
+    "test:bdd:ui:update": "UPDATE_VISUAL_BASELINES=true node --import tsx node_modules/@cucumber/cucumber/bin/cucumber.js --tags \"@ui and not @backend-only\""
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
@@ -35,10 +36,12 @@
   },
   "devDependencies": {
     "@cucumber/cucumber": "^12.9.0",
+    "@playwright/test": "^1.64.1",
     "@tailwindcss/postcss": "^4.3.5",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/react": "^16.3.3",
     "@types/node": "^20",
+    "@types/pngjs": "^6.0.5",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@vitejs/plugin-react": "^6.2.1",
@@ -47,7 +50,9 @@
     "eslint": "^9",
     "eslint-config-next": "16.3.7",
     "jsdom": "^29.1.1",
+    "pixelmatch": "^8.0.0",
     "playwright": "^1.64.1",
+    "pngjs": "^7.0.0",
     "postcss": "^8.5.33",
     "tailwindcss": "^4.3.5",
     "tsx": "^4.23.15",

@@ -1,7 +1,11 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { UserFeatureView } from "./UserFeature";
+import {
+  localizeUserRole,
+  UserFeatureView,
+  validateUserRole,
+} from "./UserFeature";
 import { AuthProvider } from "../../core/baseUiCore";
 import { ErrorCode, ProblemDetail } from "../../core/baseDomainCore";
 
@@ -63,6 +67,12 @@ describe("UserFeature Vertical Slice", () => {
       status: 204,
     });
     fireEvent.click(screen.getByTestId("delete-user-u-2"));
+    expect(screen.getByTestId("confirm-action-dialog")).toBeDefined();
+    fireEvent.click(screen.getByTestId("confirm-action-cancel"));
+    expect(screen.queryByTestId("confirm-action-dialog")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("delete-user-u-2"));
+    fireEvent.click(screen.getByTestId("confirm-action-accept"));
 
     await waitFor(() => {
       expect(screen.queryByText("bo_jensen")).toBeNull();
@@ -82,12 +92,15 @@ describe("UserFeature Vertical Slice", () => {
     render(<UserFeatureView />);
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
 
-    // Invalid role triggers DomainGuard
+    // INVALID_ROLE option removed from UI; pure validator + role localization still enforced
+    expect(screen.queryByRole("option", { name: "INVALID_ROLE" })).toBeNull();
+    expect(() => validateUserRole("INVALID_ROLE")).toThrow(/invalid role/i);
+    expect(localizeUserRole("PROVIDER", "da")).toBe("Behandler");
+    expect(localizeUserRole("CUSTOM", "en")).toBe("CUSTOM");
+
+    // Blank username triggers DomainGuard
     fireEvent.change(screen.getByTestId("input-username"), {
-      target: { value: "invalid_user" },
-    });
-    fireEvent.change(screen.getByTestId("select-role"), {
-      target: { value: "INVALID_ROLE" },
+      target: { value: "   " },
     });
     fireEvent.click(screen.getByTestId("submit-user"));
 
@@ -96,7 +109,7 @@ describe("UserFeature Vertical Slice", () => {
         screen.getByTestId("error-banner").getAttribute("data-error-code")
       ).toBe("BAD_REQUEST");
       expect(screen.getByTestId("error-detail").textContent).toContain(
-        "invalid role"
+        "Username is required"
       );
     });
 
@@ -115,6 +128,9 @@ describe("UserFeature Vertical Slice", () => {
       json: async () => problem,
     });
 
+    fireEvent.change(screen.getByTestId("input-username"), {
+      target: { value: "existing_user" },
+    });
     fireEvent.change(screen.getByTestId("select-role"), {
       target: { value: "CLIENT" },
     });
