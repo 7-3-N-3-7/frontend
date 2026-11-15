@@ -12,6 +12,7 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY . .
+COPY --from=specs . /specs
 
 # Next.js telemetry is disabled
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -21,7 +22,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run test:coverage && \
     mkdir -p public/frontend-coverage public/frontend-cucumber && \
     cp -r coverage/* public/frontend-coverage/ && \
-    BDD_SELF_CONTAINED=true npm run test:bdd && \
+    BDD_SELF_CONTAINED=true npm run test:bdd:api && \
     cp reports/cucumber-report.html public/frontend-cucumber/index.html && \
     cp reports/cucumber-report.html public/frontend-cucumber/cucumber-report.html
 

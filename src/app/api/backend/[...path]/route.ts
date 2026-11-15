@@ -129,7 +129,9 @@ async function proxyRequest(
       responseHeaders.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=600');
     }
 
-    return new NextResponse(responseText, {
+    const isNullBodyStatus =
+      backendRes.status === 204 || backendRes.status === 205 || backendRes.status === 304;
+    return new NextResponse(isNullBodyStatus ? null : responseText, {
       status: backendRes.status,
       headers: responseHeaders,
     });

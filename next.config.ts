@@ -7,6 +7,7 @@ const nextConfig: NextConfig = {
   // Fix WebSocket (HMR) connection errors for custom local domains
   // @ts-ignore - Some TS versions might not have this typed yet
   allowedDevOrigins: [
+    'platform.localhost',
     '127.0.0.1.nip.io',
     'platform.127.0.0.1.nip.io',
     '157.180.43.151.nip.io',

@@ -1,6 +1,6 @@
-const useSecureCookies =
-  process.env.NODE_ENV === 'production' ||
-  process.env.NEXTAUTH_URL?.startsWith('https://') === true;
+const useSecureCookies = process.env.NEXTAUTH_URL
+  ? process.env.NEXTAUTH_URL.startsWith('https://')
+  : process.env.NODE_ENV === 'production';
 
 export const sessionCookieName = `${useSecureCookies ? '__Secure-' : ''}next-auth.session-token`;
 

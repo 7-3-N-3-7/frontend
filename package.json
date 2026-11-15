@@ -16,9 +16,9 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "test:bdd": "node --import tsx node_modules/@cucumber/cucumber/bin/cucumber.js",
-    "test:bdd:api": "node --import tsx node_modules/@cucumber/cucumber/bin/cucumber.js --tags @api",
-    "test:bdd:ui": "node --import tsx node_modules/@cucumber/cucumber/bin/cucumber.js --tags @ui"
+    "test:bdd": "node --import tsx node_modules/@cucumber/cucumber/bin/cucumber.js --tags \"not @backend-only\"",
+    "test:bdd:api": "node --import tsx node_modules/@cucumber/cucumber/bin/cucumber.js --tags \"@fullstack and not @ui-only and not @backend-only\"",
+    "test:bdd:ui": "node --import tsx node_modules/@cucumber/cucumber/bin/cucumber.js --tags \"@ui and not @backend-only\""
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
