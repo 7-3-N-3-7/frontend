@@ -4,7 +4,9 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { sessionCookieName } from '@/lib/auth-cookies';
 
-const BACKEND_URL = process.env.BACKEND_INTERNAL_URL || 'http://localhost:8081';
+function resolveBackendUrl(): string {
+  return process.env.BACKEND_INTERNAL_URL || 'http://localhost:8081';
+}
 
 async function proxyRequest(
   req: NextRequest,
@@ -12,7 +14,7 @@ async function proxyRequest(
 ) {
   const { path } = await context.params;
   const targetPath = path.join('/');
-  const targetUrl = `${BACKEND_URL}/api/v1/${targetPath}${req.nextUrl.search}`;
+  const targetUrl = `${resolveBackendUrl()}/api/v1/${targetPath}${req.nextUrl.search}`;
 
   // getServerSession triggers NextAuth's jwt() callback which refreshes expired Keycloak tokens
   const session: any = await getServerSession(authOptions);
@@ -104,16 +106,31 @@ async function proxyRequest(
       });
     }
 
-    if (
-      backendRes.ok &&
-      req.method === 'POST' &&
-      targetPath === 'clinic/therapist-onboarding' &&
-      userUuid
-    ) {
-      await syncKeycloakTherapistRole(String(userUuid));
+    const responseText = await backendRes.text();
+
+    if (backendRes.ok && req.method === 'POST' && userUuid) {
+      if (targetPath === 'clinic/therapist-onboarding') {
+        await syncKeycloakRealmRole(
+          String(userUuid),
+          'therapist',
+          'Clinical Therapist role (auto-provisioned on CVR onboarding)'
+        );
+      } else if (targetPath === 'finance/vipps/checkout') {
+        try {
+          const checkoutBody = JSON.parse(responseText) as { keycloakRealmRole?: string };
+          if (checkoutBody?.keycloakRealmRole === 'therapist' || checkoutBody?.keycloakRealmRole === 'admin') {
+            await syncKeycloakRealmRole(
+              String(userUuid),
+              checkoutBody.keycloakRealmRole,
+              `Platform access role (${checkoutBody.keycloakRealmRole}) provisioned via Vipps MobilePay OSGi`
+            );
+          }
+        } catch {
+          // Ignore non-JSON checkout response bodies
+        }
+      }
     }
 
-    const responseText = await backendRes.text();
     const responseHeaders = new Headers();
     const resContentType = backendRes.headers.get('content-type');
     if (resContentType) {
@@ -124,12 +141,14 @@ async function proxyRequest(
       responseHeaders.set('X-Locale-Fallback', fallbackHeader);
     }
 
-    // Cache public language dictionaries in browser & CDN while keeping mutations uncached
+    // Keep i18n dictionary responses live so MongoDB admin updates reflect immediately
     if (req.method === 'GET' && targetPath.startsWith('i18n/') && !targetPath.startsWith('i18n/document/')) {
-      responseHeaders.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=600');
+      responseHeaders.set('Cache-Control', 'no-store, must-revalidate');
     }
 
-    return new NextResponse(responseText, {
+    const isNullBodyStatus =
+      backendRes.status === 204 || backendRes.status === 205 || backendRes.status === 304;
+    return new NextResponse(isNullBodyStatus ? null : responseText, {
       status: backendRes.status,
       headers: responseHeaders,
     });
@@ -161,7 +180,11 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ path: st
   return proxyRequest(req, ctx);
 }
 
-async function syncKeycloakTherapistRole(userUuid: string) {
+async function syncKeycloakRealmRole(
+  userUuid: string,
+  roleName: 'therapist' | 'admin',
+  description: string
+) {
   try {
     const issuerUrl = process.env.KEYCLOAK_ISSUER || '';
     const clientId = process.env.KEYCLOAK_ADMIN_CLIENT_ID || '';
@@ -193,8 +216,8 @@ async function syncKeycloakTherapistRole(userUuid: string) {
       'Content-Type': 'application/json',
     };
 
-    // 1. Ensure 'therapist' realm role exists in Keycloak
-    let roleRes = await fetch(`${baseUrl}/admin/realms/${realm}/roles/therapist`, {
+    // 1. Ensure realm role exists in Keycloak
+    let roleRes = await fetch(`${baseUrl}/admin/realms/${realm}/roles/${encodeURIComponent(roleName)}`, {
       headers: authHeaders,
       cache: 'no-store',
     });
@@ -204,11 +227,11 @@ async function syncKeycloakTherapistRole(userUuid: string) {
         method: 'POST',
         headers: authHeaders,
         body: JSON.stringify({
-          name: 'therapist',
-          description: 'Clinical Therapist role (auto-provisioned on CVR onboarding)',
+          name: roleName,
+          description,
         }),
       });
-      roleRes = await fetch(`${baseUrl}/admin/realms/${realm}/roles/therapist`, {
+      roleRes = await fetch(`${baseUrl}/admin/realms/${realm}/roles/${encodeURIComponent(roleName)}`, {
         headers: authHeaders,
         cache: 'no-store',
       });
@@ -217,7 +240,7 @@ async function syncKeycloakTherapistRole(userUuid: string) {
     if (!roleRes.ok) return;
     const roleRepresentation = await roleRes.json();
 
-    // 2. Assign 'therapist' realm role to the upgraded user in Keycloak
+    // 2. Assign realm role to the upgraded user in Keycloak
     await fetch(
       `${baseUrl}/admin/realms/${realm}/users/${encodeURIComponent(userUuid)}/role-mappings/realm`,
       {
@@ -232,7 +255,7 @@ async function syncKeycloakTherapistRole(userUuid: string) {
       }
     );
   } catch {
-    // Non-blocking: backend SecurityConfig & ClinicPlatformController already grant ROLE_therapist from provider_profiles
+    // Non-blocking: backend SecurityConfig & FinanceFeature already honor upgraded platform roles
   }
 }
 

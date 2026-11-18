@@ -1,0 +1,25 @@
+name: SDLC Control-Plane Dispatch
+
+on:
+  push:
+    branches: ["feature/**", "dev", "main"]
+
+jobs:
+  dispatch-to-api:
+    name: Trigger SDLC Verify in 7-3-N-3-7/api
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch sdlc-verify event to control-plane
+        env:
+          SDLC_PROJECT_TOKEN: ${{ secrets.SDLC_PROJECT_TOKEN }}
+          SOURCE_REPO: ${{ github.repository }}
+          BRANCH_NAME: ${{ github.ref_name }}
+        run: |
+          if [ -z "$SDLC_PROJECT_TOKEN" ]; then
+            echo "::notice::Secret SDLC_PROJECT_TOKEN is not configured in $SOURCE_REPO yet; skipping automatic dispatch to 7-3-N-3-7/api."
+            exit 0
+          fi
+          GH_TOKEN="$SDLC_PROJECT_TOKEN" gh api repos/7-3-N-3-7/api/dispatches \
+            -f event_type=sdlc-verify \
+            -f "client_payload[branch]=$BRANCH_NAME" \
+            -f "client_payload[source_repo]=$SOURCE_REPO"

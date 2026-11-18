@@ -1,11 +1,12 @@
 import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
 import 'bootstrap/dist/css/bootstrap.min.css';
+import 'bootstrap-icons/font/bootstrap-icons.css';
 import './globals.css';
-import { getMessages } from 'next-intl/server';
+import { getMessages, setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { routing } from '@/i18n/routing';
-import { CachedI18nProvider } from '@/components/CachedI18nProvider';
+import { CachedI18nProvider } from '@/features/i18n/I18nFeature';
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -18,8 +19,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Platform',
-  description: 'Server Side Rendered Platform',
+  title: 'EduJournal — Klinisk Praksis & Refleksionsportal',
+  description: 'Sikker og rolig sundhedsplatform til klinisk journaling, aftalebooking og patientrefleksion',
 };
 
 export default async function RootLayout({
@@ -36,14 +37,13 @@ export default async function RootLayout({
     notFound();
   }
 
-  // Providing all messages to the client (cached via Next.js data cache + NEXT_LOCALE cookie)
-  const messages = await getMessages();
+  setRequestLocale(locale);
+
+  // Providing all messages to the client (fetched live from backend MongoDB i18n dictionary)
+  const messages = await getMessages({ locale });
 
   return (
     <html lang={locale} data-scroll-behavior="smooth" className={`${geistSans.variable} ${geistMono.variable}`}>
-      <head>
-        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" />
-      </head>
       <body>
         <CachedI18nProvider initialLocale={locale} initialMessages={messages as Record<string, any>}>
           {children}

@@ -1,11 +1,16 @@
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { getTranslations } from "next-intl/server";
-import ClientPortalWorkspace from "@/components/ClientPortalWorkspace";
+import { SyncedClientPortalWorkspace } from "../DashboardShellBridge";
 
-export default async function PersonalDashboard() {
+export default async function PersonalDashboard({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { locale } = await params;
   const session = await getServerSession(authOptions);
-  const t = await getTranslations("dashboard.personal");
+  const t = await getTranslations({ locale, namespace: "dashboard.personal" });
 
   let secureData = null;
 
@@ -29,10 +34,17 @@ export default async function PersonalDashboard() {
 
   const userName = session?.user?.name || t("defaultUser");
 
+  const rawSecure = typeof secureData?.data === "string" ? secureData.data.trim() : "";
+  const secureStatus =
+    rawSecure && !/sensitive enterprise data/i.test(rawSecure)
+      ? rawSecure
+      : null;
+
   return (
-    <ClientPortalWorkspace
+    <SyncedClientPortalWorkspace
+      locale={locale}
       userName={userName}
-      secureStatus={secureData?.data || null}
+      secureStatus={secureStatus}
     />
   );
 }

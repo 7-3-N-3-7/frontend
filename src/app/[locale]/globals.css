@@ -1,3 +1,55 @@
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities) important;
+
+@layer base {
+  [data-testid="portal-workspace-shell"] ul:not(.list-disc),
+  [data-testid="portal-workspace-shell"] ol:not(.list-decimal) {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  [data-testid="portal-workspace-shell"] button:not(.btn) {
+    background: transparent;
+    border-width: 0;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+    transition: all 150ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  [data-testid="portal-workspace-shell"] button:not(.btn):disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  [data-testid="portal-workspace-shell"]
+    input:not(.form-control):not([type="checkbox"]):not([type="radio"]),
+  [data-testid="portal-workspace-shell"]
+    select:not(.form-select):not([data-testid="language-switcher-select"]),
+  [data-testid="portal-workspace-shell"] textarea:not(.form-control) {
+    border: 1px solid #cbd5e1;
+    border-radius: 0.75rem;
+    background-color: #ffffff;
+    color: #0f172a;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    padding: 0.5625rem 0.75rem;
+    transition: border-color 150ms ease, box-shadow 150ms ease;
+  }
+
+  [data-testid="portal-workspace-shell"]
+    input:not(.form-control):not([type="checkbox"]):not([type="radio"]):focus,
+  [data-testid="portal-workspace-shell"]
+    select:not(.form-select):not([data-testid="language-switcher-select"]):focus,
+  [data-testid="portal-workspace-shell"] textarea:not(.form-control):focus {
+    outline: none;
+    border-color: #0f766e;
+    box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.14);
+  }
+}
+
 :root {
   --bs-body-bg: #f4f7f9;
   --bs-body-color: #1e293b;

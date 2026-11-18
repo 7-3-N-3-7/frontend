@@ -2,9 +2,9 @@ name: TruffleHog Secret Scanner
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: [ "main", "dev" ]
   pull_request:
-    branches: [ "main", "master" ]
+    branches: [ "main", "dev" ]
   workflow_dispatch:
 
 jobs:
@@ -17,10 +17,8 @@ jobs:
         with:
           fetch-depth: 0 # Required so TruffleHog can scan the entire commit history
 
-      - name: TruffleHog OSS Scan
+      - name: TruffleHog Scan
         uses: trufflesecurity/trufflehog@main
         with:
           path: ./
-          base: ${{ github.event.repository.default_branch }}
-          head: HEAD
           extra_args: --only-verified
