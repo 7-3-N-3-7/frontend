@@ -942,13 +942,118 @@ describe("JournalFeature Vertical Slice", () => {
       );
       expect(screen.getByTestId("forbidden-notice")).toBeDefined();
 
+      // Cover JournalFeatureView portalMode="client" forbidden notice & legacy clinicalNote content + non-array commits
+      rerender(
+        <AuthProvider
+          user={{
+            id: "th-1",
+            name: "Bo",
+            email: "bo@klinik.dk",
+            roles: ["PROVIDER"],
+          }}
+        >
+          <JournalFeatureView portalMode="client" />
+        </AuthProvider>
+      );
+      expect(screen.getByTestId("forbidden-notice")).toBeDefined();
+
+      const legacyMapped = mapBundleToClinicalTimelineEvents(
+        {
+          entries: [],
+          clinicalNotes: [{ content: "Legacy content note" }, { confidentialMarkdown: "", content: "" }],
+          commits: [{ commitHash: "abc1234", author: "bijens", message: "msg", timestamp: "" }],
+        },
+        "da"
+      );
+      expect(legacyMapped).toHaveLength(3);
+
+      global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+        const u = String(input);
+        if (u.includes("/api/backend/clinic/clients")) {
+          return { ok: true, status: 200, json: async () => [{ id: "c-obj", fullName: "Obj Klient" }] };
+        }
+        return { ok: true, status: 200, json: async () => ({ notArray: true }) };
+      });
+      rerender(
+        <AuthProvider user={{ id: "th-obj", name: "Bo", email: "bo@klinik.dk", roles: ["PROVIDER"] }}>
+          <PatientTimelineContainer />
+        </AuthProvider>
+      );
+      const sel = await screen.findByTestId("timeline-client-select");
+      fireEvent.change(sel, { target: { value: "c-obj" } });
+      await waitFor(() => {
+        expect(screen.getByTestId("timeline-empty-state")).toBeDefined();
+      });
+
+      // Cover unauthenticated PatientTimelineContainer (no AuthProvider -> therapistUuid undefined -> query = "")
+      global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+        const u = String(input);
+        if (u.includes("/api/backend/clinic/clients")) {
+          return { ok: true, status: 200, json: async () => [] };
+        }
+        if (u.includes("/api/backend/journals/client/")) {
+          return { ok: true, status: 200, json: async () => ({ entries: [], clinicalNotes: [] }) };
+        }
+        return { ok: true, status: 200, json: async () => [] };
+      });
+      rerender(<PatientTimelineContainer skipRoleGuard={true} initialClientId="client-no-auth" />);
+      await waitFor(() => {
+        expect(screen.getByTestId("timeline-empty-state")).toBeDefined();
+      });
+
+      // Cover JournalFeatureView portalMode="client" handshakes fallbacks & visibleItems branches
+      global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+        const u = String(input);
+        if (u.includes("/api/backend/clinic/handshakes/client/")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => [
+              { therapistUuid: "t1", status: "ACTIVE" },
+              { therapistUuid: "t2", organisationName: "Klinik Nord", status: "ACTIVE" },
+              { therapistUuid: "t3", status: "" },
+            ],
+          };
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            { id: "j-orphan", title: "Orphan", content: "S: x", moodRating: 5, sharedWithTherapist: false },
+            { id: "j-uid", userId: "u-client-1", title: "ByUserId", content: "S: y", moodRating: 7, sharedWithTherapist: false },
+            { id: "j-other", clientUuid: "other-client", title: "Other", content: "S: z", moodRating: 4, sharedWithTherapist: false },
+          ],
+        };
+      });
+      rerender(
+        <AuthProvider user={{ id: "u-client-1", name: "Klara", email: "klara@dk.dk", roles: ["CLIENT"] }}>
+          <JournalFeatureView portalMode="client" />
+        </AuthProvider>
+      );
+      const shareBox = await screen.findByTestId("input-journal-shared");
+      fireEvent.click(shareBox);
+      await waitFor(() => {
+        expect(screen.getByTestId("share-therapist-checkbox-t1")).toBeDefined();
+        expect(screen.getByTestId("share-therapist-checkbox-t2")).toBeDefined();
+      });
+      fireEvent.click(screen.getByTestId("share-therapist-checkbox-t1"));
+
+      // Cover helper default parameters, invalid month fallback & timestamp badge rendering
+      expect(cleanAppointmentReference("Booking 2026-99-01")).toContain("99");
+      expect(parseSoapSections("S: hovedpine", "fallback").subjective).toBe("hovedpine");
+      expect(getReferenceClinicalTimelineEvents().length).toBeGreaterThan(0);
+      const timestampedEvents: ClinicalJournalEvent[] = [
+        { ...customEvents[0], id: "ev-ts", timestamp: "10:15" },
+        { ...customEvents[0], id: "ev-nots", timestamp: "" },
+      ];
+
       // Standalone component coverage sanity
       const dummyRef = { current: null };
       render(
         <>
           <SemanticTimelineStream
-            events={customEvents}
-            zoomLevel={25}
+            events={timestampedEvents}
+            zoomLevel={90}
             selectedEventId={null}
             onSelectEvent={() => undefined}
             streamRef={dummyRef}
@@ -957,16 +1062,54 @@ describe("JournalFeature Vertical Slice", () => {
           <VerticalZoomScrollbar
             zoomLevel={55}
             scrollRatio={0}
-            events={customEvents}
+            events={timestampedEvents}
             onZoomChange={() => undefined}
             onScrollRatioChange={() => undefined}
           />
           <JournalDetailInspector
-            event={customEvents[0]}
+            event={timestampedEvents[0]}
+            onClose={() => undefined}
+          />
+          <JournalDetailInspector
+            event={timestampedEvents[1]}
             onClose={() => undefined}
           />
         </>
       );
+
+      // Cover empty touches guard branches on VerticalZoomScrollbar
+      const zoomHandleTop = screen.getByTestId("zoom-handle-top");
+      fireEvent.touchStart(zoomHandleTop, { touches: [] });
+      fireEvent.touchStart(zoomHandleTop, { touches: [{ clientY: 40 }] });
+      fireEvent.touchMove(window, { touches: [] });
+      fireEvent.touchEnd(window);
+
+      // Cover non-array handshakes response + unmount cancellation guards
+      let resolvePendingClients!: (v: unknown) => void;
+      global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+        const u = String(input);
+        if (u.includes("/api/backend/clinic/handshakes/client/")) {
+          return { ok: true, status: 200, json: async () => ({ notArray: true }) };
+        }
+        if (u.includes("/api/backend/clinic/clients")) {
+          const data = await new Promise((resolve) => {
+            resolvePendingClients = resolve;
+          });
+          return { ok: true, status: 200, json: async () => data };
+        }
+        return { ok: true, status: 200, json: async () => [] };
+      });
+      const unm1 = render(
+        <AuthProvider user={{ id: "u-hs-nonarr", name: "K", email: "k@dk.dk", roles: ["CLIENT"] }}>
+          <JournalFeatureView portalMode="client" />
+        </AuthProvider>
+      );
+      await waitFor(() => expect(global.fetch).toHaveBeenCalled());
+      unm1.unmount();
+
+      const unm2 = render(<PatientTimelineContainer skipRoleGuard={true} initialClientId="c-pending" />);
+      unm2.unmount();
+      if (resolvePendingClients) resolvePendingClients([]);
     });
   });
 });

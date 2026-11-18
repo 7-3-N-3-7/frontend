@@ -97,6 +97,7 @@ describe("UserFeature Vertical Slice", () => {
     expect(() => validateUserRole("INVALID_ROLE")).toThrow(/invalid role/i);
     expect(localizeUserRole("PROVIDER", "da")).toBe("Behandler");
     expect(localizeUserRole("CUSTOM", "en")).toBe("CUSTOM");
+    expect(localizeUserRole("", "xx" as any)).toBe("");
 
     // Blank username triggers DomainGuard
     fireEvent.change(screen.getByTestId("input-username"), {

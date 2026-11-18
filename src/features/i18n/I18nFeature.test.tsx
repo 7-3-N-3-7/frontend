@@ -567,4 +567,60 @@ describe("I18nFeature Vertical Slice", () => {
     expect(screen.getByTestId("i18n-empty-filter")).toBeDefined();
     expect(screen.queryByTestId("i18n-list")).toBeNull();
   });
+
+  it("handles default Common namespace, omitted CachedI18nProvider locale, and standalone LanguageSwitcher", async () => {
+    global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (init?.method === "POST") {
+        return {
+          ok: true,
+          status: 201,
+          json: async () => ({
+            id: "k-common",
+            locale: "da",
+            translationKey: ".dotOnly",
+            translationValue: "Værdi",
+          }),
+        };
+      }
+      if (url.includes("/api/backend/i18n/da")) {
+        return { ok: true, status: 200, json: async () => ({ Common: { hello: "Hej" } }) };
+      }
+      return { ok: true, status: 200, json: async () => [] };
+    });
+
+    const TriggerDefaults = () => {
+      const cache = useI18nCache();
+      return (
+        <div>
+          <LanguageSwitcher />
+          <button
+            type="button"
+            data-testid="btn-invalidate-default"
+            onClick={() => cache?.invalidateI18nCache()}
+          >
+            Inv
+          </button>
+        </div>
+      );
+    };
+
+    render(
+      <>
+        <LanguageSwitcher />
+        <CachedI18nProvider initialMessages={{ Common: { hello: "Hej" } }}>
+          <TriggerDefaults />
+          <I18nFeatureView />
+        </CachedI18nProvider>
+      </>
+    );
+
+    await waitFor(() => expect(screen.getByTestId("btn-invalidate-default")).toBeDefined());
+    fireEvent.click(screen.getByTestId("btn-invalidate-default"));
+
+    fireEvent.change(screen.getByTestId("input-i18n-key"), { target: { value: ".dotOnly" } });
+    fireEvent.change(screen.getByTestId("input-i18n-value"), { target: { value: "Værdi" } });
+    fireEvent.click(screen.getByTestId("submit-i18n"));
+    await waitFor(() => expect(screen.getByText(".dotOnly")).toBeDefined());
+  });
 });

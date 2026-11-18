@@ -901,6 +901,9 @@ describe("FinanceFeature Vipps MobilePay OSGi Hub & Checkout", () => {
     // Non-Problem Error thrown during Vipps checkout
     failCheckout = true;
     fireEvent.click(screen.getByTestId("btn-checkout-subscription"));
+    await waitFor(() => {
+      expect((screen.getByTestId("btn-confirm-vipps-checkout") as HTMLButtonElement).disabled).toBe(false);
+    });
     fireEvent.click(screen.getByTestId("btn-confirm-vipps-checkout"));
     await waitFor(() => {
       expect(screen.getByTestId("error-banner")).toBeDefined();
@@ -1097,5 +1100,56 @@ describe("FinanceFeature Vipps MobilePay OSGi Hub & Checkout", () => {
     expect((screen.getByTestId("input-card-holder") as HTMLInputElement).value).toBe("Klara Holm");
     expect((screen.getByTestId("input-card-number") as HTMLInputElement).value).toBe("");
     cleanup();
+
+    // Cover localizeFinanceStatus fallbacks, default FinanceFeatureView props, & overview/ledger fetch errors
+    expect(localizeFinanceStatus(undefined, "da")).toBe("Betalt");
+    expect(localizeFinanceStatus("CUSTOM_UNKNOWN", "da")).toBe("CUSTOM_UNKNOWN");
+
+    global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+      const u = String(input);
+      if (u.includes("/overview") || u.includes("/ledger/summary")) {
+        return {
+          ok: false,
+          status: 500,
+          json: async () => ({
+            type: "about:blank",
+            title: "Server Error",
+            status: 500,
+            detail: "Finance backend unavailable",
+            errorCode: ErrorCode.INTERNAL_ERROR,
+            timestamp: new Date().toISOString(),
+          }),
+        };
+      }
+      return { ok: true, status: 200, json: async () => [] };
+    });
+
+    render(
+      <AuthProvider user={{ id: "c-err", name: "Err Client", email: "c@err.dk", roles: ["CLIENT"] }}>
+        <FinanceFeatureView portalMode="client" />
+      </AuthProvider>
+    );
+    await waitFor(() => expect(screen.getByTestId("error-detail")).toBeDefined());
+    cleanup();
+
+    render(
+      <AuthProvider user={{ id: "p-err", name: "Err Prov", email: "p@err.dk", roles: ["PROVIDER"] }}>
+        <FinanceFeatureView />
+      </AuthProvider>
+    );
+    await waitFor(() => expect(screen.getByTestId("error-detail")).toBeDefined());
+    cleanup();
+
+    // Cover default empty destructuring on FinanceFeatureView and status/client filter fallbacks
+    global.fetch = vi.fn().mockResolvedValueOnce({ ok: true, status: 200, json: async () => [] });
+    render(<FinanceFeatureView />);
+    await waitFor(() => expect(screen.getByTestId("finance-feature-view")).toBeDefined());
+    cleanup();
+
+    expect(localizeFinanceStatus(undefined, "da")).toBe("Betalt");
+    expect(localizeFinanceStatus("CUSTOM_RAW", "da")).toBe("CUSTOM_RAW");
+    expect(filterFinanceClientOptions("not-array")).toEqual([]);
+    expect(filterFinanceClientOptions([{ id: "1", fullName: "Anna" }])).toHaveLength(1);
+    expect(localizeGlAccountName("9999", "Fallback", "da")).toBe("Fallback");
   });
 });

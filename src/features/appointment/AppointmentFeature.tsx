@@ -138,6 +138,12 @@ export interface DirectoryServiceDto {
   isActive?: boolean;
 }
 
+export interface ClinicClientOptionDto {
+  userId?: string;
+  fullName: string;
+  email?: string;
+}
+
 export interface ClinicDirectoryDto {
   organisations?: Array<{ id: string; name: string }>;
   providers: DirectoryProviderDto[];
@@ -280,6 +286,37 @@ export function addMinutesToIsoLocal(
   const hh = String(dt.getHours()).padStart(2, "0");
   const min = String(dt.getMinutes()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd}T${hh}:${min}`;
+}
+
+/**
+ * Konverterer Timefold-svarets `recommendedSlot` (f.eks. `"10:00"` eller ISO) til lokale ISO start-/sluttider.
+ */
+export function resolveRecommendedSlotRange(
+  result: TimefoldScheduleResponseDto,
+  fallbackDate: string,
+  durationMinutes: number
+): { startTime: string; endTime: string } {
+  const raw = (result.recommendedSlot || "").trim();
+  const matched = raw
+    ? result.slots?.find((s) => s.slot === raw || s.startTime === raw)
+    : undefined;
+
+  let startTime = "";
+  if (matched?.startTime) {
+    startTime = toDateTimeLocalInput(matched.startTime);
+  } else if (/^\d{2}:\d{2}$/.test(raw)) {
+    const datePrefix = (result.date || fallbackDate).trim();
+    startTime = datePrefix ? `${datePrefix}T${raw}` : raw;
+  } else if (raw) {
+    startTime = toDateTimeLocalInput(raw);
+  }
+
+  const endTime =
+    (matched?.endTime ? toDateTimeLocalInput(matched.endTime) : "") ||
+    addMinutesToIsoLocal(startTime, durationMinutes) ||
+    startTime;
+
+  return { startTime, endTime };
 }
 
 /**
@@ -438,10 +475,167 @@ export function filterAppointments(
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-/i;
 
+function getTodayIsoDate(): string {
+  const dt = new Date();
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+}
+
 function getTomorrowIsoDate(): string {
   const dt = new Date();
   dt.setDate(dt.getDate() + 1);
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+}
+
+const MONTH_NAMES_BY_LOCALE: Record<SupportedUiLocale, readonly string[]> = {
+  da: [
+    "Januar",
+    "Februar",
+    "Marts",
+    "April",
+    "Maj",
+    "Juni",
+    "Juli",
+    "August",
+    "September",
+    "Oktober",
+    "November",
+    "December",
+  ],
+  en: [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+  ],
+  fr: [
+    "Janvier",
+    "Février",
+    "Mars",
+    "Avril",
+    "Mai",
+    "Juin",
+    "Juillet",
+    "Août",
+    "Septembre",
+    "Octobre",
+    "Novembre",
+    "Décembre",
+  ],
+  es: [
+    "Enero",
+    "Febrero",
+    "Marzo",
+    "Abril",
+    "Mayo",
+    "Junio",
+    "Julio",
+    "Agosto",
+    "Septiembre",
+    "Octubre",
+    "Noviembre",
+    "Diciembre",
+  ],
+  de: [
+    "Januar",
+    "Februar",
+    "März",
+    "April",
+    "Mai",
+    "Juni",
+    "Juli",
+    "August",
+    "September",
+    "Oktober",
+    "November",
+    "Dezember",
+  ],
+};
+
+/**
+ * Opbygger en mandag-startende kalendermatrix for `(year, monthIndex0)` med `null` for tomme celler.
+ */
+export function buildCalendarMonthCells(
+  year: number,
+  monthIndex0: number
+): Array<string | null> {
+  const firstDay = new Date(year, monthIndex0, 1);
+  const mondayOffset = (firstDay.getDay() + 6) % 7;
+  const daysInMonth = new Date(year, monthIndex0 + 1, 0).getDate();
+  const cells: Array<string | null> = Array.from(
+    { length: mondayOffset },
+    () => null
+  );
+  const mm = String(monthIndex0 + 1).padStart(2, "0");
+  for (let d = 1; d <= daysInMonth; d++) {
+    cells.push(`${year}-${mm}-${String(d).padStart(2, "0")}`);
+  }
+  while (cells.length % 7 !== 0) {
+    cells.push(null);
+  }
+  return cells;
+}
+
+export function formatMonthYearHeading(
+  year: number,
+  monthIndex0: number,
+  locale: SupportedUiLocale = "da"
+): string {
+  const idx = ((monthIndex0 % 12) + 12) % 12;
+  return `${MONTH_NAMES_BY_LOCALE[locale][idx]} ${year}`;
+}
+
+export function formatIsoDateHuman(
+  isoDate?: string | null,
+  locale: SupportedUiLocale = "da"
+): string {
+  const match = isoDate?.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return "";
+  const [, yStr, mStr, dStr] = match;
+  const cal = CALENDAR_LABELS_BY_LOCALE[locale];
+  const monthIdx = Math.max(0, Math.min(11, Number(mStr) - 1));
+  return `${Number(dStr)}${cal.dayDot} ${cal.months[monthIdx].toLowerCase()} ${yStr}`;
+}
+
+export function normalizeDirectoryProvider(
+  raw: DirectoryProviderDto & {
+    organisation?: { id?: string; name?: string };
+  }
+): DirectoryProviderDto {
+  return {
+    ...raw,
+    organisationId: raw.organisationId || raw.organisation?.id,
+    organisationName: raw.organisationName || raw.organisation?.name,
+  };
+}
+
+export function normalizeDirectoryService(
+  raw: DirectoryServiceDto & {
+    provider?: { id?: string };
+    organisation?: { id?: string };
+    active?: boolean;
+  }
+): DirectoryServiceDto {
+  return {
+    ...raw,
+    providerProfileId: raw.providerProfileId || raw.provider?.id,
+    organisationId: raw.organisationId || raw.organisation?.id,
+    isActive: raw.isActive ?? raw.active ?? true,
+  };
+}
+
+function localizeOpeningWindow(
+  windowText: string,
+  closedLabel: string
+): string {
+  return windowText.replaceAll("Lukket", closedLabel);
 }
 
 interface AppointmentCopy {
@@ -528,6 +722,24 @@ interface AppointmentCopy {
   paginationNext: string;
   paginationPageLabel: string;
   paginationOfLabel: string;
+  selectClientPlaceholder: string;
+  noServicesOption: string;
+  noServicesNotice: string;
+  loadingServices: string;
+  calendarTitle: string;
+  slotsTitle: string;
+  loadingSlots: string;
+  noSlotsAvailable: string;
+  bookedSlotTag: string;
+  outsideHoursSlotTag: string;
+  outsideHoursToggle: string;
+  autoFromServicePrefix: string;
+  notSelectedYet: string;
+  clearDateBtn: string;
+  prevMonthAria: string;
+  nextMonthAria: string;
+  anyTimeOption: string;
+  selectedTimeSummaryLabel: string;
 }
 
 const APPOINTMENT_COPY: Record<SupportedUiLocale, AppointmentCopy> = {
@@ -623,6 +835,24 @@ const APPOINTMENT_COPY: Record<SupportedUiLocale, AppointmentCopy> = {
     paginationNext: "Næste",
     paginationPageLabel: "Side",
     paginationOfLabel: "af",
+    selectClientPlaceholder: "Vælg eksisterende klient (valgfri)",
+    noServicesOption: "Ingen aktive ydelser",
+    noServicesNotice: "Denne behandler har ingen aktive ydelser endnu.",
+    loadingServices: "Henter ydelser...",
+    calendarTitle: "Vælg dato",
+    slotsTitle: "Ledige tider (Timefold AI)",
+    loadingSlots: "Beregner ledige tider...",
+    noSlotsAvailable: "Ingen ledige tider denne dag.",
+    bookedSlotTag: "Optaget",
+    outsideHoursSlotTag: "Uden for normaltid",
+    outsideHoursToggle: "Vis tider uden for arbejdstid (07:00–21:00)",
+    autoFromServicePrefix: "Beregnet fra ydelse",
+    notSelectedYet: "Vælg tid i kalenderen",
+    clearDateBtn: "Ryd",
+    prevMonthAria: "Forrige måned",
+    nextMonthAria: "Næste måned",
+    anyTimeOption: "Første ledige (anbefalet)",
+    selectedTimeSummaryLabel: "Valgt tidspunkt",
   },
   en: {
     activeBadgeSuffix: "active",
@@ -716,6 +946,24 @@ const APPOINTMENT_COPY: Record<SupportedUiLocale, AppointmentCopy> = {
     paginationNext: "Next",
     paginationPageLabel: "Page",
     paginationOfLabel: "of",
+    selectClientPlaceholder: "Select existing client (optional)",
+    noServicesOption: "No active services",
+    noServicesNotice: "This therapist has no active services yet.",
+    loadingServices: "Loading services...",
+    calendarTitle: "Select date",
+    slotsTitle: "Open slots (Timefold AI)",
+    loadingSlots: "Calculating open slots...",
+    noSlotsAvailable: "No open slots available on this day.",
+    bookedSlotTag: "Booked",
+    outsideHoursSlotTag: "Outside hours",
+    outsideHoursToggle: "Show times outside working hours (07:00–21:00)",
+    autoFromServicePrefix: "Calculated from service",
+    notSelectedYet: "Choose slot in calendar",
+    clearDateBtn: "Clear",
+    prevMonthAria: "Previous month",
+    nextMonthAria: "Next month",
+    anyTimeOption: "First available (recommended)",
+    selectedTimeSummaryLabel: "Selected time",
   },
   fr: {
     activeBadgeSuffix: "actifs",
@@ -809,6 +1057,24 @@ const APPOINTMENT_COPY: Record<SupportedUiLocale, AppointmentCopy> = {
     paginationNext: "Suivant",
     paginationPageLabel: "Page",
     paginationOfLabel: "sur",
+    selectClientPlaceholder: "Choisir un client existant (optionnel)",
+    noServicesOption: "Aucune prestation active",
+    noServicesNotice: "Ce praticien n'a pas encore de prestation active.",
+    loadingServices: "Chargement des prestations...",
+    calendarTitle: "Choisir une date",
+    slotsTitle: "Créneaux disponibles (Timefold AI)",
+    loadingSlots: "Calcul des créneaux...",
+    noSlotsAvailable: "Aucun créneau disponible ce jour.",
+    bookedSlotTag: "Occupé",
+    outsideHoursSlotTag: "Hors horaires",
+    outsideHoursToggle: "Afficher hors horaires habituels (07:00–21:00)",
+    autoFromServicePrefix: "Calculé selon la prestation",
+    notSelectedYet: "Choisir un créneau",
+    clearDateBtn: "Effacer",
+    prevMonthAria: "Mois précédent",
+    nextMonthAria: "Mois suivant",
+    anyTimeOption: "Premier disponible (recommandé)",
+    selectedTimeSummaryLabel: "Créneau choisi",
   },
   es: {
     activeBadgeSuffix: "activas",
@@ -902,6 +1168,24 @@ const APPOINTMENT_COPY: Record<SupportedUiLocale, AppointmentCopy> = {
     paginationNext: "Siguiente",
     paginationPageLabel: "Página",
     paginationOfLabel: "de",
+    selectClientPlaceholder: "Seleccionar cliente existente (opcional)",
+    noServicesOption: "Sin servicios activos",
+    noServicesNotice: "Este terapeuta aún no tiene servicios activos.",
+    loadingServices: "Cargando servicios...",
+    calendarTitle: "Seleccionar fecha",
+    slotsTitle: "Horarios disponibles (Timefold AI)",
+    loadingSlots: "Calculando horarios disponibles...",
+    noSlotsAvailable: "No hay horarios disponibles este día.",
+    bookedSlotTag: "Ocupado",
+    outsideHoursSlotTag: "Fuera de horario",
+    outsideHoursToggle: "Mostrar horarios fuera de jornada (07:00–21:00)",
+    autoFromServicePrefix: "Calculado según el servicio",
+    notSelectedYet: "Elegir horario en el calendario",
+    clearDateBtn: "Limpiar",
+    prevMonthAria: "Mes anterior",
+    nextMonthAria: "Mes siguiente",
+    anyTimeOption: "Primero disponible (recomendado)",
+    selectedTimeSummaryLabel: "Horario elegido",
   },
   de: {
     activeBadgeSuffix: "aktiv",
@@ -995,6 +1279,24 @@ const APPOINTMENT_COPY: Record<SupportedUiLocale, AppointmentCopy> = {
     paginationNext: "Weiter",
     paginationPageLabel: "Seite",
     paginationOfLabel: "von",
+    selectClientPlaceholder: "Bestehenden Klienten wählen (optional)",
+    noServicesOption: "Keine aktiven Leistungen",
+    noServicesNotice: "Dieser Therapeut hat noch keine aktiven Leistungen.",
+    loadingServices: "Lade Leistungen...",
+    calendarTitle: "Datum wählen",
+    slotsTitle: "Freie Zeiten (Timefold AI)",
+    loadingSlots: "Berechne freie Zeiten...",
+    noSlotsAvailable: "An diesem Tag sind keine Zeiten verfügbar.",
+    bookedSlotTag: "Belegt",
+    outsideHoursSlotTag: "Außerhalb",
+    outsideHoursToggle: "Zeiten außerhalb der Arbeitszeit (07:00–21:00)",
+    autoFromServicePrefix: "Aus Leistung berechnet",
+    notSelectedYet: "Zeit im Kalender wählen",
+    clearDateBtn: "Leeren",
+    prevMonthAria: "Vorheriger Monat",
+    nextMonthAria: "Nächster Monat",
+    anyTimeOption: "Nächstmöglicher Termin",
+    selectedTimeSummaryLabel: "Gewählte Zeit",
   },
 };
 
@@ -1094,6 +1396,8 @@ class AppointmentApiService extends BaseApiService<AppointmentDto, string> {
     date: string;
     durationMinutes: number;
     preferredTime?: string;
+    excludeAppointmentId?: string;
+    includeOutsideHours?: boolean;
   }): Promise<TimefoldScheduleResponseDto> {
     DomainGuard.requireNotBlank(params.therapistUuid, "Therapist", "therapistUuid");
     DomainGuard.requireNotBlank(params.date, "Date", "date");
@@ -1104,6 +1408,12 @@ class AppointmentApiService extends BaseApiService<AppointmentDto, string> {
     });
     if (params.preferredTime) {
       qs.set("preferredTime", params.preferredTime);
+    }
+    if (params.excludeAppointmentId) {
+      qs.set("excludeAppointmentId", params.excludeAppointmentId);
+    }
+    if (params.includeOutsideHours) {
+      qs.set("includeOutsideHours", "true");
     }
     const raw = await this.request<
       TimefoldScheduleResponseDto | TimefoldSlotSuggestionDto[]
@@ -1140,6 +1450,14 @@ class AppointmentApiService extends BaseApiService<AppointmentDto, string> {
     return clinicIntegrationApi.getClinicDirectory();
   }
 
+  public getTherapistServices(therapistUuid: string): Promise<DirectoryServiceDto[]> {
+    return clinicIntegrationApi.getTherapistServices(therapistUuid);
+  }
+
+  public getClinicClients(): Promise<ClinicClientOptionDto[]> {
+    return clinicIntegrationApi.getClinicClients();
+  }
+
   public saveWorkingHours(workingHoursJson: string): Promise<unknown> {
     return clinicIntegrationApi.saveWorkingHours(workingHoursJson);
   }
@@ -1152,6 +1470,22 @@ class ClinicIntegrationApiService extends BaseApiService<HasId<string>, string> 
 
   public getClinicDirectory(): Promise<ClinicDirectoryDto> {
     return this.request<ClinicDirectoryDto>("/directory");
+  }
+
+  public async getTherapistServices(
+    therapistUuid: string
+  ): Promise<DirectoryServiceDto[]> {
+    const raw = await this.request<DirectoryServiceDto[]>(
+      `/services?therapistUuid=${encodeURIComponent(therapistUuid)}&activeOnly=true`
+    );
+    return Array.isArray(raw)
+      ? deduplicateServices(raw.map((s) => normalizeDirectoryService(s)))
+      : [];
+  }
+
+  public async getClinicClients(): Promise<ClinicClientOptionDto[]> {
+    const raw = await this.request<ClinicClientOptionDto[]>("/clients");
+    return Array.isArray(raw) ? raw : [];
   }
 
   public async saveWorkingHours(workingHoursJson: string): Promise<unknown> {
@@ -1175,7 +1509,7 @@ class ClinicIntegrationApiService extends BaseApiService<HasId<string>, string> 
 }
 
 const clinicIntegrationApi = new ClinicIntegrationApiService();
-const appointmentApi = new AppointmentApiService();
+export const appointmentApi = new AppointmentApiService();
 
 function toProblemDetail(err: unknown): ProblemDetail {
   if (err instanceof FrontendDomainException) {
@@ -1190,6 +1524,250 @@ function toProblemDetail(err: unknown): ProblemDetail {
     timestamp: new Date().toISOString(),
   };
 }
+
+// ============================================================================
+// 2B. GENANVENDELIGE CUSTOM KALENDER- & DATOVÆLGER-KOMPONENTER
+// ============================================================================
+
+interface BookingCalendarGridProps {
+  selectedDate: string;
+  onSelectDate: (isoDate: string) => void;
+  locale: SupportedUiLocale;
+  copy: AppointmentCopy;
+  minDate?: string;
+  weeklySchedule?: WeeklyScheduleConfig | null;
+  allowClosedDays?: boolean;
+  compact?: boolean;
+  testId?: string;
+}
+
+const BookingCalendarGrid: React.FC<BookingCalendarGridProps> = ({
+  selectedDate,
+  onSelectDate,
+  locale,
+  copy,
+  minDate,
+  weeklySchedule = null,
+  allowClosedDays = false,
+  compact = false,
+  testId = "booking-calendar",
+}) => {
+  const todayIso = getTodayIsoDate();
+  const anchorIso = /^\d{4}-\d{2}-\d{2}$/.test(selectedDate)
+    ? selectedDate
+    : todayIso;
+  const anchorParts = anchorIso.split("-").map(Number);
+
+  const [viewYear, setViewYear] = useState<number>(anchorParts[0]);
+  const [viewMonth, setViewMonth] = useState<number>(anchorParts[1] - 1);
+
+  useEffect(() => {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(selectedDate)) {
+      const [y, m] = selectedDate.split("-").map(Number);
+      setViewYear(y);
+      setViewMonth(m - 1);
+    }
+  }, [selectedDate]);
+
+  const cells = useMemo(
+    () => buildCalendarMonthCells(viewYear, viewMonth),
+    [viewYear, viewMonth]
+  );
+
+  const calLabels = CALENDAR_LABELS_BY_LOCALE[locale];
+  const monFirstWeekdays = [1, 2, 3, 4, 5, 6, 0].map(
+    (idx) => calLabels.weekdays[idx]
+  );
+
+  const goPrevMonth = () => {
+    if (viewMonth === 0) {
+      setViewYear((y) => y - 1);
+      setViewMonth(11);
+    } else {
+      setViewMonth((m) => m - 1);
+    }
+  };
+
+  const goNextMonth = () => {
+    if (viewMonth === 11) {
+      setViewYear((y) => y + 1);
+      setViewMonth(0);
+    } else {
+      setViewMonth((m) => m + 1);
+    }
+  };
+
+  return (
+    <div
+      data-testid={testId}
+      className={`rounded-2xl border border-slate-200 bg-white ${
+        compact ? "p-3 shadow-lg" : "p-3.5 shadow-xs"
+      }`}
+    >
+      <div className="flex items-center justify-between gap-2 mb-2.5">
+        <button
+          type="button"
+          onClick={goPrevMonth}
+          aria-label={copy.prevMonthAria}
+          data-testid={`${testId}-prev-month`}
+          className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700"
+        >
+          <i className="bi bi-chevron-left text-xs" aria-hidden="true" />
+        </button>
+        <span
+          className="text-xs font-bold text-slate-900 tracking-tight"
+          data-testid={`${testId}-month-label`}
+        >
+          {formatMonthYearHeading(viewYear, viewMonth, locale)}
+        </span>
+        <button
+          type="button"
+          onClick={goNextMonth}
+          aria-label={copy.nextMonthAria}
+          data-testid={`${testId}-next-month`}
+          className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700"
+        >
+          <i className="bi bi-chevron-right text-xs" aria-hidden="true" />
+        </button>
+      </div>
+
+      <div className="grid grid-cols-7 gap-1 mb-1">
+        {monFirstWeekdays.map((wd) => (
+          <div
+            key={wd}
+            className="text-center text-[10px] font-bold uppercase text-slate-400 py-1"
+          >
+            {wd}
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-7 gap-1">
+        {cells.map((iso, idx) => {
+          if (!iso) {
+            return <div key={`empty-${idx}`} className="h-9" />;
+          }
+          const dayNum = Number(iso.slice(8, 10));
+          const isBeforeMin = Boolean(minDate && iso < minDate);
+          const isClosed =
+            !allowClosedDays &&
+            Boolean(weeklySchedule && isDayClosed(weeklySchedule, iso));
+          const disabled = isBeforeMin || isClosed;
+          const isSelected = iso === selectedDate;
+          const isToday = iso === todayIso;
+
+          return (
+            <button
+              key={iso}
+              type="button"
+              disabled={disabled}
+              onClick={() => onSelectDate(iso)}
+              data-testid={`${testId}-day-${iso}`}
+              className={`min-h-9 w-full rounded-xl text-xs font-semibold transition-colors ${
+                isSelected
+                  ? "bg-teal-700 text-white shadow-xs"
+                  : disabled
+                    ? "bg-slate-50 text-slate-300 cursor-not-allowed"
+                    : isToday
+                      ? "border border-teal-500 bg-teal-50/70 text-teal-900 hover:bg-teal-100"
+                      : "bg-white text-slate-700 hover:bg-teal-50 hover:text-teal-900"
+              }`}
+            >
+              {dayNum}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+interface DatePopoverPickerProps {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  ariaLabel: string;
+  locale: SupportedUiLocale;
+  copy: AppointmentCopy;
+  testId: string;
+  minDate?: string;
+}
+
+const DatePopoverPicker: React.FC<DatePopoverPickerProps> = ({
+  value,
+  onChange,
+  placeholder,
+  ariaLabel,
+  locale,
+  copy,
+  testId,
+  minDate,
+}) => {
+  const [open, setOpen] = useState(false);
+  const displayLabel = value ? formatIsoDateHuman(value, locale) : placeholder;
+
+  return (
+    <div className="relative">
+      <input
+        type="text"
+        aria-label={ariaLabel}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        data-testid={testId}
+        tabIndex={-1}
+        className="sr-only"
+      />
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        data-testid={`${testId}-trigger`}
+        aria-label={ariaLabel}
+        className="min-h-11 w-full inline-flex items-center justify-between gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800 hover:border-teal-500 transition-colors"
+      >
+        <span className={value ? "font-semibold text-slate-800" : "text-slate-400"}>
+          {displayLabel}
+        </span>
+        <i className="bi bi-calendar3 text-teal-700" aria-hidden="true" />
+      </button>
+
+      {open && (
+        <div
+          className="absolute z-30 mt-1.5 w-72 right-0 sm:left-0 sm:right-auto rounded-2xl bg-white shadow-xl border border-slate-200 p-2 space-y-2"
+          data-testid={`${testId}-popover`}
+        >
+          <BookingCalendarGrid
+            selectedDate={value}
+            onSelectDate={(iso) => {
+              onChange(iso);
+              setOpen(false);
+            }}
+            locale={locale}
+            copy={copy}
+            minDate={minDate}
+            allowClosedDays
+            compact
+            testId={`${testId}-calendar`}
+          />
+          {value && (
+            <div className="flex justify-end px-1 pb-1">
+              <button
+                type="button"
+                onClick={() => {
+                  onChange("");
+                  setOpen(false);
+                }}
+                data-testid={`${testId}-clear`}
+                className="min-h-9 rounded-lg px-2.5 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50"
+              >
+                {copy.clearDateBtn}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
 
 // ============================================================================
 // 3. EXPORTED FEATURE VIEW (Præsentationslag koblet via useBaseCrud)
@@ -1214,6 +1792,7 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
   const isClientMode =
     portalMode === "client" ||
     (portalMode !== "provider" && Boolean(auth && !isTherapist));
+  const isProviderPortal = !isClientMode && isTherapist && hasLiveUuid;
   const canEditWeeklySchedule = !isClientMode && (isTherapist || !auth);
 
   const {
@@ -1230,16 +1809,26 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
 
   // Formular-tilstand
   const [clientName, setClientName] = useState("");
+  const [selectedClientUuid, setSelectedClientUuid] = useState("");
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
   const [title, setTitle] = useState("");
   const [selectedTherapistUuid, setSelectedTherapistUuid] = useState("");
   const [selectedServiceId, setSelectedServiceId] = useState("");
+  const [bookingDate, setBookingDate] = useState(() => getTomorrowIsoDate());
+  const [includeOutsideHours, setIncludeOutsideHours] = useState(false);
 
-  // Klinik-katalog (behandler + ydelser)
+  // Klinik-katalog (behandlere, dynamiske ydelser pr. behandler, klienter & Timefold booking-slots)
   const [providers, setProviders] = useState<DirectoryProviderDto[]>([]);
   const [services, setServices] = useState<DirectoryServiceDto[]>([]);
+  const [therapistServices, setTherapistServices] = useState<DirectoryServiceDto[]>([]);
+  const [servicesLoading, setServicesLoading] = useState(false);
+  const [clinicClients, setClinicClients] = useState<ClinicClientOptionDto[]>([]);
   const [directoryLoaded, setDirectoryLoaded] = useState(false);
+  const [bookingSlots, setBookingSlots] =
+    useState<TimefoldScheduleResponseDto | null>(null);
+  const [bookingSlotsLoading, setBookingSlotsLoading] = useState(false);
+  const [slotsRefreshTick, setSlotsRefreshTick] = useState(0);
 
   // Filter-, søge-, paginerings- & fanetilstand (`Aktive` skjuler gamle CANCELLED rækker som standard)
   const [statusFilter, setStatusFilter] =
@@ -1275,6 +1864,11 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
 
   // Inline Ombook + Ændringshistorik
   const [rescheduleId, setRescheduleId] = useState<string | null>(null);
+  const [rescheduleDate, setRescheduleDate] = useState("");
+  const [rescheduleDuration, setRescheduleDuration] = useState(60);
+  const [rescheduleSlots, setRescheduleSlots] =
+    useState<TimefoldScheduleResponseDto | null>(null);
+  const [rescheduleSlotsLoading, setRescheduleSlotsLoading] = useState(false);
   const [rescheduleStart, setRescheduleStart] = useState("");
   const [rescheduleEnd, setRescheduleEnd] = useState("");
   const [gitHistoryById, setGitHistoryById] = useState<
@@ -1283,35 +1877,79 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
   const [openHistoryId, setOpenHistoryId] = useState<string | null>(null);
   const [historyLoadingId, setHistoryLoadingId] = useState<string | null>(null);
 
-  // Prefill klientnavn for indlogget klient (ikke ved standalone test uden AuthProvider)
+  // Prefill og lås klientnavn i Klientportalen (uanset om brugeren også har behandler-rolle)
   useEffect(() => {
-    if (auth?.user.name && !isTherapist && !clientName) {
+    if (isClientMode && auth?.user.name) {
       setClientName(auth.user.name);
+      setIncludeOutsideHours(false);
     }
-  }, [auth?.user.name, isTherapist, clientName]);
+  }, [isClientMode, auth?.user.name]);
+
+  // Lås behandler til indlogget terapeut i Behandlerportalen og indlæs klientliste (ekskl. sig selv)
+  useEffect(() => {
+    if (isProviderPortal && auth?.user.id) {
+      setSelectedTherapistUuid(auth.user.id);
+      setTimefoldTherapistUuid((prev) => prev || auth.user.id);
+      let cancelled = false;
+      appointmentApi
+        .getClinicClients()
+        .then((rows) => {
+          if (cancelled) return;
+          const ownEmail = auth.user.email?.toLowerCase();
+          const filtered = rows.filter(
+            (c) =>
+              c.userId !== auth.user.id &&
+              (!ownEmail || c.email?.toLowerCase() !== ownEmail)
+          );
+          setClinicClients(filtered);
+        })
+        .catch(() => {
+          // Valgfri klientliste; manuelt klientnavn virker stadig
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+  }, [isProviderPortal, auth?.user.id, auth?.user.email]);
 
   const loadDirectory = useCallback(async () => {
     setDirectoryLoaded(true);
     try {
       const dir = await appointmentApi.getClinicDirectory();
-      const loadedProviders = deduplicateProviders(dir.providers);
-      const loadedServices = deduplicateServices(dir.services);
+      const loadedProviders = deduplicateProviders(
+        Array.isArray(dir?.providers)
+          ? dir.providers.map((p) => normalizeDirectoryProvider(p))
+          : []
+      );
+      const loadedServices = deduplicateServices(
+        Array.isArray(dir?.services)
+          ? dir.services.map((s) => normalizeDirectoryService(s))
+          : []
+      );
       setProviders(loadedProviders);
       setServices(loadedServices);
-      if (loadedProviders.length > 0) {
-        const preferred =
-          loadedProviders.find((p) => p.userUuid === auth?.user.id) ??
-          loadedProviders[0];
+
+      const pool = isProviderPortal
+        ? loadedProviders.filter((p) => p.userUuid === auth?.user.id)
+        : isClientMode && hasLiveUuid
+          ? loadedProviders.filter((p) => p.userUuid !== auth?.user.id)
+          : loadedProviders;
+
+      if (pool.length > 0) {
+        const preferred = pool[0];
         setSelectedTherapistUuid((prev) => prev || preferred.userUuid);
         setTimefoldTherapistUuid((prev) => prev || preferred.userUuid);
-        if (preferred.workingHoursJson) {
+        if (preferred.workingHoursJson && isProviderPortal) {
           setWeeklySchedule(parseWeeklySchedule(preferred.workingHoursJson));
         }
+      } else if (isClientMode && hasLiveUuid) {
+        setSelectedTherapistUuid("");
+        setTimefoldTherapistUuid("");
       }
     } catch {
       // Directory er valgfri; booking fungerer også uden kataloget
     }
-  }, [auth?.user.id]);
+  }, [auth?.user.id, isClientMode, isProviderPortal, hasLiveUuid]);
 
   useEffect(() => {
     if (hasLiveUuid && !directoryLoaded) {
@@ -1319,20 +1957,204 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
     }
   }, [hasLiveUuid, directoryLoaded, loadDirectory]);
 
+  const selectableProviders = useMemo(() => {
+    if (isProviderPortal && auth?.user.id) {
+      const own = providers.find((p) => p.userUuid === auth.user.id);
+      return [
+        own ?? {
+          userUuid: auth.user.id,
+          displayName: auth.user.name || auth.user.email || auth.user.id,
+        },
+      ];
+    }
+    if (isClientMode && hasLiveUuid) {
+      return providers.filter((p) => p.userUuid !== auth?.user.id);
+    }
+    return providers;
+  }, [
+    providers,
+    isProviderPortal,
+    isClientMode,
+    hasLiveUuid,
+    auth?.user.id,
+    auth?.user.name,
+    auth?.user.email,
+  ]);
+
+  const effectiveTherapistUuid = isProviderPortal
+    ? auth!.user.id
+    : selectedTherapistUuid;
+
+  // Dynamisk hentning af valgte behandlers aktive ydelser
+  useEffect(() => {
+    if (!hasLiveUuid) return;
+    if (!effectiveTherapistUuid) {
+      setTherapistServices([]);
+      setSelectedServiceId("");
+      return;
+    }
+    let cancelled = false;
+    setServicesLoading(true);
+    appointmentApi
+      .getTherapistServices(effectiveTherapistUuid)
+      .then((fetched) => {
+        if (cancelled) return;
+        setTherapistServices(fetched);
+        if (fetched.length === 0) {
+          setSelectedServiceId("");
+          setTitle("");
+          setStartTime("");
+          setEndTime("");
+        } else {
+          setSelectedServiceId((prev) => {
+            const match = fetched.find((s) => s.id === prev) ?? fetched[0];
+            setTitle(match.name);
+            if (match.durationMinutes && match.durationMinutes > 0) {
+              setTimefoldDuration(match.durationMinutes);
+            }
+            return match.id;
+          });
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setTherapistServices([]);
+        setSelectedServiceId("");
+      })
+      .finally(() => {
+        if (!cancelled) setServicesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [hasLiveUuid, effectiveTherapistUuid]);
+
   const filteredServices = useMemo(() => {
-    const cleanServices = deduplicateServices(services);
-    if (!selectedTherapistUuid) return cleanServices;
-    const provider = providers.find(
-      (p) => p.userUuid === selectedTherapistUuid
-    );
-    if (!provider) return cleanServices;
-    const matched = cleanServices.filter(
-      (s) =>
-        (provider.id && s.providerProfileId === provider.id) ||
-        (provider.organisationId && s.organisationId === provider.organisationId)
-    );
-    return matched.length > 0 ? matched : cleanServices;
-  }, [providers, services, selectedTherapistUuid]);
+    if (hasLiveUuid && effectiveTherapistUuid) {
+      return deduplicateServices(therapistServices);
+    }
+    return deduplicateServices(services);
+  }, [hasLiveUuid, effectiveTherapistUuid, therapistServices, services]);
+
+  const selectedService = useMemo(
+    () => filteredServices.find((s) => s.id === selectedServiceId) || null,
+    [filteredServices, selectedServiceId]
+  );
+
+  const activeDurationMinutes =
+    selectedService?.durationMinutes && selectedService.durationMinutes > 0
+      ? selectedService.durationMinutes
+      : timefoldDuration;
+
+  // Beregn altid sluttidspunktet automatisk ud fra starttid + valgte ydelses varighed
+  useEffect(() => {
+    if (startTime && selectedService) {
+      const computedEnd = addMinutesToIsoLocal(startTime, activeDurationMinutes);
+      if (computedEnd && computedEnd !== endTime) {
+        setEndTime(computedEnd);
+      }
+    }
+  }, [startTime, selectedService, activeDurationMinutes, endTime]);
+
+  const selectedProviderSchedule = useMemo<WeeklyScheduleConfig | null>(() => {
+    if (isProviderPortal && showSchedulePanel) {
+      return weeklySchedule;
+    }
+    const prov = providers.find((p) => p.userUuid === effectiveTherapistUuid);
+    const rawJson = prov?.workingHoursJson?.trim();
+    if (rawJson && rawJson.startsWith("{") && rawJson.includes('"days"')) {
+      return parseWeeklySchedule(rawJson);
+    }
+    return null;
+  }, [
+    isProviderPortal,
+    showSchedulePanel,
+    weeklySchedule,
+    providers,
+    effectiveTherapistUuid,
+  ]);
+
+  // Hent live Timefold AI ledige tidsslots når behandler, dato eller ydelse skifter
+  useEffect(() => {
+    if (!hasLiveUuid || !effectiveTherapistUuid || !bookingDate) {
+      setBookingSlots(null);
+      return;
+    }
+    let cancelled = false;
+    setBookingSlotsLoading(true);
+    appointmentApi
+      .getOptimalSlots({
+        therapistUuid: effectiveTherapistUuid,
+        date: bookingDate,
+        durationMinutes: activeDurationMinutes,
+        includeOutsideHours: isProviderPortal && includeOutsideHours,
+      })
+      .then((res) => {
+        if (!cancelled) setBookingSlots(res);
+      })
+      .catch(() => {
+        if (!cancelled) setBookingSlots(null);
+      })
+      .finally(() => {
+        if (!cancelled) setBookingSlotsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    hasLiveUuid,
+    effectiveTherapistUuid,
+    bookingDate,
+    activeDurationMinutes,
+    isProviderPortal,
+    includeOutsideHours,
+    slotsRefreshTick,
+  ]);
+
+  // Hent ledige Timefold-tider ved inline Ombook
+  useEffect(() => {
+    if (!hasLiveUuid || !rescheduleId || !rescheduleDate) {
+      setRescheduleSlots(null);
+      return;
+    }
+    const targetApt = items.find((a) => a.id === rescheduleId);
+    const targetTherapist = targetApt?.therapistUuid || effectiveTherapistUuid;
+    if (!targetTherapist) {
+      setRescheduleSlots(null);
+      return;
+    }
+    let cancelled = false;
+    setRescheduleSlotsLoading(true);
+    appointmentApi
+      .getOptimalSlots({
+        therapistUuid: targetTherapist,
+        date: rescheduleDate,
+        durationMinutes: rescheduleDuration,
+        excludeAppointmentId: rescheduleId,
+        includeOutsideHours: isProviderPortal && includeOutsideHours,
+      })
+      .then((res) => {
+        if (!cancelled) setRescheduleSlots(res);
+      })
+      .catch(() => {
+        if (!cancelled) setRescheduleSlots(null);
+      })
+      .finally(() => {
+        if (!cancelled) setRescheduleSlotsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    hasLiveUuid,
+    rescheduleId,
+    rescheduleDate,
+    rescheduleDuration,
+    items,
+    effectiveTherapistUuid,
+    isProviderPortal,
+    includeOutsideHours,
+  ]);
 
   const activeSourceItems = windowItems ?? items;
   const activeCount = useMemo(
@@ -1377,7 +2199,7 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
 
   const handleSelectService = (serviceId: string) => {
     setSelectedServiceId(serviceId);
-    const chosen = services.find((s) => s.id === serviceId);
+    const chosen = filteredServices.find((s) => s.id === serviceId);
     if (!chosen) return;
     setTitle(chosen.name);
     if (chosen.durationMinutes && chosen.durationMinutes > 0) {
@@ -1392,46 +2214,57 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
     }
   };
 
-  const applyDurationChip = (minutes: number) => {
-    let baseStart = startTime;
-    if (!baseStart) {
-      baseStart = `${getTomorrowIsoDate()}T10:00`;
-      setStartTime(baseStart);
+  const handleSelectBookingDate = (isoDate: string) => {
+    setBookingDate(isoDate);
+    if (startTime && !startTime.startsWith(isoDate)) {
+      setStartTime("");
+      setEndTime("");
     }
-    const computedEnd = addMinutesToIsoLocal(baseStart, minutes);
-    if (computedEnd) {
-      setEndTime(computedEnd);
-    }
+  };
+
+  const handleSelectBookingSlot = (slot: TimefoldSlotSuggestionDto) => {
+    const nextStart = toDateTimeLocalInput(slot.startTime);
+    const nextEnd =
+      addMinutesToIsoLocal(nextStart, activeDurationMinutes) ||
+      toDateTimeLocalInput(slot.endTime);
+    setStartTime(nextStart);
+    setEndTime(nextEnd);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const effectiveTherapistUuid =
-      selectedTherapistUuid ||
-      (isTherapist && hasLiveUuid ? auth?.user.id : undefined);
+    const resolvedEnd =
+      endTime || addMinutesToIsoLocal(startTime, activeDurationMinutes);
     const created = await create({
       clientName,
-      clientUuid: !isTherapist && hasLiveUuid ? auth?.user.id : undefined,
-      therapistUuid: effectiveTherapistUuid,
+      clientUuid:
+        isClientMode && hasLiveUuid
+          ? auth?.user.id
+          : isProviderPortal && selectedClientUuid
+            ? selectedClientUuid
+            : undefined,
+      therapistUuid: effectiveTherapistUuid || undefined,
       serviceId: selectedServiceId || undefined,
       startTime,
-      endTime: endTime || undefined,
+      endTime: resolvedEnd || undefined,
       title: title || copy.defaultConsultationTitle,
       status: "SCHEDULED",
     });
     if (created) {
       setWindowItems(null);
-      if (!auth?.user.name || isTherapist) {
+      if (!isClientMode) {
         setClientName("");
+        setSelectedClientUuid("");
       }
       setStartTime("");
       setEndTime("");
-      setTitle("");
+      setTitle(selectedService?.name || "");
+      setSlotsRefreshTick((n) => n + 1);
     }
   };
 
   const handleApplyDateFilter = async () => {
-    if (hasLiveUuid && !isTherapist && auth?.user.id && (dateFrom || dateTo)) {
+    if (hasLiveUuid && isClientMode && auth?.user.id && (dateFrom || dateTo)) {
       setFilterLoading(true);
       clearError();
       try {
@@ -1468,7 +2301,7 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
   const handleFetchTimefoldSlots = async () => {
     const targetTherapist =
       timefoldTherapistUuid ||
-      selectedTherapistUuid ||
+      effectiveTherapistUuid ||
       (hasLiveUuid ? auth!.user.id : "");
     setTimefoldLoading(true);
     clearError();
@@ -1478,6 +2311,7 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
         date: timefoldDate,
         durationMinutes: timefoldDuration,
         preferredTime: timefoldPreferredTime || undefined,
+        includeOutsideHours: isProviderPortal && includeOutsideHours,
       });
       setTimefoldResult(response);
     } catch (err) {
@@ -1488,20 +2322,36 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
   };
 
   const applyTimefoldSlot = (slotStart: string, slotEnd: string) => {
-    setStartTime(toDateTimeLocalInput(slotStart));
-    setEndTime(toDateTimeLocalInput(slotEnd));
-    if (timefoldTherapistUuid) {
+    const normalizedStart = toDateTimeLocalInput(slotStart);
+    const derivedDate = normalizedStart.slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(derivedDate)) {
+      setBookingDate(derivedDate);
+    }
+    setStartTime(normalizedStart);
+    const resolvedEnd = selectedService
+      ? addMinutesToIsoLocal(normalizedStart, activeDurationMinutes)
+      : toDateTimeLocalInput(slotEnd);
+    setEndTime(resolvedEnd);
+    if (!isProviderPortal && timefoldTherapistUuid) {
       setSelectedTherapistUuid(timefoldTherapistUuid);
     }
   };
 
   const startReschedule = (item: AppointmentDto) => {
+    const startVal = toDateTimeLocalInput(item.startTime);
+    const endVal = toDateTimeLocalInput(item.endTime);
+    let dur = 60;
+    if (startVal && endVal) {
+      const diffMins = Math.round((Date.parse(endVal) - Date.parse(startVal)) / 60000);
+      if (diffMins > 0) dur = diffMins;
+    }
     setRescheduleId(item.id!);
-    setRescheduleStart(toDateTimeLocalInput(item.startTime));
-    setRescheduleEnd(
-      toDateTimeLocalInput(item.endTime) ||
-        addMinutesToIsoLocal(toDateTimeLocalInput(item.startTime), 60)
+    setRescheduleDuration(dur);
+    setRescheduleDate(
+      /^\d{4}-\d{2}-\d{2}/.test(startVal) ? startVal.slice(0, 10) : getTomorrowIsoDate()
     );
+    setRescheduleStart(startVal);
+    setRescheduleEnd(endVal || addMinutesToIsoLocal(startVal, dur));
   };
 
   const handleSaveReschedule = async (item: AppointmentDto) => {
@@ -1515,6 +2365,7 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
         prev ? prev.map((entry) => (entry.id === item.id ? updated : entry)) : null
       );
       setRescheduleId(null);
+      setSlotsRefreshTick((n) => n + 1);
     }
   };
 
@@ -1524,6 +2375,7 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
       setWindowItems((prev) =>
         prev ? prev.filter((entry) => entry.id !== id) : null
       );
+      setSlotsRefreshTick((n) => n + 1);
     }
   };
 
@@ -1731,7 +2583,11 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
               </div>
               {timefoldResult?.workingHoursWindow && (
                 <span className="rounded-full bg-white border border-teal-200 px-2.5 py-1 text-xs font-medium text-teal-800">
-                  {copy.openingHoursPrefix}: {timefoldResult.workingHoursWindow}
+                  {copy.openingHoursPrefix}:{" "}
+                  {localizeOpeningWindow(
+                    timefoldResult.workingHoursWindow,
+                    copy.closedLabel
+                  )}
                 </span>
               )}
             </div>
@@ -1741,14 +2597,15 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
                 <label className="text-xs font-semibold text-slate-600">
                   {copy.therapistLabel}
                 </label>
-                {providers.length > 0 ? (
+                {selectableProviders.length > 0 ? (
                   <select
                     value={timefoldTherapistUuid}
+                    disabled={isProviderPortal}
                     onChange={(e) => setTimefoldTherapistUuid(e.target.value)}
                     data-testid="timefold-therapist"
-                    className="min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
+                    className="min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none disabled:bg-slate-100"
                   >
-                    {providers.map((p) => (
+                    {selectableProviders.map((p) => (
                       <option key={p.userUuid} value={p.userUuid}>
                         {p.displayName}
                       </option>
@@ -1770,12 +2627,14 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
                 <label className="text-xs font-semibold text-slate-600">
                   {copy.dateLabel}
                 </label>
-                <input
-                  type="date"
+                <DatePopoverPicker
                   value={timefoldDate}
-                  onChange={(e) => setTimefoldDate(e.target.value)}
-                  data-testid="timefold-date"
-                  className="min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
+                  onChange={setTimefoldDate}
+                  placeholder={copy.calendarTitle}
+                  ariaLabel={copy.dateLabel}
+                  locale={locale}
+                  copy={copy}
+                  testId="timefold-date"
                 />
               </div>
 
@@ -1800,13 +2659,39 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
                 <label className="text-xs font-semibold text-slate-600">
                   {copy.preferredTimeLabel}
                 </label>
-                <input
-                  type="time"
+                <select
                   value={timefoldPreferredTime}
                   onChange={(e) => setTimefoldPreferredTime(e.target.value)}
                   data-testid="timefold-preferred-time"
                   className="min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
-                />
+                >
+                  <option value="">{copy.anyTimeOption}</option>
+                  {[
+                    "08:00",
+                    "08:30",
+                    "09:00",
+                    "09:30",
+                    "10:00",
+                    "10:30",
+                    "11:00",
+                    "11:30",
+                    "12:00",
+                    "12:30",
+                    "13:00",
+                    "13:30",
+                    "14:00",
+                    "14:30",
+                    "15:00",
+                    "15:30",
+                    "16:00",
+                    "17:00",
+                    "18:00",
+                  ].map((hhmm) => (
+                    <option key={hhmm} value={hhmm}>
+                      {hhmm}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <button
@@ -1832,10 +2717,12 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
                     <button
                       type="button"
                       onClick={() => {
-                        const recStart = timefoldResult.recommendedSlot!;
-                        const recEnd =
-                          addMinutesToIsoLocal(recStart, timefoldDuration) ||
-                          recStart;
+                        const { startTime: recStart, endTime: recEnd } =
+                          resolveRecommendedSlotRange(
+                            timefoldResult,
+                            timefoldDate,
+                            timefoldDuration
+                          );
                         applyTimefoldSlot(recStart, recEnd);
                       }}
                       data-testid="apply-recommended-slot"
@@ -2044,13 +2931,44 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
               <label className="text-xs font-semibold text-slate-600">
                 {copy.clientNameLabel}
               </label>
+              {isProviderPortal && clinicClients.length > 0 && (
+                <select
+                  value={selectedClientUuid}
+                  onChange={(e) => {
+                    const uuid = e.target.value;
+                    setSelectedClientUuid(uuid);
+                    const picked = clinicClients.find((c) => c.userId === uuid);
+                    if (picked?.fullName) {
+                      setClientName(picked.fullName);
+                    }
+                  }}
+                  data-testid="select-booking-client"
+                  className="w-full min-h-11 mb-1 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+                >
+                  <option value="">{copy.selectClientPlaceholder}</option>
+                  {clinicClients.map((c, idx) => (
+                    <option key={c.userId || `${c.fullName}-${idx}`} value={c.userId || ""}>
+                      {c.fullName}
+                      {c.email ? ` (${c.email})` : ""}
+                    </option>
+                  ))}
+                </select>
+              )}
               <input
                 type="text"
                 placeholder={copy.clientNamePlaceholder}
                 value={clientName}
-                onChange={(e) => setClientName(e.target.value)}
+                readOnly={isClientMode && Boolean(auth?.user.name)}
+                onChange={(e) => {
+                  setClientName(e.target.value);
+                  if (selectedClientUuid) setSelectedClientUuid("");
+                }}
                 data-testid="input-clientName"
-                className="w-full min-h-11"
+                className={`w-full min-h-11 ${
+                  isClientMode && auth?.user.name
+                    ? "bg-slate-100 text-slate-700 cursor-not-allowed"
+                    : ""
+                }`}
               />
             </div>
 
@@ -2059,13 +2977,16 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
                 {copy.therapistLabel}
               </label>
               <select
-                value={selectedTherapistUuid}
+                value={effectiveTherapistUuid}
+                disabled={isProviderPortal}
                 onChange={(e) => setSelectedTherapistUuid(e.target.value)}
                 data-testid="select-therapist"
-                className="w-full min-h-11"
+                className="w-full min-h-11 disabled:bg-slate-100 disabled:text-slate-700"
               >
-                <option value="">{copy.selectTherapistOption}</option>
-                {providers.map((p) => (
+                {!isProviderPortal && (
+                  <option value="">{copy.selectTherapistOption}</option>
+                )}
+                {selectableProviders.map((p) => (
                   <option key={p.userUuid || p.id || p.displayName} value={p.userUuid}>
                     {p.displayName}
                     {p.organisationName ? ` (${p.organisationName})` : ""}
@@ -2080,11 +3001,21 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
               </label>
               <select
                 value={selectedServiceId}
+                disabled={
+                  servicesLoading ||
+                  (hasLiveUuid && Boolean(effectiveTherapistUuid) && filteredServices.length === 0)
+                }
                 onChange={(e) => handleSelectService(e.target.value)}
                 data-testid="select-service"
-                className="w-full min-h-11"
+                className="w-full min-h-11 disabled:bg-slate-100 disabled:text-slate-500"
               >
-                <option value="">{copy.selectServiceOption}</option>
+                <option value="">
+                  {servicesLoading
+                    ? copy.loadingServices
+                    : hasLiveUuid && effectiveTherapistUuid && filteredServices.length === 0
+                      ? copy.noServicesOption
+                      : copy.selectServiceOption}
+                </option>
                 {filteredServices.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name}
@@ -2092,6 +3023,17 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
                   </option>
                 ))}
               </select>
+              {hasLiveUuid &&
+                Boolean(effectiveTherapistUuid) &&
+                !servicesLoading &&
+                filteredServices.length === 0 && (
+                  <p
+                    data-testid="no-therapist-services-notice"
+                    className="text-[11px] font-medium text-amber-700 mt-0.5 mb-0"
+                  >
+                    {copy.noServicesNotice}
+                  </p>
+                )}
             </div>
 
             <div className="flex flex-col gap-1">
@@ -2109,58 +3051,202 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 items-end">
-            <div className="flex flex-col gap-1 lg:col-span-4">
-              <label className="min-h-[24px] flex items-center text-xs font-semibold text-slate-600">
-                {copy.startTimeLabel}
-              </label>
-              <input
-                type="datetime-local"
-                value={startTime}
-                onChange={(e) => setStartTime(e.target.value)}
-                data-testid="input-startTime"
-                className="w-full min-h-11"
+          {/* Visuel Månedskalender + Klikbare Timefold AI Tidsslots + Auto-beregnet Sluttidspunkt */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+            <div className="lg:col-span-5 space-y-1.5">
+              <div className="text-xs font-semibold text-slate-600">
+                {copy.calendarTitle}
+              </div>
+              <BookingCalendarGrid
+                selectedDate={bookingDate}
+                onSelectDate={handleSelectBookingDate}
+                locale={locale}
+                copy={copy}
+                minDate={getTodayIsoDate()}
+                weeklySchedule={selectedProviderSchedule}
+                allowClosedDays={isProviderPortal && includeOutsideHours}
+                testId="booking-calendar"
               />
             </div>
 
-            <div className="flex flex-col gap-1 lg:col-span-5">
-              <div className="min-h-[24px] flex items-center justify-between gap-2">
-                <label className="text-xs font-semibold text-slate-600 whitespace-nowrap">
-                  {copy.endTimeLabel}
-                </label>
-                <div className="flex items-center gap-1 shrink-0">
-                  {[45, 60, 90].map((mins) => (
-                    <button
-                      key={mins}
-                      type="button"
-                      onClick={() => applyDurationChip(mins)}
-                      data-testid={`duration-chip-${mins}`}
-                      className="whitespace-nowrap shrink-0 rounded-full border border-teal-200 bg-white hover:bg-teal-50 px-2.5 py-0.5 text-[11px] font-semibold text-teal-800 transition-colors"
-                    >
-                      +{mins} min
-                    </button>
-                  ))}
+            <div className="lg:col-span-7 space-y-3">
+              <div
+                data-testid="booking-timefold-slots"
+                className="rounded-2xl border border-slate-200 bg-white p-3.5 shadow-xs space-y-3"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-slate-800">
+                    <i className="bi bi-cpu text-teal-700" aria-hidden="true" />
+                    <span>{copy.slotsTitle}</span>
+                    <span className="rounded-full bg-teal-50 border border-teal-200 px-2 py-0.5 text-[11px] font-medium text-teal-800">
+                      {formatIsoDateHuman(bookingDate, locale)}
+                    </span>
+                  </div>
+                  {bookingSlots?.workingHoursWindow && (
+                    <span className="text-[11px] font-medium text-slate-500">
+                      {copy.openingHoursPrefix}:{" "}
+                      {localizeOpeningWindow(
+                        bookingSlots.workingHoursWindow,
+                        copy.closedLabel
+                      )}
+                    </span>
+                  )}
+                </div>
+
+                {isProviderPortal && (
+                  <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={includeOutsideHours}
+                      onChange={(e) => setIncludeOutsideHours(e.target.checked)}
+                      data-testid="toggle-outside-hours"
+                      className="h-4 w-4 accent-teal-700 rounded"
+                    />
+                    <span>{copy.outsideHoursToggle}</span>
+                  </label>
+                )}
+
+                {bookingSlotsLoading ? (
+                  <p className="text-xs text-slate-500 m-0 py-2">
+                    <i className="bi bi-hourglass-split mr-1.5" aria-hidden="true" />
+                    {copy.loadingSlots}
+                  </p>
+                ) : bookingSlots?.slots && bookingSlots.slots.length > 0 ? (
+                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
+                    {bookingSlots.slots.map((slot, idx) => {
+                      const slotIsoLocal = toDateTimeLocalInput(slot.startTime);
+                      const slotClock = slotIsoLocal.slice(11, 16) || slot.slot;
+                      const available =
+                        slot.available !== false && !slot.overlaps && !slot.inPast;
+                      const isPicked =
+                        Boolean(startTime) && startTime === slotIsoLocal;
+                      const isOutsideNormal =
+                        slot.withinWorkingHours === false && available;
+
+                      return (
+                        <button
+                          key={`${slot.startTime}-${idx}`}
+                          type="button"
+                          disabled={!available}
+                          onClick={() => handleSelectBookingSlot(slot)}
+                          data-testid={`booking-slot-${slotClock}`}
+                          title={
+                            slot.overlaps
+                              ? copy.bookedSlotTag
+                              : isOutsideNormal
+                                ? copy.outsideHoursSlotTag
+                                : undefined
+                          }
+                          className={`min-h-11 rounded-xl border px-2 py-1.5 text-xs font-semibold transition-colors flex flex-col items-center justify-center ${
+                            isPicked
+                              ? "border-teal-700 bg-teal-700 text-white shadow-xs"
+                              : !available
+                                ? "border-slate-200 bg-slate-100 text-slate-400 line-through cursor-not-allowed"
+                                : slot.recommended
+                                  ? "border-emerald-400 bg-emerald-50 text-emerald-900 hover:bg-emerald-100"
+                                  : isOutsideNormal
+                                    ? "border-amber-300 bg-amber-50/70 text-amber-900 hover:bg-amber-100"
+                                    : "border-slate-200 bg-white text-slate-800 hover:border-teal-500 hover:bg-teal-50"
+                          }`}
+                        >
+                          <span>{slotClock}</span>
+                          {isOutsideNormal && (
+                            <span className="text-[9px] font-medium opacity-80">
+                              *
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p
+                    data-testid="booking-slots-empty"
+                    className="text-xs text-slate-500 m-0 py-2"
+                  >
+                    {copy.noSlotsAvailable}
+                  </p>
+                )}
+              </div>
+
+              {/* Valgt Start- & Service-beregnet Sluttidspunkt + Book-knap */}
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+                <div className="sm:col-span-4 flex flex-col gap-1">
+                  <label className="text-xs font-semibold text-slate-600">
+                    {copy.startTimeLabel}
+                  </label>
+                  <div
+                    data-testid="display-startTime"
+                    className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 flex items-center gap-1.5"
+                  >
+                    <i className="bi bi-clock text-teal-700" aria-hidden="true" />
+                    <span>
+                      {startTime
+                        ? `${formatIsoDateHuman(startTime.slice(0, 10), locale)} · ${startTime.slice(11, 16)}`
+                        : copy.notSelectedYet}
+                    </span>
+                  </div>
+                  <input
+                    type="text"
+                    value={startTime}
+                    onChange={(e) => setStartTime(e.target.value)}
+                    data-testid="input-startTime"
+                    aria-label={copy.startTimeLabel}
+                    tabIndex={-1}
+                    className="sr-only"
+                  />
+                </div>
+
+                <div className="sm:col-span-5 flex flex-col gap-1">
+                  <label className="text-xs font-semibold text-slate-600 flex items-center justify-between gap-2">
+                    <span>{copy.endTimeLabel}</span>
+                    {selectedService?.durationMinutes && (
+                      <span className="rounded-full bg-teal-50 border border-teal-200 px-2 py-0.5 text-[10px] font-semibold text-teal-800">
+                        {copy.autoFromServicePrefix}: +{selectedService.durationMinutes} min
+                      </span>
+                    )}
+                  </label>
+                  <div
+                    data-testid="display-endTime"
+                    className="min-h-11 rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 flex items-center gap-1.5"
+                  >
+                    <i className="bi bi-lock text-slate-500" aria-hidden="true" />
+                    <span>
+                      {endTime
+                        ? `${formatIsoDateHuman(endTime.slice(0, 10), locale)} · ${endTime.slice(11, 16)}`
+                        : "--:--"}
+                    </span>
+                  </div>
+                  <input
+                    type="text"
+                    value={endTime}
+                    readOnly={Boolean(selectedServiceId) || hasLiveUuid}
+                    onChange={(e) => setEndTime(e.target.value)}
+                    data-testid="input-endTime"
+                    aria-label={copy.endTimeLabel}
+                    tabIndex={-1}
+                    className="sr-only"
+                  />
+                </div>
+
+                <div className="sm:col-span-3 flex justify-end">
+                  <button
+                    type="submit"
+                    disabled={
+                      busy ||
+                      (hasLiveUuid &&
+                        Boolean(effectiveTherapistUuid) &&
+                        !servicesLoading &&
+                        filteredServices.length === 0)
+                    }
+                    data-testid="submit-booking"
+                    className="w-full min-h-11 inline-flex items-center justify-center gap-2 rounded-xl bg-teal-700 hover:bg-teal-800 disabled:bg-slate-300 disabled:cursor-not-allowed text-white px-5 text-sm font-semibold shadow-sm transition-colors whitespace-nowrap"
+                  >
+                    <i className="bi bi-calendar-plus" aria-hidden="true" />
+                    {copy.bookBtn}
+                  </button>
                 </div>
               </div>
-              <input
-                type="datetime-local"
-                value={endTime}
-                onChange={(e) => setEndTime(e.target.value)}
-                data-testid="input-endTime"
-                className="w-full min-h-11"
-              />
-            </div>
-
-            <div className="lg:col-span-3 flex justify-end">
-              <button
-                type="submit"
-                disabled={busy}
-                data-testid="submit-booking"
-                className="w-full min-h-11 inline-flex items-center justify-center gap-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white px-5 text-sm font-semibold shadow-sm transition-colors whitespace-nowrap"
-              >
-                <i className="bi bi-calendar-plus" aria-hidden="true" />
-                {copy.bookBtn}
-              </button>
             </div>
           </div>
         </form>
@@ -2202,22 +3288,24 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
                 data-testid="filter-appointment-search"
                 className="min-h-11 w-full sm:w-56 !py-2 !px-3 !text-xs"
               />
-              <input
-                type="date"
-                aria-label={copy.dateFromAria}
+              <DatePopoverPicker
                 value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                data-testid="filter-date-from"
-                className="min-h-11 !py-2 !px-2.5 !text-xs"
+                onChange={setDateFrom}
+                placeholder={copy.dateFromAria}
+                ariaLabel={copy.dateFromAria}
+                locale={locale}
+                copy={copy}
+                testId="filter-date-from"
               />
               <span className="text-xs text-slate-400">{copy.dateToConnector}</span>
-              <input
-                type="date"
-                aria-label={copy.dateToAria}
+              <DatePopoverPicker
                 value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                data-testid="filter-date-to"
-                className="min-h-11 !py-2 !px-2.5 !text-xs"
+                onChange={setDateTo}
+                placeholder={copy.dateToAria}
+                ariaLabel={copy.dateToAria}
+                locale={locale}
+                copy={copy}
+                testId="filter-date-to"
               />
               <button
                 type="button"
@@ -2419,51 +3507,128 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
                       )}
                     </div>
 
-                    {/* Inline Ombookning */}
+                    {/* Inline Ombookning med custom kalender & Timefold-slots */}
                     {isRescheduling && item.id && (
                       <div
-                        className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap items-end gap-2.5"
+                        className="mt-3 pt-3 border-t border-slate-100 space-y-3"
                         data-testid={`reschedule-panel-${item.id}`}
                       >
-                        <div className="flex flex-col gap-1">
-                          <label className="text-[11px] font-semibold text-slate-600">
-                            {copy.newStartLabel}
-                          </label>
-                          <input
-                            type="datetime-local"
-                            value={rescheduleStart}
-                            onChange={(e) => setRescheduleStart(e.target.value)}
-                            data-testid={`reschedule-start-${item.id}`}
-                            className="min-h-11 !py-2 !px-2.5 !text-xs"
-                          />
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-start">
+                          <div className="md:col-span-5">
+                            <BookingCalendarGrid
+                              selectedDate={rescheduleDate}
+                              onSelectDate={(iso) => setRescheduleDate(iso)}
+                              locale={locale}
+                              copy={copy}
+                              minDate={getTodayIsoDate()}
+                              allowClosedDays={isProviderPortal && includeOutsideHours}
+                              compact
+                              testId={`reschedule-calendar-${item.id}`}
+                            />
+                          </div>
+                          <div className="md:col-span-7 space-y-2.5">
+                            {hasLiveUuid && rescheduleSlotsLoading ? (
+                              <p className="text-xs text-slate-500 m-0">
+                                {copy.loadingSlots}
+                              </p>
+                            ) : rescheduleSlots?.slots &&
+                              rescheduleSlots.slots.length > 0 ? (
+                              <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5">
+                                {rescheduleSlots.slots.map((slot, sIdx) => {
+                                  const sLocal = toDateTimeLocalInput(slot.startTime);
+                                  const sClock = sLocal.slice(11, 16) || slot.slot;
+                                  const okSlot =
+                                    slot.available !== false &&
+                                    !slot.overlaps &&
+                                    !slot.inPast;
+                                  const activePick = rescheduleStart === sLocal;
+                                  return (
+                                    <button
+                                      key={`${sLocal}-${sIdx}`}
+                                      type="button"
+                                      disabled={!okSlot}
+                                      onClick={() => {
+                                        setRescheduleStart(sLocal);
+                                        setRescheduleEnd(
+                                          addMinutesToIsoLocal(sLocal, rescheduleDuration) ||
+                                            toDateTimeLocalInput(slot.endTime)
+                                        );
+                                      }}
+                                      data-testid={`reschedule-slot-${item.id}-${sClock}`}
+                                      className={`min-h-10 rounded-xl border px-2 py-1 text-xs font-semibold transition-colors ${
+                                        activePick
+                                          ? "border-teal-700 bg-teal-700 text-white"
+                                          : !okSlot
+                                            ? "border-slate-200 bg-slate-100 text-slate-400 line-through cursor-not-allowed"
+                                            : "border-slate-200 bg-white text-slate-800 hover:border-teal-500 hover:bg-teal-50"
+                                      }`}
+                                    >
+                                      {sClock}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            ) : null}
+
+                            <div className="flex flex-wrap items-end gap-2">
+                              <div className="flex flex-col gap-1">
+                                <span className="text-[11px] font-semibold text-slate-600">
+                                  {copy.newStartLabel}
+                                </span>
+                                <span className="min-h-10 inline-flex items-center rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-800">
+                                  {rescheduleStart
+                                    ? `${formatIsoDateHuman(rescheduleStart.slice(0, 10), locale)} · ${rescheduleStart.slice(11, 16)}`
+                                    : "--:--"}
+                                </span>
+                                <input
+                                  type="text"
+                                  value={rescheduleStart}
+                                  onChange={(e) => setRescheduleStart(e.target.value)}
+                                  data-testid={`reschedule-start-${item.id}`}
+                                  aria-label={copy.newStartLabel}
+                                  tabIndex={-1}
+                                  className="sr-only"
+                                />
+                              </div>
+
+                              <div className="flex flex-col gap-1">
+                                <span className="text-[11px] font-semibold text-slate-600">
+                                  {copy.newEndLabel}
+                                </span>
+                                <span className="min-h-10 inline-flex items-center rounded-xl border border-slate-200 bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700">
+                                  {rescheduleEnd
+                                    ? `${formatIsoDateHuman(rescheduleEnd.slice(0, 10), locale)} · ${rescheduleEnd.slice(11, 16)}`
+                                    : "--:--"}
+                                </span>
+                                <input
+                                  type="text"
+                                  value={rescheduleEnd}
+                                  onChange={(e) => setRescheduleEnd(e.target.value)}
+                                  data-testid={`reschedule-end-${item.id}`}
+                                  aria-label={copy.newEndLabel}
+                                  tabIndex={-1}
+                                  className="sr-only"
+                                />
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => void handleSaveReschedule(item)}
+                                data-testid={`reschedule-save-${item.id}`}
+                                className="min-h-11 rounded-xl bg-teal-700 hover:bg-teal-800 text-white px-4 py-2 text-xs font-semibold"
+                              >
+                                {copy.saveNewTimeBtn}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setRescheduleId(null)}
+                                className="min-h-11 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                              >
+                                {copy.cancelRescheduleBtn}
+                              </button>
+                            </div>
+                          </div>
                         </div>
-                        <div className="flex flex-col gap-1">
-                          <label className="text-[11px] font-semibold text-slate-600">
-                            {copy.newEndLabel}
-                          </label>
-                          <input
-                            type="datetime-local"
-                            value={rescheduleEnd}
-                            onChange={(e) => setRescheduleEnd(e.target.value)}
-                            data-testid={`reschedule-end-${item.id}`}
-                            className="min-h-11 !py-2 !px-2.5 !text-xs"
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => void handleSaveReschedule(item)}
-                          data-testid={`reschedule-save-${item.id}`}
-                          className="min-h-11 rounded-xl bg-teal-700 hover:bg-teal-800 text-white px-4 py-2 text-xs font-semibold"
-                        >
-                          {copy.saveNewTimeBtn}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setRescheduleId(null)}
-                          className="min-h-11 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50"
-                        >
-                          {copy.cancelRescheduleBtn}
-                        </button>
                       </div>
                     )}
 

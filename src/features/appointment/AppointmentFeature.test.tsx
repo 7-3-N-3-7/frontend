@@ -9,7 +9,13 @@ import {
   deduplicateServices,
   toDateTimeLocalInput,
   addMinutesToIsoLocal,
+  resolveRecommendedSlotRange,
   formatAppointmentDateParts,
+  buildCalendarMonthCells,
+  formatMonthYearHeading,
+  formatIsoDateHuman,
+  normalizeDirectoryProvider,
+  normalizeDirectoryService,
   filterAppointments,
   roundTo5Min,
   timeToMinutes,
@@ -23,6 +29,7 @@ import {
   getDefaultWeeklySchedule,
   parseWeeklySchedule,
   serializeWeeklySchedule,
+  appointmentApi,
   DaySchedule,
   WeeklyScheduleConfig,
 } from "./AppointmentFeature";
@@ -485,6 +492,89 @@ describe("AppointmentFeature Trin 1 UI (Timefold AI, Reschedule, JGit, Filters &
     expect(deduplicateServices(undefined)).toEqual([]);
   });
 
+  it("resolves clock-only and ISO Timefold recommendedSlot ranges cleanly", () => {
+    // Matcher klokkeslæt direkte mod Timefold slots[]-listen
+    expect(
+      resolveRecommendedSlotRange(
+        {
+          date: "2026-11-25",
+          recommendedSlot: "10:00",
+          slots: [
+            {
+              slot: "10:00",
+              startTime: "2026-11-25T10:00:00",
+              endTime: "2026-11-25T11:00:00",
+              recommended: true,
+            },
+          ],
+        },
+        "2026-11-20",
+        60
+      )
+    ).toEqual({
+      startTime: "2026-11-25T10:00",
+      endTime: "2026-11-25T11:00",
+    });
+
+    // Matcher på slot.startTime når recommendedSlot er ISO-format, samt beregner endTime ved manglende slot.endTime
+    expect(
+      resolveRecommendedSlotRange(
+        {
+          recommendedSlot: "2026-11-26T09:30",
+          slots: [
+            {
+              slot: "09:30",
+              startTime: "2026-11-26T09:30",
+              endTime: "",
+            },
+          ],
+        },
+        "2026-11-20",
+        45
+      )
+    ).toEqual({
+      startTime: "2026-11-26T09:30",
+      endTime: "2026-11-26T10:15",
+    });
+
+    // Klokkeslæt uden matchende slot bruger fallbackDate og varighed
+    expect(
+      resolveRecommendedSlotRange(
+        { recommendedSlot: "14:30", slots: [] },
+        "2026-11-27",
+        30
+      )
+    ).toEqual({
+      startTime: "2026-11-27T14:30",
+      endTime: "2026-11-27T15:00",
+    });
+
+    // Fuldt ISO recommendedSlot uden slots[] og uden fallbackDate
+    expect(
+      resolveRecommendedSlotRange(
+        { recommendedSlot: "2026-11-28T08:00:00" },
+        "",
+        60
+      )
+    ).toEqual({
+      startTime: "2026-11-28T08:00",
+      endTime: "2026-11-28T09:00",
+    });
+
+    // Kanttilfælde: klokkeslæt uden dato, ugyldig streng og tomt forslag
+    expect(
+      resolveRecommendedSlotRange({ recommendedSlot: "10:00" }, "", 60)
+    ).toEqual({ startTime: "10:00", endTime: "10:00" });
+
+    expect(
+      resolveRecommendedSlotRange({ recommendedSlot: "raw-slot" }, "", Number.NaN)
+    ).toEqual({ startTime: "raw-slot", endTime: "raw-slot" });
+
+    expect(
+      resolveRecommendedSlotRange({ recommendedSlot: undefined }, "", 60)
+    ).toEqual({ startTime: "", endTime: "" });
+  });
+
   it("supports status tabs, date filter, duration chips, inline reschedule, and JGit history", async () => {
     const fetchMock = vi.fn();
     global.fetch = fetchMock;
@@ -570,13 +660,29 @@ describe("AppointmentFeature Trin 1 UI (Timefold AI, Reschedule, JGit, Filters &
     fireEvent.click(screen.getByTestId("reset-date-filter"));
     expect(screen.getByText("Ida Holm")).toBeDefined();
 
-    // Duration chips work both with empty and pre-filled startTime
-    fireEvent.click(screen.getByTestId("duration-chip-60"));
-    expect((screen.getByTestId("input-endTime") as HTMLInputElement).value).toContain("T11:00");
+    // Custom DatePopoverPicker & BookingCalendarGrid month navigation
+    fireEvent.click(screen.getByTestId("filter-date-from-trigger"));
+    expect(screen.getByTestId("filter-date-from-popover")).toBeDefined();
+    fireEvent.click(screen.getByTestId("filter-date-from-calendar-prev-month"));
+    fireEvent.click(screen.getByTestId("filter-date-from-calendar-next-month"));
+    const firstCalendarDay = screen
+      .getByTestId("filter-date-from-popover")
+      .querySelector('button[data-testid^="filter-date-from-calendar-day-"]');
+    expect(firstCalendarDay).not.toBeNull();
+    fireEvent.click(firstCalendarDay!);
+    expect(screen.queryByTestId("filter-date-from-popover")).toBeNull();
+    fireEvent.click(screen.getByTestId("filter-date-from-trigger"));
+    fireEvent.click(screen.getByTestId("filter-date-from-clear"));
+    expect((screen.getByTestId("filter-date-from") as HTMLInputElement).value).toBe("");
+
+    fireEvent.click(screen.getByTestId("booking-calendar-next-month"));
+    fireEvent.click(screen.getByTestId("booking-calendar-prev-month"));
     fireEvent.change(screen.getByTestId("input-startTime"), {
       target: { value: "2026-11-20T09:00" },
     });
-    fireEvent.click(screen.getByTestId("duration-chip-45"));
+    fireEvent.change(screen.getByTestId("input-endTime"), {
+      target: { value: "2026-11-20T09:45" },
+    });
     expect((screen.getByTestId("input-endTime") as HTMLInputElement).value).toBe(
       "2026-11-20T09:45"
     );
@@ -791,6 +897,32 @@ describe("AppointmentFeature Trin 1 UI (Timefold AI, Reschedule, JGit, Filters &
           }),
         } as Response;
       }
+      if (url.startsWith("/api/backend/clinic/services")) {
+        if (url.includes(`therapistUuid=${therapistUuid}`)) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => [
+              {
+                id: "svc-1",
+                provider: { id: "prov-1" },
+                organisation: { id: "org-1" },
+                name: "EMDR Terapi",
+                durationMinutes: 45,
+                active: true,
+              },
+              {
+                id: "svc-nodur",
+                provider: { id: "prov-1" },
+                organisation: { id: "org-1" },
+                name: "Kort Tjek",
+                active: true,
+              },
+            ],
+          } as Response;
+        }
+        return { ok: true, status: 200, json: async () => [] } as Response;
+      }
       if (url.startsWith("/api/backend/appointments/timefold-slots")) {
         return {
           ok: true,
@@ -827,6 +959,8 @@ describe("AppointmentFeature Trin 1 UI (Timefold AI, Reschedule, JGit, Filters &
           json: async () => [
             {
               id: "c-appt-1",
+              clientUuid,
+              therapistUuid,
               clientName: "Anders Sand",
               startTime: "2026-11-22T10:00",
               endTime: "2026-11-22T11:00",
@@ -877,14 +1011,45 @@ describe("AppointmentFeature Trin 1 UI (Timefold AI, Reschedule, JGit, Filters &
     // Weekly schedule button hidden for CLIENT role
     expect(screen.queryByTestId("toggle-weekly-schedule")).toBeNull();
 
-    // Select service -> fills title and Timefold duration
+    // Select service -> fills title and Timefold duration; clicking Timefold calendar slot derives endTime from 45m service
     fireEvent.change(screen.getByTestId("select-therapist"), {
       target: { value: therapistUuid },
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("booking-slot-10:00")).toBeDefined();
+    });
+    fireEvent.click(screen.getByTestId("booking-slot-10:00"));
+    fireEvent.change(screen.getByTestId("select-service"), {
+      target: { value: "" },
+    });
+    fireEvent.change(screen.getByTestId("select-service"), {
+      target: { value: "svc-nodur" },
     });
     fireEvent.change(screen.getByTestId("select-service"), {
       target: { value: "svc-1" },
     });
     expect((screen.getByTestId("input-title") as HTMLInputElement).value).toBe("EMDR Terapi");
+    expect((screen.getByTestId("input-endTime") as HTMLInputElement).value).toBe(
+      "2026-11-25T10:45"
+    );
+
+    // Selecting a different day in BookingCalendarGrid resets mismatched start/endTime and exercises Dec<->Jan month wrapping
+    const calContainer = screen.getByTestId("booking-calendar");
+    const otherDayBtn = Array.from(
+      calContainer.querySelectorAll<HTMLButtonElement>('[data-testid^="booking-calendar-day-"]')
+    ).find((b) => !b.disabled && !b.dataset.testid?.endsWith("2026-11-25"));
+    expect(otherDayBtn).toBeDefined();
+    fireEvent.click(otherDayBtn!);
+    expect((screen.getByTestId("input-startTime") as HTMLInputElement).value).toBe("");
+    expect((screen.getByTestId("input-endTime") as HTMLInputElement).value).toBe("");
+    fireEvent.click(otherDayBtn!);
+    await appointmentApi.getClientAppointmentsInWindow(clientUuid);
+
+    for (let i = 0; i < 14; i += 1) {
+      fireEvent.click(screen.getByTestId("booking-calendar-next-month"));
+    }
+    fireEvent.click(screen.getByTestId("booking-calendar-prev-month"));
+    fireEvent.click(screen.getByTestId("booking-calendar-prev-month"));
 
     // Timefold AI workflow
     fireEvent.click(screen.getByTestId("toggle-timefold-panel"));
@@ -919,16 +1084,14 @@ describe("AppointmentFeature Trin 1 UI (Timefold AI, Reschedule, JGit, Filters &
       target: { value: "svc-1" },
     });
 
-    // Deselect service + switch to provider without matched services (fallback)
-    fireEvent.change(screen.getByTestId("select-service"), {
-      target: { value: "" },
-    });
+    // Switch to provider with 0 services -> shows empty notice and does NOT leak other therapists' services
     fireEvent.change(screen.getByTestId("select-therapist"), {
       target: { value: "99999999-9999-4999-8999-999999999999" },
     });
-    fireEvent.change(screen.getByTestId("select-service"), {
-      target: { value: "svc-2" },
+    await waitFor(() => {
+      expect(screen.getByTestId("no-therapist-services-notice")).toBeDefined();
     });
+    expect(screen.getByTestId("select-service").textContent).not.toContain("Kort Check-in");
 
     // Client date-window endpoint filter -> error branch, then success + sync
     fireEvent.change(screen.getByTestId("filter-date-from"), {
@@ -952,6 +1115,23 @@ describe("AppointmentFeature Trin 1 UI (Timefold AI, Reschedule, JGit, Filters &
     });
 
     fireEvent.click(screen.getByTestId("reschedule-btn-c-appt-1"));
+    await waitFor(() => {
+      expect(screen.getByTestId("reschedule-slot-c-appt-1-10:00")).toBeDefined();
+    });
+    const resCal = screen.getByTestId("reschedule-calendar-c-appt-1");
+    const resDayBtn = Array.from(
+      resCal.querySelectorAll<HTMLButtonElement>('[data-testid^="reschedule-calendar-c-appt-1-day-"]')
+    ).find((b) => !b.disabled);
+    if (resDayBtn) {
+      fireEvent.click(resDayBtn);
+      await waitFor(() => {
+        expect(screen.getByTestId("reschedule-slot-c-appt-1-10:00")).toBeDefined();
+      });
+    }
+    fireEvent.click(screen.getByTestId("reschedule-slot-c-appt-1-10:00"));
+    expect((screen.getByTestId("reschedule-start-c-appt-1") as HTMLInputElement).value).toBe(
+      "2026-11-25T10:00"
+    );
     fireEvent.change(screen.getByTestId("reschedule-start-c-appt-1"), {
       target: { value: "2026-11-22T12:00" },
     });
@@ -981,8 +1161,48 @@ describe("AppointmentFeature Trin 1 UI (Timefold AI, Reschedule, JGit, Filters &
       if (url === "/api/backend/appointments") {
         return { ok: true, status: 200, json: async () => [] } as Response;
       }
+      if (url.startsWith("/api/backend/clinic/services")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            {
+              id: "INITIAL_60",
+              name: "Sesión individual (60 min)",
+              durationMinutes: 60,
+              price: 950,
+            },
+          ],
+        } as Response;
+      }
       if (url === "/api/backend/clinic/directory") {
         return { ok: false, status: 500, statusText: "Dir down", json: async () => ({}) } as Response;
+      }
+      if (url.startsWith("/api/backend/clinic/services")) {
+        if (url.includes(`therapistUuid=${therapistUuid}`)) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => [
+              {
+                id: "svc-1",
+                provider: { id: "prov-1" },
+                organisation: { id: "org-1" },
+                name: "EMDR Terapi",
+                durationMinutes: 45,
+                active: true,
+              },
+              {
+                id: "svc-nodur",
+                provider: { id: "prov-1" },
+                organisation: { id: "org-1" },
+                name: "Kort Tjek",
+                active: true,
+              },
+            ],
+          } as Response;
+        }
+        return { ok: true, status: 200, json: async () => [] } as Response;
       }
       if (url.startsWith("/api/backend/appointments/timefold-slots")) {
         // Array fallback response
@@ -1159,6 +1379,20 @@ describe("AppointmentFeature Trin 1 UI (Timefold AI, Reschedule, JGit, Filters &
               endTime: "2026-10-15T13:00:00",
               status: "CANCELLED",
               therapistUuid,
+            },
+          ],
+        } as Response;
+      }
+      if (url.startsWith("/api/backend/clinic/services")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            {
+              id: "INITIAL_60",
+              name: "Sesión individual (60 min)",
+              durationMinutes: 60,
+              price: 950,
             },
           ],
         } as Response;
@@ -1342,6 +1576,13 @@ describe("AppointmentFeature Trin 1 UI (Timefold AI, Reschedule, JGit, Filters &
           json: async () => ({
             providers: [
               { id: "prov-1", userUuid: "th-uuid-1", displayName: "Dr. Sofie", organisationName: "Nordic" },
+              {
+                id: "prov-sofie",
+                userUuid: "22222222-2222-4222-8222-222222222222",
+                displayName: "Dr. Sofie",
+                organisationName: "Nordic",
+                workingHoursJson: JSON.stringify(getDefaultWeeklySchedule()),
+              },
             ],
             services: [
               { id: "srv-45", name: "Fokuseret Samtale", durationMinutes: 45, providerProfileId: "prov-1" },
@@ -1350,16 +1591,48 @@ describe("AppointmentFeature Trin 1 UI (Timefold AI, Reschedule, JGit, Filters &
           }),
         };
       }
+      if (url.includes("/api/backend/clinic/services")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            { id: "srv-45", name: "Fokuseret Samtale", durationMinutes: 45, providerProfileId: "prov-1" },
+            { id: "srv-60", name: "Udvidet Samtale", durationMinutes: 60, providerProfileId: "prov-1" },
+          ],
+        };
+      }
+      if (url.includes("/api/backend/clinic/clients")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            { userId: "22222222-2222-4222-8222-222222222222", fullName: "Dr. Sofie", email: "sofie@klinik.dk" },
+            { userId: "client-uuid-99", fullName: "Mads Klient", email: "mads@example.dk" },
+            { userId: "", fullName: "Gæst Uden Email" },
+          ],
+        };
+      }
       if (url.includes("/api/backend/appointments/timefold-slots")) {
+        const outside = url.includes("includeOutsideHours=true");
         return {
           ok: true,
           status: 200,
           json: async () => ({
-            therapistUuid: "th-uuid-1",
-            date: "2026-12-10",
-            durationMinutes: 60,
+            solver: "Timefold Solver",
+            workingHoursWindow: "09:00 - 15:00",
+            feasible: true,
             recommendedSlot: "2026-12-10T10:00:00",
-            slots: [],
+            slots: outside
+              ? [
+                  {
+                    slot: "19:30–20:30",
+                    startTime: "2026-12-10T19:30:00",
+                    endTime: "2026-12-10T20:30:00",
+                    available: true,
+                    withinWorkingHours: false,
+                  },
+                ]
+              : [],
           }),
         };
       }
@@ -1439,11 +1712,19 @@ describe("AppointmentFeature Trin 1 UI (Timefold AI, Reschedule, JGit, Filters &
     expect(screen.getByText(/Vindue-aftale/)).toBeDefined();
     fireEvent.change(screen.getByTestId("filter-appointment-search"), { target: { value: "" } });
 
-    // Select service before startTime, click duration chip with empty startTime, then select service after startTime
+    // Select service before startTime, set startTime, then switch service to 60 min -> auto-derives endTime
+    await waitFor(() => {
+      expect(screen.getByTestId("select-service").textContent).toContain("Fokuseret Samtale");
+    });
     fireEvent.change(screen.getByTestId("select-service"), { target: { value: "srv-45" } });
-    fireEvent.click(screen.getByTestId("duration-chip-45"));
+    fireEvent.change(screen.getByTestId("input-startTime"), { target: { value: "2026-12-10T09:00" } });
+    await waitFor(() => {
+      expect((screen.getByTestId("input-endTime") as HTMLInputElement).value).toBe("2026-12-10T09:45");
+    });
     fireEvent.change(screen.getByTestId("select-service"), { target: { value: "srv-60" } });
-    expect((screen.getByTestId("input-endTime") as HTMLInputElement).value).toContain("T");
+    await waitFor(() => {
+      expect((screen.getByTestId("input-endTime") as HTMLInputElement).value).toBe("2026-12-10T10:00");
+    });
 
     // Timefold recommended slot apply
     fireEvent.click(screen.getByTestId("toggle-timefold-panel"));
@@ -1473,7 +1754,7 @@ describe("AppointmentFeature Trin 1 UI (Timefold AI, Reschedule, JGit, Filters &
     });
     cleanup();
 
-    // Therapist weekly schedule enable SAT and add interval
+    // Therapist weekly schedule + client dropdown (self excluded) + outside-hours toggle
     render(
       <AuthProvider
         user={{
@@ -1483,16 +1764,445 @@ describe("AppointmentFeature Trin 1 UI (Timefold AI, Reschedule, JGit, Filters &
           roles: ["PROVIDER"],
         }}
       >
-        <AppointmentFeatureView />
+        <AppointmentFeatureView portalMode="provider" />
       </AuthProvider>
     );
     await waitFor(() => {
       expect(screen.getByTestId("toggle-weekly-schedule")).toBeDefined();
+      expect(screen.getByTestId("select-booking-client")).toBeDefined();
     });
+    expect(screen.getByTestId("select-booking-client").textContent).toContain("Mads Klient");
+    expect(screen.getByTestId("select-booking-client").textContent).not.toContain("Dr. Sofie");
+    fireEvent.change(screen.getByTestId("select-booking-client"), { target: { value: "client-uuid-99" } });
+    expect((screen.getByTestId("input-clientName") as HTMLInputElement).value).toBe("Mads Klient");
+    fireEvent.change(screen.getByTestId("select-booking-client"), { target: { value: "" } });
+    fireEvent.change(screen.getByTestId("select-booking-client"), { target: { value: "client-uuid-99" } });
+    fireEvent.change(screen.getByTestId("input-clientName"), { target: { value: "Manual Klient" } });
+    fireEvent.click(screen.getByTestId("toggle-outside-hours"));
+    await waitFor(() => {
+      expect(screen.getByTestId("booking-slot-19:30")).toBeDefined();
+    });
+    expect(screen.getByTestId("booking-slot-19:30").textContent).toContain("*");
     fireEvent.click(screen.getByTestId("toggle-weekly-schedule"));
     fireEvent.click(screen.getByTestId("day-enabled-saturday"));
     fireEvent.click(screen.getByTestId("add-interval-saturday"));
     expect(screen.getByTestId("weekly-schedule-panel").textContent).toContain("08:30");
+    cleanup();
+  });
+
+  it("excludes dual-role therapist from therapist dropdown in client portal and exercises pure calendar helpers", async () => {
+    const janCells = buildCalendarMonthCells(2026, 0);
+    expect(janCells.length % 7).toBe(0);
+    expect(janCells.filter(Boolean)).toHaveLength(31);
+    expect(formatMonthYearHeading(2026, 13, "da")).toContain("Februar 2026");
+    expect(formatIsoDateHuman("")).toBe("");
+    expect(formatIsoDateHuman("2026-11-15", "es")).toBe("15 nov 2026");
+    expect(
+      normalizeDirectoryProvider({
+        userUuid: "u-p",
+        displayName: "Bo",
+        organisation: { id: "org-9", name: "Klinik X" },
+      }).organisationId
+    ).toBe("org-9");
+    expect(
+      normalizeDirectoryService({
+        id: "s-1",
+        name: "EMDR",
+        provider: { id: "p-9" },
+        organisation: { id: "org-9" },
+        active: false,
+      }).isActive
+    ).toBe(false);
+
+    const dualUserUuid = "4c421f46-836c-4897-8dae-ba9587473273";
+    const otherTherapistUuid = "55555555-5555-4555-8555-555555555555";
+    const fetchMock = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/backend/appointments") {
+        return { ok: true, status: 200, json: async () => [] } as Response;
+      }
+      if (url === "/api/backend/clinic/directory") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            providers: [
+              { id: "p-self", userUuid: dualUserUuid, displayName: "Bo Jensen", workingHoursJson: JSON.stringify(getDefaultWeeklySchedule()) },
+              { id: "p-other", userUuid: otherTherapistUuid, displayName: "Mette Lind", workingHoursJson: JSON.stringify(getDefaultWeeklySchedule()) },
+            ],
+            services: [],
+          }),
+        } as Response;
+      }
+      if (url.includes("/api/backend/clinic/services")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            { id: "srv-m", name: "Samtale", durationMinutes: 45, provider: { id: "p-other" } },
+          ],
+        } as Response;
+      }
+      if (url.includes("/api/backend/appointments/timefold-slots")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            solver: "Timefold Solver 1.16.0",
+            workingHoursWindow: "Lukket",
+            feasible: false,
+            slots: [],
+          }),
+        } as Response;
+      }
+      return { ok: true, status: 200, json: async () => ({}) } as Response;
+    });
+    global.fetch = fetchMock;
+
+    render(
+      <AuthProvider
+        user={{
+          id: dualUserUuid,
+          name: "Bo Jensen",
+          email: "bjens@mail.com",
+          roles: ["CLIENT", "PROVIDER", "ADMIN"],
+        }}
+      >
+        <AppointmentFeatureView portalMode="client" />
+      </AuthProvider>
+    );
+
+    await waitFor(() => {
+      expect((screen.getByTestId("input-clientName") as HTMLInputElement).value).toBe("Bo Jensen");
+      expect((screen.getByTestId("select-therapist") as HTMLSelectElement).value).toBe(otherTherapistUuid);
+    });
+    expect(screen.getByTestId("select-therapist").textContent).not.toContain("Bo Jensen");
+    expect(screen.getByTestId("select-therapist").textContent).toContain("Mette Lind");
+    expect(screen.getByTestId("booking-slots-empty")).toBeDefined();
+    cleanup();
+  });
+
+  it("handles empty client provider pool and API catch branches gracefully", async () => {
+    const selfUuid = "77777777-7777-4777-8777-777777777777";
+    global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/backend/appointments") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            {
+              id: "err-apt-1",
+              clientName: "Klient Uden Terapeut",
+              startTime: "2026-11-28T10:00",
+              endTime: "2026-11-28T11:00",
+              status: "SCHEDULED",
+            },
+            {
+              id: "err-apt-empty",
+              clientName: "Tom Start",
+              startTime: "",
+              status: "SCHEDULED",
+            },
+          ],
+        } as Response;
+      }
+      if (url === "/api/backend/clinic/directory") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            providers: [{ id: "p-only-self", userUuid: selfUuid, displayName: "Mig Selv" }],
+            services: [],
+          }),
+        } as Response;
+      }
+      if (
+        url.includes("/api/backend/clinic/clients") ||
+        url.includes("/api/backend/clinic/services") ||
+        url.includes("/api/backend/appointments/timefold-slots")
+      ) {
+        throw new Error("Network unavailable");
+      }
+      return { ok: true, status: 200, json: async () => ({}) } as Response;
+    });
+
+    // Client portal with only self in directory -> pool empty -> clears therapist selection; reschedule on apt without therapist
+    render(
+      <AuthProvider user={{ id: selfUuid, name: "Mig Selv", email: "mig@example.dk", roles: ["CLIENT"] }}>
+        <AppointmentFeatureView portalMode="client" />
+      </AuthProvider>
+    );
+    await waitFor(() => {
+      expect((screen.getByTestId("select-therapist") as HTMLSelectElement).value).toBe("");
+    });
+    fireEvent.click(screen.getByTestId("reschedule-btn-err-apt-empty"));
+    expect(screen.getByTestId("reschedule-panel-err-apt-empty").textContent).toContain("--:--");
+    fireEvent.click(screen.getByTestId("reschedule-btn-err-apt-1"));
+    expect(screen.getByTestId("reschedule-panel-err-apt-1")).toBeDefined();
+    cleanup();
+
+    // Provider portal with failing clinic/clients, clinic/services, timefold-slots, and reschedule timefold-slots
+    render(
+      <AuthProvider user={{ id: selfUuid, name: "Mig Selv", email: "mig@example.dk", roles: ["PROVIDER"] }}>
+        <AppointmentFeatureView portalMode="provider" />
+      </AuthProvider>
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("no-therapist-services-notice")).toBeDefined();
+    });
+    fireEvent.click(screen.getByTestId("reschedule-btn-err-apt-1"));
+    await waitFor(() => {
+      expect(screen.getByTestId("reschedule-panel-err-apt-1")).toBeDefined();
+    });
+    cleanup();
+
+    // Cover buildCalendarMonthCells(year, month) and auth email fallback when auth.user.name is blank
+    const octCells = buildCalendarMonthCells(2026, 9);
+    expect(octCells.length).toBeGreaterThan(28);
+    expect(octCells.some((c) => c !== null)).toBe(true);
+
+    const noNameUuid = "88888888-8888-4888-8888-888888888888";
+    global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/backend/clinic/services/provider/")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [{ id: "s-zero", name: "Nul Varighed", durationMinutes: 0 }],
+        };
+      }
+      if (url === "/api/backend/appointments" || url.includes("/api/backend/clinic/clients")) {
+        return { ok: true, status: 200, json: async () => [] };
+      }
+      return { ok: true, status: 200, json: async () => ({ providers: [], services: [] }) };
+    });
+
+    render(
+      <AuthProvider user={{ id: noNameUuid, name: "", email: "emailonly@klinik.dk", roles: ["PROVIDER"] }}>
+        <AppointmentFeatureView portalMode="provider" />
+      </AuthProvider>
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("appointment-feature-view")).toBeDefined();
+    });
+    cleanup();
+
+    render(
+      <AuthProvider user={{ id: noNameUuid, name: "", email: "", roles: ["PROVIDER"] }}>
+        <AppointmentFeatureView portalMode="provider" />
+      </AuthProvider>
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("select-therapist").innerHTML).toContain(noNameUuid);
+    });
+    cleanup();
+
+    // Cover helper default args, provider option key fallback, client date window partial bounds, and saveWorkingHours with org fields
+    expect(formatMonthYearHeading(2026, 9)).toContain("2026");
+    expect(formatMinutes(60)).toBe("1 timer");
+    expect(formatMinutes(0, true)).toBe("0 hrs");
+
+    global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+      const u = String(input);
+      if (u.includes("/api/backend/clinic/me")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            userUuid: "u-save-1",
+            providerProfile: { organisation: { cvrNumber: "12345678", name: "Klinik A" } },
+          }),
+        };
+      }
+      if (u.includes("/api/backend/clinic/therapist-onboarding")) {
+        return { ok: true, status: 200, json: async () => ({ ok: true }) };
+      }
+      if (u.includes("/api/backend/clinic/directory")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            providers: [{ displayName: "NavnOnlyTerapeut" }],
+            services: [],
+          }),
+        };
+      }
+      return { ok: true, status: 200, json: async () => [] };
+    });
+    await appointmentApi.saveWorkingHours(JSON.stringify(getDefaultWeeklySchedule()));
+
+    const clientUuid = "11111111-1111-4111-8111-111111111111";
+    render(
+      <AuthProvider user={{ id: clientUuid, name: "Klara", email: "klara@dk.dk", roles: ["CLIENT"] }}>
+        <AppointmentFeatureView portalMode="client" />
+      </AuthProvider>
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("select-therapist").innerHTML).toContain("NavnOnlyTerapeut");
+    });
+    fireEvent.change(screen.getByTestId("filter-date-from"), { target: { value: "2026-12-01" } });
+    fireEvent.click(screen.getByTestId("apply-date-filter"));
+    await waitFor(() => expect(global.fetch).toHaveBeenCalled());
+    fireEvent.change(screen.getByTestId("filter-date-from"), { target: { value: "" } });
+    fireEvent.change(screen.getByTestId("filter-date-to"), { target: { value: "2026-12-31" } });
+    fireEvent.click(screen.getByTestId("apply-date-filter"));
+    await waitFor(() => expect(global.fetch).toHaveBeenCalled());
+    cleanup();
+
+    // Cover saveWorkingHours with empty /clinic/me, status??SCHEDULED, diffMins===0, invalid startTime slot fallback, client & provider submits, and multi-item windowItems update
+    const provLiveUuid = "22222222-2222-4222-8222-222222222222";
+    const clientLiveUuid = "11111111-1111-4111-8111-111111111111";
+    global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const u = String(input);
+      const method = String(init?.method || "GET").toUpperCase();
+      if (u.includes("/api/backend/clinic/me")) {
+        return { ok: true, status: 200, json: async () => ({}) };
+      }
+      if (u.includes("/api/backend/clinic/therapist-onboarding")) {
+        return { ok: true, status: 200, json: async () => ({ ok: true }) };
+      }
+      if (u.includes("/api/backend/clinic/directory")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            providers: [{ id: "prov-1", userUuid: provLiveUuid, displayName: "Dr. Sofie", organisationName: "Nordic" }],
+            services: [{ id: "srv-60", name: "Session 60", durationMinutes: 60, providerProfileId: "prov-1" }],
+          }),
+        };
+      }
+      if (u.includes("/api/backend/clinic/services")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [{ id: "srv-60", name: "Session 60", durationMinutes: 60, providerProfileId: "prov-1" }],
+        };
+      }
+      if (u.includes("/api/backend/clinic/clients")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [{ userId: "client-uuid-99", fullName: "Mads Klient", email: "mads@example.dk" }],
+        };
+      }
+      if (u.includes("/api/backend/appointments/timefold-slots")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            solver: "Timefold Solver",
+            feasible: true,
+            slots: [
+              {
+                slot: "10:00-11:00",
+                startTime: "10:00",
+                endTime: "2026-12-10T11:00:00",
+                available: true,
+                withinWorkingHours: true,
+              },
+            ],
+          }),
+        };
+      }
+      if (u.includes("/api/backend/appointments/client/")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            { id: "apt-w1", clientName: "W1", startTime: "2026-12-10T10:00:00", endTime: "2026-12-10T11:00:00", status: "CONFIRMED" },
+            { id: "apt-w2", clientName: "W2", startTime: "2026-12-10T12:00:00", endTime: "2026-12-10T13:00:00", status: "CONFIRMED" },
+          ],
+        };
+      }
+      if (u.includes("/api/backend/appointments") && method === "POST") {
+        return {
+          ok: true,
+          status: 201,
+          json: async () => ({
+            id: "apt-created-99",
+            clientName: "Created",
+            startTime: "2026-12-10T10:00:00",
+            endTime: "2026-12-10T11:00:00",
+            status: "SCHEDULED",
+          }),
+        };
+      }
+      if (u.includes("/api/backend/appointments/") && method === "PUT") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            id: u.includes("apt-w1") ? "apt-w1" : "apt-nostatus",
+            clientName: "Updated",
+            startTime: "2026-12-11T10:00:00",
+            endTime: "2026-12-11T11:00:00",
+            status: "CONFIRMED",
+          }),
+        };
+      }
+      if (u.endsWith("/api/backend/appointments") && method === "GET") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            { id: "apt-nostatus", clientName: "Uden Status", therapistUuid: provLiveUuid, startTime: "2026-12-10T10:00:00", endTime: "2026-12-10T10:00:00" },
+          ],
+        };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    });
+
+    await appointmentApi.saveWorkingHours("{}");
+
+    // Client flow: submit with hasLiveUuid + click bad-start booking slot & reschedule slot + save reschedule when windowItems has 2 items
+    render(
+      <AuthProvider user={{ id: clientLiveUuid, name: "Klara", email: "klara@dk.dk", roles: ["CLIENT"] }}>
+        <AppointmentFeatureView portalMode="client" />
+      </AuthProvider>
+    );
+    await waitFor(() => expect(screen.getByTestId("select-therapist").innerHTML).toContain(provLiveUuid));
+    fireEvent.change(screen.getByTestId("select-therapist"), { target: { value: provLiveUuid } });
+    await waitFor(() => expect(screen.getByTestId("booking-slot-10:00-11:00")).toBeDefined());
+    fireEvent.click(screen.getByTestId("booking-slot-10:00-11:00"));
+    expect((screen.getByTestId("input-endTime") as HTMLInputElement).value).toBe("2026-12-10T11:00");
+
+    // Save reschedule while windowItems is null
+    fireEvent.click(screen.getByTestId("reschedule-btn-apt-nostatus"));
+    await waitFor(() => expect(screen.getByTestId("reschedule-slot-apt-nostatus-10:00-11:00")).toBeDefined());
+    fireEvent.click(screen.getByTestId("reschedule-slot-apt-nostatus-10:00-11:00"));
+    fireEvent.change(screen.getByTestId("reschedule-start-apt-nostatus"), { target: { value: "2026-12-11T10:00" } });
+    fireEvent.change(screen.getByTestId("reschedule-end-apt-nostatus"), { target: { value: "2026-12-11T11:00" } });
+    fireEvent.click(screen.getByTestId("reschedule-save-apt-nostatus"));
+    await waitFor(() => expect(screen.queryByTestId("reschedule-panel-apt-nostatus")).toBeNull());
+
+    // Submit booking as client (covers isClientMode && hasLiveUuid ? auth.user.id and if (!isClientMode) false)
+    fireEvent.change(screen.getByTestId("input-startTime"), { target: { value: "2026-12-10T10:00" } });
+    fireEvent.change(screen.getByTestId("input-endTime"), { target: { value: "2026-12-10T11:00" } });
+    fireEvent.click(screen.getByTestId("submit-booking"));
+    await waitFor(() => expect(screen.getByText("Created")).toBeDefined());
+
+    // Filter window to get 2 items (apt-w1, apt-w2) then reschedule apt-w1 -> covers map non-matching arm on apt-w2
+    fireEvent.change(screen.getByTestId("filter-date-from"), { target: { value: "2026-12-01" } });
+    fireEvent.click(screen.getByTestId("apply-date-filter"));
+    await waitFor(() => expect(screen.getByTestId("reschedule-btn-apt-w1")).toBeDefined());
+    fireEvent.click(screen.getByTestId("reschedule-btn-apt-w1"));
+    fireEvent.click(screen.getByTestId("reschedule-save-apt-w1"));
+    await waitFor(() => expect(screen.queryByTestId("reschedule-panel-apt-w1")).toBeNull());
+    cleanup();
+
+    // Provider submit with selectedClientUuid
+    render(
+      <AuthProvider user={{ id: provLiveUuid, name: "Dr. Sofie", email: "sofie@klinik.dk", roles: ["PROVIDER"] }}>
+        <AppointmentFeatureView portalMode="provider" />
+      </AuthProvider>
+    );
+    await waitFor(() => expect(screen.getByTestId("select-booking-client")).toBeDefined());
+    fireEvent.change(screen.getByTestId("select-booking-client"), { target: { value: "client-uuid-99" } });
+    fireEvent.change(screen.getByTestId("input-startTime"), { target: { value: "2026-12-10T10:00" } });
+    fireEvent.change(screen.getByTestId("input-endTime"), { target: { value: "2026-12-10T11:00" } });
+    fireEvent.click(screen.getByTestId("submit-booking"));
+    await waitFor(() => expect(screen.getByText("Created")).toBeDefined());
     cleanup();
   });
 });

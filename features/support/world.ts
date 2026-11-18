@@ -45,8 +45,12 @@ function parseAndLoadEnvFile(envPath: string) {
   }
 }
 
+const isLiveDbExplicitlyAllowed =
+  process.env.BDD_ALLOW_LIVE_DB === "true" &&
+  process.env.BDD_SELF_CONTAINED !== "true";
+
 function loadEnvFiles() {
-  if (process.env.BDD_SELF_CONTAINED === "true") return;
+  if (!isLiveDbExplicitlyAllowed) return;
   parseAndLoadEnvFile(path.resolve(process.cwd(), ".env.local"));
   parseAndLoadEnvFile(path.resolve(process.cwd(), "..", ".env"));
 }
@@ -75,7 +79,7 @@ async function getKeycloakAdminContext(): Promise<{
   realm: string;
   headers: Record<string, string>;
 } | null> {
-  if (activeMockStack || process.env.BDD_SELF_CONTAINED === "true") {
+  if (activeMockStack || !isLiveDbExplicitlyAllowed) {
     return null;
   }
   const issuerUrl =
@@ -227,10 +231,7 @@ async function isLiveBffReachable(): Promise<boolean> {
 }
 
 async function ensureMockStackIfNeeded(): Promise<void> {
-  let useMock = process.env.BDD_SELF_CONTAINED === "true";
-  if (!useMock) {
-    useMock = !(await isLiveBffReachable());
-  }
+  const useMock = !isLiveDbExplicitlyAllowed || !(await isLiveBffReachable());
 
   if (useMock && !activeMockStack) {
     activeMockStack = await startSelfContainedMockStack(18081, 18082);
@@ -268,7 +269,7 @@ async function ensureFrontendServerRunning(): Promise<void> {
   }
 
   const shouldSpawn =
-    process.env.BDD_SELF_CONTAINED === "true" ||
+    !isLiveDbExplicitlyAllowed ||
     activeMockStack !== null ||
     process.env.BDD_SPAWN_NEXT === "true";
   if (!shouldSpawn) {

@@ -377,8 +377,14 @@ describe("PsychotraumatologyFeature Vertical Slice", () => {
     });
   });
 
-  it("filterPcl5ClientOptions filters invalid rows, self, therapists, and duplicate IDs/names", () => {
+  it("filterPcl5ClientOptions filters invalid rows, self, therapists, and duplicate IDs/names", async () => {
     expect(filterPcl5ClientOptions(null)).toEqual([]);
+    expect(
+      filterPcl5ClientOptions([
+        { id: "  ", userId: "  ", fullName: "No Valid Id" },
+        { id: "c-mail", fullName: "Eva", email: "MATCH@clinic.dk" },
+      ], undefined, "match@clinic.dk")
+    ).toEqual([]);
     const filtered = filterPcl5ClientOptions(
       [
         null,
@@ -403,5 +409,24 @@ describe("PsychotraumatologyFeature Vertical Slice", () => {
       { id: "cp-1", userId: "c-1", fullName: "Anders Sand", email: "anders@sand.dk" },
       { id: "cp-2", userId: null, fullName: "Maria Hansen", email: undefined },
     ]);
+
+    // Cover clinic/clients !res.ok and unmount before fetch resolves
+    let resolveClients!: (r: Response) => void;
+    global.fetch = vi.fn((url: string) => {
+      if (url.includes("/api/backend/clinic/clients")) {
+        return new Promise<Response>((res) => {
+          resolveClients = res;
+        });
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => [] } as Response);
+    }) as unknown as typeof fetch;
+
+    const { unmount } = render(
+      <AuthProvider user={{ id: "prov-1", name: "Bo", email: "bo@clinic.dk", roles: ["PROVIDER"] }}>
+        <PsychotraumatologyFeatureView portalMode="provider" />
+      </AuthProvider>
+    );
+    unmount();
+    resolveClients({ ok: false, status: 500, json: async () => [] } as Response);
   });
 });

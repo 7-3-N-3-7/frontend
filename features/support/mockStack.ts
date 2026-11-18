@@ -51,6 +51,112 @@ function deterministicUuid(seed: string): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 
+function parseHhmmMinute(raw: string, isEnd: boolean): number | null {
+  const m = /^(\d{2}):(\d{2})$/.exec(raw.trim());
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (h === 24 && min === 0 && isEnd) return 1440;
+  if (h < 0 || h > 23 || min < 0 || min > 59) return null;
+  const total = h * 60 + min;
+  return isEnd && total === 0 ? 1440 : total;
+}
+
+function formatMinuteHhmm(m: number): string {
+  return `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+}
+
+function resolveMockWorkingWindows(
+  workingHoursJson: string | null | undefined,
+  dateStr: string
+): Array<{ startMinute: number; endMinute: number }> {
+  const defaultWin = [{ startMinute: 8 * 60, endMinute: 17 * 60 }];
+  if (!workingHoursJson || !workingHoursJson.trim()) return defaultWin;
+  const trimmed = workingHoursJson.trim();
+  if (trimmed.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed.days)) {
+        const weekdayNames = [
+          "sunday",
+          "monday",
+          "tuesday",
+          "wednesday",
+          "thursday",
+          "friday",
+          "saturday",
+        ];
+        const parts = dateStr.split("-").map(Number);
+        const d =
+          parts.length === 3
+            ? new Date(parts[0], parts[1] - 1, parts[2])
+            : new Date(dateStr);
+        const dayKey = weekdayNames[d.getDay()];
+        const dayCfg = parsed.days.find(
+          (x: any) => String(x?.day || "").toLowerCase() === dayKey
+        );
+        if (!dayCfg || !dayCfg.enabled || !Array.isArray(dayCfg.intervals)) {
+          return [];
+        }
+        const wins: Array<{ startMinute: number; endMinute: number }> = [];
+        for (const intv of dayCfg.intervals) {
+          const s = parseHhmmMinute(String(intv?.start || ""), false);
+          const e = parseHhmmMinute(String(intv?.end || ""), true);
+          if (s !== null && e !== null && e > s) {
+            wins.push({ startMinute: s, endMinute: e });
+          }
+        }
+        return wins;
+      }
+    } catch {
+      // Fall back to regex interval parsing
+    }
+  }
+  const regex = /(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})/g;
+  const wins: Array<{ startMinute: number; endMinute: number }> = [];
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(trimmed)) !== null) {
+    const s = parseHhmmMinute(match[1], false);
+    const e = parseHhmmMinute(match[2], true);
+    if (s !== null && e !== null && e > s) {
+      wins.push({ startMinute: s, endMinute: e });
+    }
+  }
+  return wins.length > 0 ? wins : defaultWin;
+}
+
+function addMinutesIsoMock(isoLocal: string, minutes: number): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(isoLocal);
+  if (!m) return isoLocal;
+  const dt = new Date(
+    Number(m[1]),
+    Number(m[2]) - 1,
+    Number(m[3]),
+    Number(m[4]),
+    Number(m[5]) + minutes,
+    0,
+    0
+  );
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(
+    dt.getDate()
+  ).padStart(2, "0")}T${String(dt.getHours()).padStart(2, "0")}:${String(
+    dt.getMinutes()
+  ).padStart(2, "0")}:00`;
+}
+
+function fitsMockWindows(
+  windows: Array<{ startMinute: number; endMinute: number }>,
+  startIso: string,
+  endIso: string
+): boolean {
+  const sMatch = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/.exec(startIso);
+  const eMatch = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/.exec(endIso);
+  if (!sMatch || !eMatch || sMatch[1] !== eMatch[1]) return false;
+  const sMin = Number(sMatch[2]) * 60 + Number(sMatch[3]);
+  const eMin = Number(eMatch[2]) * 60 + Number(eMatch[3]);
+  return windows.some((w) => sMin >= w.startMinute && eMin <= w.endMinute && eMin > sMin);
+}
+
 const cachedSeedI18nBundles: Record<string, Record<string, any>> = (() => {
   const seedPath = path.resolve(process.cwd(), "features", "support", "i18nSeedBundles.json");
   if (fs.existsSync(seedPath)) {
@@ -996,7 +1102,29 @@ export async function startSelfContainedMockStack(
 
     if (pathname === "/api/v1/clinic/services") {
       if (method === "GET") {
-        return sendJson(res, 200, Array.from(services.values()));
+        const therapistUuid = url.searchParams.get("therapistUuid");
+        const activeOnly = url.searchParams.get("activeOnly") === "true";
+        let list = Array.from(services.values());
+        if (therapistUuid) {
+          const profile = providerProfiles.get(therapistUuid);
+          if (!profile) {
+            return sendJson(res, 200, []);
+          }
+          list = list.filter((s: any) => {
+            if (s.provider?.id || s.providerProfileId) {
+              return (
+                s.providerProfileId === profile.id ||
+                s.provider?.id === profile.id ||
+                s.therapistUuid === therapistUuid
+              );
+            }
+            return profile.organisationId && s.organisationId === profile.organisationId;
+          });
+        }
+        if (activeOnly) {
+          list = list.filter((s: any) => s.active !== false && s.isActive !== false);
+        }
+        return sendJson(res, 200, list);
       }
       if (method === "POST") {
         const targetUuid = String(jsonBody.therapistUuid || jsonBody.userUuid || auth.userUuid);
@@ -1180,36 +1308,80 @@ export async function startSelfContainedMockStack(
       const therapistUuid = url.searchParams.get("therapistUuid") || "";
       const date = url.searchParams.get("date") || "2026-11-26";
       const durationMinutes = Number(url.searchParams.get("durationMinutes") || 60);
+      const preferredTime = url.searchParams.get("preferredTime") || "10:00";
+      const excludeAppointmentId = url.searchParams.get("excludeAppointmentId") || "";
+      const includeOutsideHours = url.searchParams.get("includeOutsideHours") === "true";
+      const profile = providerProfiles.get(therapistUuid);
+      const normalWindows = resolveMockWorkingWindows(profile?.workingHoursJson, date);
+      const generationWindows = includeOutsideHours
+        ? [{ startMinute: 7 * 60, endMinute: 21 * 60 }]
+        : normalWindows;
+
       const existingBookings = Array.from(appointments.values()).filter(
-        (a) => a.therapistUuid === therapistUuid && a.status !== "CANCELLED"
+        (a) =>
+          a.therapistUuid === therapistUuid &&
+          a.status !== "CANCELLED" &&
+          (!excludeAppointmentId || a.id !== excludeAppointmentId)
       );
-      const candidateHours = ["09:00", "10:00", "11:00", "13:00", "14:00", "15:00"];
-      const slots = candidateHours.map((hhmm) => {
+
+      const seenMinutes = new Set<number>();
+      const startMinutes: number[] = [];
+      for (const w of generationWindows) {
+        for (let m = w.startMinute; m + durationMinutes <= w.endMinute; m += 30) {
+          if (!seenMinutes.has(m)) {
+            seenMinutes.add(m);
+            startMinutes.push(m);
+          }
+        }
+      }
+      startMinutes.sort((a, b) => a - b);
+
+      const prefMatch = /^(\d{2}):(\d{2})/.exec(preferredTime);
+      const prefMin = prefMatch ? Number(prefMatch[1]) * 60 + Number(prefMatch[2]) : 10 * 60;
+      const nowMs = Date.now();
+
+      const slots = startMinutes.map((m) => {
+        const hhmm = formatMinuteHhmm(m);
         const startIso = `${date}T${hhmm}:00`;
-        const startDate = new Date(startIso);
-        const endDate = new Date(startDate.getTime() + durationMinutes * 60000);
-        const endIso = `${date}T${String(endDate.getHours()).padStart(2, "0")}:${String(
-          endDate.getMinutes()
-        ).padStart(2, "0")}:00`;
+        const endIso = addMinutesIsoMock(startIso, durationMinutes);
         const overlaps = existingBookings.some(
           (a) => a.startTime < endIso && a.endTime > startIso
         );
+        const inPast = new Date(startIso).getTime() < nowMs;
+        const withinWorkingHours = fitsMockWindows(normalWindows, startIso, endIso);
+        const available = !overlaps && !inPast && (withinWorkingHours || includeOutsideHours);
+        const softScore = -Math.floor(Math.abs(m - prefMin) / 15);
         return {
           slot: hhmm,
           startTime: startIso,
           endTime: endIso,
-          available: !overlaps,
+          available,
           overlaps,
-          withinWorkingHours: true,
+          inPast,
+          withinWorkingHours,
+          softScore,
+          recommended: false,
         };
       });
-      const firstAvailable = slots.find((s) => s.available);
-      const recommendedSlot = firstAvailable ? firstAvailable.slot : null;
+
+      const availableSorted = slots
+        .filter((s) => s.available)
+        .sort((a, b) => b.softScore - a.softScore);
+      const recommendedSlot = availableSorted[0]?.slot ?? null;
+      for (const s of slots) {
+        s.recommended = Boolean(recommendedSlot && s.slot === recommendedSlot);
+      }
+
       return sendJson(res, 200, {
         solver: "Timefold Solver 1.16.0",
         therapistUuid,
         date,
         durationMinutes,
+        workingHoursWindow:
+          normalWindows.length === 0
+            ? "Lukket"
+            : normalWindows.map((w) => `${formatMinuteHhmm(w.startMinute)}-${formatMinuteHhmm(w.endMinute)}`).join(", "),
+        closed: normalWindows.length === 0 && !includeOutsideHours,
         recommendedSlot,
         feasible: Boolean(recommendedSlot),
         slots,
@@ -1237,9 +1409,25 @@ export async function startSelfContainedMockStack(
       }
       if (method === "POST") {
         if (
+          jsonBody.clientUuid &&
+          jsonBody.therapistUuid &&
+          jsonBody.clientUuid === jsonBody.therapistUuid
+        ) {
+          return sendJson(res, 400, {
+            error: "A therapist cannot book themselves as their own therapist",
+            message: "A therapist cannot book themselves as their own therapist",
+          });
+        }
+        const selectedSrv = jsonBody.serviceId ? services.get(jsonBody.serviceId) : null;
+        const resolvedEnd =
+          jsonBody.endTime ||
+          (jsonBody.startTime
+            ? addMinutesIsoMock(jsonBody.startTime, Number(selectedSrv?.durationMinutes || 60))
+            : null);
+        if (
           jsonBody.startTime &&
-          jsonBody.endTime &&
-          new Date(jsonBody.endTime).getTime() <= new Date(jsonBody.startTime).getTime()
+          resolvedEnd &&
+          new Date(resolvedEnd).getTime() <= new Date(jsonBody.startTime).getTime()
         ) {
           return sendJson(res, 400, {
             error: "Invalid time range: End time must be after start time",
@@ -1250,11 +1438,35 @@ export async function startSelfContainedMockStack(
           (a) =>
             a.status !== "CANCELLED" &&
             a.therapistUuid === jsonBody.therapistUuid &&
-            a.startTime < jsonBody.endTime &&
+            a.startTime < resolvedEnd &&
             a.endTime > jsonBody.startTime
         );
         if (conflict) {
-          return sendJson(res, 409, { error: "Time slot overlap conflict" });
+          return sendJson(res, 409, {
+            error: "Timefold AI rejected booking: Therapist is already booked during the requested slot",
+            message: "Timefold AI rejected booking: Therapist is already booked during the requested slot",
+          });
+        }
+        if (
+          jsonBody.therapistUuid &&
+          auth.userUuid &&
+          auth.userUuid !== jsonBody.therapistUuid &&
+          jsonBody.startTime &&
+          resolvedEnd
+        ) {
+          const prof = providerProfiles.get(jsonBody.therapistUuid);
+          if (prof?.workingHoursJson && String(prof.workingHoursJson).trim()) {
+            const wins = resolveMockWorkingWindows(
+              prof.workingHoursJson,
+              String(jsonBody.startTime).slice(0, 10)
+            );
+            if (!fitsMockWindows(wins, jsonBody.startTime, resolvedEnd)) {
+              return sendJson(res, 409, {
+                error: "Timefold AI rejected booking: Requested time is outside the therapist's available working hours",
+                message: "Timefold AI rejected booking: Requested time is outside the therapist's available working hours",
+              });
+            }
+          }
         }
         const id = crypto.randomUUID();
         const apt = {
@@ -1266,7 +1478,7 @@ export async function startSelfContainedMockStack(
           serviceId: jsonBody.serviceId || null,
           title: jsonBody.title || "Terapisamtale",
           startTime: jsonBody.startTime,
-          endTime: jsonBody.endTime,
+          endTime: resolvedEnd,
           status: "CONFIRMED",
           gitCommitHash: crypto.randomBytes(4).toString("hex"),
         };
@@ -1310,19 +1522,49 @@ export async function startSelfContainedMockStack(
             message: "Cannot reschedule an appointment to a time in the past",
           });
         }
+        const srv = existing.serviceId ? services.get(existing.serviceId) : null;
+        const resolvedEnd =
+          jsonBody.endTime ||
+          (jsonBody.startTime
+            ? addMinutesIsoMock(jsonBody.startTime, Number(srv?.durationMinutes || 60))
+            : existing.endTime);
         const conflict = Array.from(appointments.values()).some(
           (a) =>
             a.id !== aptId &&
             a.status !== "CANCELLED" &&
             a.therapistUuid === existing.therapistUuid &&
-            a.startTime < jsonBody.endTime &&
+            a.startTime < resolvedEnd &&
             a.endTime > jsonBody.startTime
         );
         if (conflict) {
-          return sendJson(res, 409, { error: "Time slot overlap conflict" });
+          return sendJson(res, 409, {
+            error: "Timefold AI rejected booking: Therapist is already booked during the requested slot",
+            message: "Timefold AI rejected booking: Therapist is already booked during the requested slot",
+          });
+        }
+        if (
+          existing.therapistUuid &&
+          auth.userUuid &&
+          auth.userUuid !== existing.therapistUuid &&
+          jsonBody.startTime &&
+          resolvedEnd
+        ) {
+          const prof = providerProfiles.get(existing.therapistUuid);
+          if (prof?.workingHoursJson && String(prof.workingHoursJson).trim()) {
+            const wins = resolveMockWorkingWindows(
+              prof.workingHoursJson,
+              String(jsonBody.startTime).slice(0, 10)
+            );
+            if (!fitsMockWindows(wins, jsonBody.startTime, resolvedEnd)) {
+              return sendJson(res, 409, {
+                error: "Timefold AI rejected booking: Requested time is outside the therapist's available working hours",
+                message: "Timefold AI rejected booking: Requested time is outside the therapist's available working hours",
+              });
+            }
+          }
         }
         existing.startTime = jsonBody.startTime;
-        existing.endTime = jsonBody.endTime;
+        existing.endTime = resolvedEnd;
         return sendJson(res, 200, existing);
       }
     }
@@ -1351,7 +1593,9 @@ export async function startSelfContainedMockStack(
         handshakes: clientHs,
         journals: clientJournals,
         pcl5Tests: pcl5Tests.filter((t) => t.clientUuid === clientUuid),
-        providers: Array.from(providerProfiles.values()),
+        providers: Array.from(providerProfiles.values()).filter(
+          (p: any) => !p.userUuid || p.userUuid !== clientUuid
+        ),
         services: marketplaceServices,
       });
     }

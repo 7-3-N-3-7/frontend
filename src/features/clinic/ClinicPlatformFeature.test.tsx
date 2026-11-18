@@ -1398,5 +1398,173 @@ describe("ClinicPlatformFeature Vertical Slice", () => {
     fireEvent.click(screen.getByTestId("confirm-action-cancel"));
     expect(screen.queryByTestId("confirm-action-dialog")).toBeNull();
     cleanup();
+
+    // Cover helper edge fallbacks & non-array responses in TherapistClinicOnboardingView
+    const mergedProviders = deduplicateClinicProviders([
+      { fullName: "Dr. Sam", displayName: "" },
+      { userUuid: "p-sam-2", fullName: "Dr. Sam", displayName: "Dr. Sam" },
+    ]);
+    expect(mergedProviders).toHaveLength(1);
+    expect(mergedProviders[0].displayName).toBe("Dr. Sam");
+
+    expect(
+      filterAndDeduplicateClinicClients([{ id: "  ", userId: "  ", fullName: "No Id Klient" }])
+    ).toHaveLength(1);
+
+    global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/backend/clinic/me")) {
+        return { ok: true, status: 200, json: async () => ({ userUuid: "prov-empty", fullName: "Me Fallback Navn" }) };
+      }
+      if (url.includes("/api/backend/clinic/providers")) {
+        return { ok: true, status: 200, json: async () => [] };
+      }
+      if (url.includes("/api/backend/clinic/services") || url.includes("/api/backend/clinic/handshakes/therapist/")) {
+        return { ok: true, status: 200, json: async () => ({ unexpectedObject: true }) };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    });
+
+    render(<TherapistClinicOnboardingView />);
+    await waitFor(() => {
+      expect((screen.getByTestId("input-onboard-displayName") as HTMLInputElement).value).toBe("Me Fallback Navn");
+    });
+    cleanup();
+
+    // Cover mapMeToAuthenticatedUser fallbacks, settings tab shell config, and non-Error reject + non-array handshakes
+    const anonMapped = mapMeToAuthenticatedUser({});
+    expect(anonMapped.id).toBe("anonymous");
+    expect(anonMapped.name).toBe("Bruger");
+    expect(anonMapped.roles).toEqual(["CLIENT"]);
+
+    const settingsShell = resolvePortalShellConfig({
+      locale: "da",
+      pathname: "/da/dashboard/clinic",
+      tab: "settings",
+      me: { isTherapist: true },
+    });
+    expect(settingsShell.navItems.some((n) => n.active)).toBe(true);
+
+    const adminShell = resolvePortalShellConfig({
+      locale: "da",
+      pathname: "/da/dashboard/admin",
+    });
+    expect(adminShell.navItems[0].active).toBe(true);
+    expect(filterAndDeduplicateClinicClients([{ id: "c-no-email", fullName: "Uden Email" }])).toHaveLength(1);
+
+    global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+      const u = String(input);
+      if (u.includes("/api/backend/clinic/me")) {
+        return { ok: true, status: 200, json: async () => ({ unexpected: true }) };
+      }
+      if (u.includes("/api/backend/clinic/directory")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            providers: [{ id: "p-key-only", userUuid: "p-uuid-key", displayName: "UuidKeyTerapeut" }],
+            services: [
+              { id: "s-dkk-fallback", name: "BasisYdelse", durationMinutes: 50, priceDkk: 790, currency: "", provider: { id: "p-key-only" } },
+            ],
+          }),
+        };
+      }
+      if (u.includes("/api/backend/clinic/handshakes/client/")) {
+        return { ok: true, status: 200, json: async () => ({ notArray: true }) };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    });
+
+    render(
+      <AuthProvider user={{ id: "c-mkt-2", name: "", email: "", roles: ["CLIENT"] }}>
+        <ClientMarketplaceView />
+      </AuthProvider>
+    );
+    await waitFor(() => expect(screen.getByText("UuidKeyTerapeut")).toBeDefined());
+    expect(screen.getByText(/790 DKK/)).toBeDefined();
+    cleanup();
+
+    // Unauthenticated ClientMarketplaceView (no AuthProvider -> empty clientUuid) + ClinicPlatformFeatureView empty fullName avatar
+    render(<ClientMarketplaceView />);
+    await waitFor(() => expect(screen.getByText("UuidKeyTerapeut")).toBeDefined());
+    cleanup();
+
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => [{ id: "c-blank-name", fullName: "", email: "blank@dk.dk" }],
+    });
+    render(<ClinicPlatformFeatureView />);
+    await waitFor(() => expect(screen.getByText("?")).toBeDefined());
+    cleanup();
+
+    global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+      const u = String(input);
+      if (u.includes("/api/backend/clinic/me")) {
+        return { ok: true, status: 200, json: async () => ({ unexpected: true }) };
+      }
+      return { ok: true, status: 200, json: async () => [] };
+    });
+    render(
+      <ConnectedPortalWorkspaceShell locale="da" pathname="/da/dashboard/personal">
+        <div>shell-body</div>
+      </ConnectedPortalWorkspaceShell>
+    );
+    await waitFor(() => expect(screen.getByText("shell-body")).toBeDefined());
+    cleanup();
+
+    global.fetch = vi.fn().mockRejectedValue("string rejection");
+    render(
+      <AuthProvider user={{ id: "c-mkt-3", name: "", email: "", roles: ["CLIENT"] }}>
+        <ClientMarketplaceView />
+      </AuthProvider>
+    );
+    await waitFor(() => expect(screen.getByTestId("error-detail").textContent).toContain("Unexpected error"));
+    cleanup();
+
+    // Cover empty keys, !res.ok shell me, provider without id, and empty /clinic/me in onboarding
+    expect(deduplicateClinicServices([{ name: "" } as never])).toHaveLength(1);
+    expect(filterAndDeduplicateClinicClients([{} as never])).toHaveLength(1);
+
+    global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+      const u = String(input);
+      if (u.includes("/api/backend/clinic/me")) {
+        return { ok: false, status: 401, json: async () => ({}) };
+      }
+      return { ok: true, status: 200, json: async () => [] };
+    });
+    render(
+      <ConnectedPortalWorkspaceShell locale="da" pathname="/da/dashboard/settings">
+        <div>unauth-shell</div>
+      </ConnectedPortalWorkspaceShell>
+    );
+    await waitFor(() => expect(screen.getByText("unauth-shell")).toBeDefined());
+    cleanup();
+
+    global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+      const u = String(input);
+      if (u.includes("/api/backend/clinic/me")) {
+        return { ok: true, status: 200, json: async () => ({}) };
+      }
+      if (u.includes("/api/backend/clinic/directory")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            providers: [{ userUuid: "p-no-id", displayName: "UdenIdTerapeut" }],
+            services: [],
+          }),
+        };
+      }
+      return { ok: true, status: 200, json: async () => [] };
+    });
+    render(
+      <>
+        <ClientMarketplaceView />
+        <TherapistClinicOnboardingView />
+      </>
+    );
+    await waitFor(() => expect(screen.getByText("UdenIdTerapeut")).toBeDefined());
+    cleanup();
   });
 });

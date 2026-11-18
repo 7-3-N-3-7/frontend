@@ -1278,7 +1278,7 @@ When(
     await expect(applyBtn).toBeEnabled();
     await applyBtn.click();
 
-    await page.getByTestId("duration-chip-60").click();
+    await expect(page.getByTestId("input-endTime")).not.toHaveValue("");
   }
 );
 
@@ -1297,8 +1297,10 @@ Then(
         page.getByTestId("select-therapist"),
         page.getByTestId("select-service"),
         page.getByTestId("input-clientName"),
-        page.getByTestId("input-startTime"),
-        page.getByTestId("input-endTime"),
+        page.getByTestId("display-startTime"),
+        page.getByTestId("display-endTime"),
+        page.getByTestId("booking-calendar"),
+        page.getByTestId("booking-timefold-slots"),
         page.getByTestId("timefold-panel"),
       ],
     });
@@ -1318,7 +1320,18 @@ When(
       therapist?.fullName ?? "",
       therapistName,
     ]);
+    await expect(page.getByTestId("select-service")).toBeEnabled();
     await selectMatchingOrFirstOption(page.getByTestId("select-service"), []);
+
+    if (!(await page.getByTestId("input-startTime").inputValue())) {
+      const firstAvailableSlot = page
+        .getByTestId("booking-timefold-slots")
+        .locator('button[data-testid^="booking-slot-"]:not(:disabled)')
+        .first();
+      if ((await firstAvailableSlot.count()) > 0) {
+        await firstAvailableSlot.click();
+      }
+    }
 
     const clientNameInput = page.getByTestId("input-clientName");
     if ((await clientNameInput.count()) > 0 && !(await clientNameInput.inputValue())) {
@@ -1327,7 +1340,8 @@ When(
 
     await page.getByTestId("input-title").fill(title);
     await page.getByTestId("submit-booking").click();
-    await expect(page.getByTestId("input-title")).toHaveValue("");
+    await expect(page.getByTestId("input-startTime")).toHaveValue("");
+    await expect(page.getByTestId("input-title")).not.toHaveValue(title);
   }
 );
 

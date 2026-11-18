@@ -166,6 +166,21 @@ describe("baseDomainCore & baseUiCore (2-File Core Architecture)", () => {
       expect(() =>
         DomainGuard.requirePositive(undefined, "Total", "total")
       ).toThrow("Total must be greater than zero");
+
+      try {
+        DomainGuard.requireNotBlank("", "OmittedKeyField");
+      } catch (err) {
+        expect((err as FrontendDomainException).problem.fieldErrors).toEqual({
+          OmittedKeyField: "OmittedKeyField must not be blank",
+        });
+      }
+      try {
+        DomainGuard.requirePositive(0, "OmittedKeyAmount");
+      } catch (err) {
+        expect((err as FrontendDomainException).problem.fieldErrors).toEqual({
+          OmittedKeyAmount: "OmittedKeyAmount must be greater than zero",
+        });
+      }
     });
   });
 
@@ -291,7 +306,22 @@ describe("baseDomainCore & baseUiCore (2-File Core Architecture)", () => {
         },
       });
 
-      // 2. Non-JSON 500 error response
+      // 2. JSON error response with empty title and empty statusText -> Request Error fallback
+      fetchMock.mockResolvedValueOnce({
+        ok: false,
+        status: 502,
+        statusText: "",
+        json: async () => ({ title: "" }),
+      });
+
+      await expect(service.getAll()).rejects.toMatchObject({
+        problem: {
+          status: 502,
+          title: "Request Error",
+        },
+      });
+
+      // 3. Non-JSON 500 error response
       fetchMock.mockResolvedValueOnce({
         ok: false,
         status: 500,
@@ -553,6 +583,10 @@ describe("baseDomainCore & baseUiCore (2-File Core Architecture)", () => {
       fireEvent.click(screen.getByTestId("mobile-upgrade-therapist-cta"));
       expect(screen.queryByTestId("mobile-sidebar-drawer")).toBeNull();
       fireEvent.click(screen.getByTestId("mobile-menu-toggle"));
+      expect(screen.getByTestId("mobile-sidebar-drawer")).toBeDefined();
+      fireEvent.click(screen.getByTestId("mobile-sidebar-drawer").firstElementChild as HTMLElement);
+      expect(screen.queryByTestId("mobile-sidebar-drawer")).toBeNull();
+      fireEvent.click(screen.getByTestId("mobile-menu-toggle"));
       fireEvent.click(screen.getByTestId("mobile-menu-close"));
       expect(screen.queryByTestId("mobile-sidebar-drawer")).toBeNull();
 
@@ -569,13 +603,17 @@ describe("baseDomainCore & baseUiCore (2-File Core Architecture)", () => {
       fireEvent.click(screen.getByTestId("dismiss-error"));
       expect(onDismissShellError).toHaveBeenCalledTimes(1);
 
-      // Minimal shell without optional callbacks
+      // Minimal shell without userName or onNavigate
       render(
-        <PortalWorkspaceShell userName=" ">
+        <PortalWorkspaceShell
+          navItems={[{ href: "/noop", label: "NoOp", icon: "bi-dot", active: false }]}
+        >
           <span>DefaultShellChild</span>
         </PortalWorkspaceShell>
       );
       expect(screen.getAllByTestId("portal-workspace-shell")).toHaveLength(2);
+      const navBtns = screen.getAllByTestId("sidebar-nav-0");
+      fireEvent.click(navBtns[navBtns.length - 1]);
     });
   });
 
