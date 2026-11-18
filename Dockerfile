@@ -1,6 +1,6 @@
 FROM node:22-alpine
 
-WORKDIR /app
+WORKDIR /workspace/frontend
 
 # Install Chromium and Noto fonts for headless Playwright BDD & visual baseline execution
 RUN apk add --no-cache chromium font-noto font-noto-emoji
@@ -14,7 +14,9 @@ COPY apps/dashboard/package.json ./apps/dashboard/package.json
 RUN npm ci
 
 COPY . .
-COPY --from=specs . /specs
+COPY --from=specs . /workspace/specs
+COPY --from=controlplane sdlc /workspace/sdlc
+COPY --from=controlplane sdlc.config.json /workspace/sdlc.config.json
 
 # Next.js telemetry is disabled
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -37,7 +39,7 @@ RUN BDD_SELF_CONTAINED=true npm run test:bdd && \
 EXPOSE 3000
 
 COPY entrypoint-secrets.sh /entrypoint-secrets.sh
-RUN chmod +x /entrypoint-secrets.sh
+RUN sed -i 's/\r$//' /entrypoint-secrets.sh && chmod +x /entrypoint-secrets.sh
 
 # Start the application
 ENTRYPOINT ["/entrypoint-secrets.sh"]
