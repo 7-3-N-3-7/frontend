@@ -28,6 +28,40 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Resolve matching control-plane branch (7-3-N-3-7/api)
+        id: cp-ref
+        env:
+          CROSS_REPO_TOKEN: ${{ secrets.SDLC_PROJECT_TOKEN || github.token }}
+          EFFECTIVE_BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          REMOTE="https://x-access-token:${CROSS_REPO_TOKEN}@github.com/7-3-N-3-7/api.git"
+          RESOLVED="main"
+          for CANDIDATE in "$EFFECTIVE_BRANCH" "dev" "main"; do
+            if [ -n "$CANDIDATE" ] && git ls-remote --exit-code --heads "$REMOTE" "$CANDIDATE" >/dev/null 2>&1; then
+              RESOLVED="$CANDIDATE"
+              break
+            fi
+          done
+          echo "ref=$RESOLVED" >> "$GITHUB_OUTPUT"
+          echo "Resolved control-plane ref: $RESOLVED (requested: $EFFECTIVE_BRANCH)"
+
+      - name: Checkout control-plane repository (7-3-N-3-7/api)
+        uses: actions/checkout@v4
+        with:
+          repository: 7-3-N-3-7/api
+          ref: ${{ steps.cp-ref.outputs.ref }}
+          path: .control-plane
+          token: ${{ secrets.SDLC_PROJECT_TOKEN || github.token }}
+
+      - name: Ensure SDLC control-plane assets exist
+        env:
+          CROSS_REPO_TOKEN: ${{ secrets.SDLC_PROJECT_TOKEN || github.token }}
+        run: |
+          if [ ! -f .control-plane/sdlc.config.json ]; then
+            git -C .control-plane fetch --depth=1 "https://x-access-token:${CROSS_REPO_TOKEN}@github.com/7-3-N-3-7/api.git" dev
+            git -C .control-plane checkout FETCH_HEAD
+          fi
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -62,6 +96,9 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          build-contexts: |
+            specs=.control-plane/specs
+            controlplane=.control-plane
           build-args: |
             VITE_DOMAIN=157.180.43.151.nip.io
             VITE_IAM_URL=https://login.157.180.43.151.nip.io

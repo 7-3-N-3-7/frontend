@@ -4,3 +4,4 @@ node_modules
 .github
 .env.local
 reports
+.control-plane
