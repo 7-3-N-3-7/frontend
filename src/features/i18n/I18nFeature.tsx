@@ -193,7 +193,7 @@ const I18N_VIEW_COPY: Record<SupportedUiLocale, I18nViewCopy> = {
     badge: "Lokalisering",
     heading: "Sprogordbog & Oversættelser (i18n)",
     localePlaceholder: "Sprogkode (f.eks. da, en)",
-    keyPlaceholder: "Oversættelsesnøgle (f.eks. Common.save)",
+    keyPlaceholder: "Nøgle (f.eks. Common.save)",
     valuePlaceholder: "Oversættelsestekst",
     saveBtn: "Gem oversættelse",
     loadingText: "Indlæser...",
@@ -214,7 +214,7 @@ const I18N_VIEW_COPY: Record<SupportedUiLocale, I18nViewCopy> = {
     badge: "Localization",
     heading: "I18n Dictionary Management",
     localePlaceholder: "Locale (e.g. da, en)",
-    keyPlaceholder: "Translation Key (e.g. Common.save)",
+    keyPlaceholder: "Key (e.g. Common.save)",
     valuePlaceholder: "Translation Value",
     saveBtn: "Save Translation",
     loadingText: "Loading...",
@@ -235,7 +235,7 @@ const I18N_VIEW_COPY: Record<SupportedUiLocale, I18nViewCopy> = {
     badge: "Localisation",
     heading: "Gestion du Dictionnaire i18n",
     localePlaceholder: "Code langue (ex. fr, en)",
-    keyPlaceholder: "Clé de traduction (ex. Common.save)",
+    keyPlaceholder: "Clé (ex. Common.save)",
     valuePlaceholder: "Valeur traduite",
     saveBtn: "Enregistrer",
     loadingText: "Chargement...",
@@ -256,7 +256,7 @@ const I18N_VIEW_COPY: Record<SupportedUiLocale, I18nViewCopy> = {
     badge: "Localización",
     heading: "Gestión del Diccionario i18n",
     localePlaceholder: "Idioma (ej. es, en)",
-    keyPlaceholder: "Clave de traducción (ej. Common.save)",
+    keyPlaceholder: "Clave (ej. Common.save)",
     valuePlaceholder: "Texto traducido",
     saveBtn: "Guardar traducción",
     loadingText: "Cargando...",
@@ -277,7 +277,7 @@ const I18N_VIEW_COPY: Record<SupportedUiLocale, I18nViewCopy> = {
     badge: "Lokalisierung",
     heading: "i18n-Wörterbuchverwaltung",
     localePlaceholder: "Sprachcode (z. B. de, en)",
-    keyPlaceholder: "Übersetzungsschlüssel (z. B. Common.save)",
+    keyPlaceholder: "Schlüssel (z. B. Common.save)",
     valuePlaceholder: "Übersetzungstext",
     saveBtn: "Übersetzung speichern",
     loadingText: "Wird geladen...",
@@ -432,24 +432,31 @@ export const I18nFeatureView: React.FC = () => {
           >
             {copy.allLocalesBtn}
           </button>
-          {SUPPORTED_LOCALES.map((loc) => (
-            <button
-              key={loc}
-              type="button"
-              onClick={() => {
-                setLocaleFilter(loc);
-                setPage(1);
-              }}
-              data-testid={`filter-i18n-locale-${loc}`}
-              className={`min-h-11 rounded-lg px-3 py-2 text-xs font-semibold uppercase transition-colors ${
-                localeFilter === loc
-                  ? "bg-teal-700 text-white"
-                  : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-100"
-              }`}
-            >
-              {loc}
-            </button>
-          ))}
+          {SUPPORTED_LOCALES.map((loc) => {
+            const localeCount = items.filter(
+              (item) => item.locale.toLowerCase() === loc
+            ).length;
+            const chipClass =
+              localeFilter === loc
+                ? "bg-teal-700 text-white"
+                : localeCount === 0
+                  ? "border border-dashed border-slate-200 bg-white/70 text-slate-400 hover:bg-slate-100"
+                  : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-100";
+            return (
+              <button
+                key={loc}
+                type="button"
+                onClick={() => {
+                  setLocaleFilter(loc);
+                  setPage(1);
+                }}
+                data-testid={`filter-i18n-locale-${loc}`}
+                className={`min-h-11 min-w-11 rounded-lg px-3 py-2 text-xs font-semibold uppercase transition-colors ${chipClass}`}
+              >
+                {loc}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -775,6 +782,7 @@ export const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({
   const activeLocale = currentLocale || cache?.locale || "da";
   const uiLocale = resolveUiLocale(activeLocale);
   const copy = I18N_VIEW_COPY[uiLocale];
+  const activeOption = LANGUAGE_OPTIONS.find((option) => option.code === uiLocale)!;
 
   const handleLocaleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const next = e.target.value;
@@ -785,14 +793,21 @@ export const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({
 
   return (
     <div
-      className={`inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 shadow-xs transition-colors hover:border-slate-300 ${className}`.trim()}
+      className={`relative inline-flex h-11 items-center rounded-lg border border-slate-200 bg-white px-3 shadow-xs transition-colors hover:border-slate-300 focus-within:border-teal-600 focus-within:ring-2 focus-within:ring-teal-600/20 ${className}`.trim()}
     >
-      <i className="bi bi-globe2 text-xs text-slate-500" aria-hidden="true" />
+      <span
+        aria-hidden="true"
+        className="pointer-events-none inline-flex items-center gap-1.5 text-xs font-medium leading-none text-slate-700"
+      >
+        <i className="bi bi-globe2 shrink-0 text-xs text-slate-500" />
+        <span className="whitespace-nowrap">{activeOption.label}</span>
+        <i className="bi bi-chevron-down shrink-0 text-[10px] text-slate-400" />
+      </span>
       <select
         aria-label={copy.switcherAriaLabel}
-        value={activeLocale}
+        value={uiLocale}
         onChange={handleLocaleChange}
-        className="min-h-11 cursor-pointer border-0 bg-transparent pr-1 text-xs font-medium text-slate-700 focus:outline-none"
+        className="absolute inset-0 h-full w-full cursor-pointer appearance-none opacity-0 focus:outline-none"
         data-testid="language-switcher-select"
       >
         {LANGUAGE_OPTIONS.map((option) => (

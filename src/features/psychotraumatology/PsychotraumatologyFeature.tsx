@@ -25,7 +25,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { BaseApiService, DomainGuard, HasId } from '../../core/baseDomainCore';
+import { BaseApiService, DomainGuard, ErrorCode, HasId } from '../../core/baseDomainCore';
 import {
   ConfirmActionDialog,
   ProblemAlert,
@@ -304,32 +304,47 @@ export function calculatePcl5Severity(score: number): string {
 const SEVERITY_LABELS: Record<SupportedUiLocale, Record<string, string>> = {
   da: {
     Minimal: 'Minimal belastning',
+    'Minimal Symptoms': 'Minimal belastning',
     'Mild / Sub-threshold': 'Lettere / under klinisk grænse',
+    'Moderate Symptoms': 'Moderate symptomer',
     'Moderate (Probable PTSD)': 'Moderat (klinisk grænse nået)',
+    'High Symptoms (Above Clinical Threshold)': 'Høj belastning (over klinisk grænse)',
     Severe: 'Alvorlig belastning',
   },
   en: {
     Minimal: 'Minimal',
+    'Minimal Symptoms': 'Minimal symptoms',
     'Mild / Sub-threshold': 'Mild / Sub-threshold',
+    'Moderate Symptoms': 'Moderate symptoms',
     'Moderate (Probable PTSD)': 'Moderate (Clinical threshold)',
+    'High Symptoms (Above Clinical Threshold)': 'High symptoms (Above clinical threshold)',
     Severe: 'Severe',
   },
   fr: {
     Minimal: 'Charge minimale',
+    'Minimal Symptoms': 'Symptômes minimes',
     'Mild / Sub-threshold': 'Légère / infra-seuil',
+    'Moderate Symptoms': 'Symptômes modérés',
     'Moderate (Probable PTSD)': 'Modérée (seuil clinique)',
+    'High Symptoms (Above Clinical Threshold)': 'Symptômes élevés (au-dessus du seuil)',
     Severe: 'Sévère',
   },
   es: {
     Minimal: 'Mínima',
+    'Minimal Symptoms': 'Síntomas mínimos',
     'Mild / Sub-threshold': 'Leve / subumbral',
+    'Moderate Symptoms': 'Síntomas moderados',
     'Moderate (Probable PTSD)': 'Moderada (umbral clínico)',
+    'High Symptoms (Above Clinical Threshold)': 'Síntomas elevados (sobre umbral clínico)',
     Severe: 'Severa',
   },
   de: {
     Minimal: 'Minimal',
+    'Minimal Symptoms': 'Minimale Symptome',
     'Mild / Sub-threshold': 'Leicht / unterschwellig',
+    'Moderate Symptoms': 'Mäßige Symptome',
     'Moderate (Probable PTSD)': 'Moderat (klinische Schwelle)',
+    'High Symptoms (Above Clinical Threshold)': 'Hohe Symptombelastung (über Schwelle)',
     Severe: 'Schwer',
   },
 };
@@ -369,6 +384,8 @@ interface PsychotraumaCopy {
   deleteConfirmTitle: string;
   deleteConfirmDesc: string;
   cancelBtn: string;
+  incompleteTitle: string;
+  incompleteDetail: string;
 }
 
 const PSYCHOTRAUMA_COPY: Record<SupportedUiLocale, PsychotraumaCopy> = {
@@ -402,6 +419,9 @@ const PSYCHOTRAUMA_COPY: Record<SupportedUiLocale, PsychotraumaCopy> = {
     deleteConfirmDesc:
       'Denne handling fjerner permanent den valgte screening fra oversigten.',
     cancelBtn: 'Annuller',
+    incompleteTitle: 'Ufuldstændig besvarelse',
+    incompleteDetail:
+      'Besvar alle 20 spørgsmål før indsendelse ({answered}/20 besvaret), eller skift til manuel score.',
   },
   en: {
     badge: 'Psychotraumatology',
@@ -433,6 +453,9 @@ const PSYCHOTRAUMA_COPY: Record<SupportedUiLocale, PsychotraumaCopy> = {
     deleteConfirmDesc:
       'This action permanently removes the selected screening record.',
     cancelBtn: 'Cancel',
+    incompleteTitle: 'Incomplete questionnaire',
+    incompleteDetail:
+      'Please answer all 20 questions before submitting ({answered}/20 answered), or switch to manual score entry.',
   },
   fr: {
     badge: 'Psychotraumatologie',
@@ -464,6 +487,9 @@ const PSYCHOTRAUMA_COPY: Record<SupportedUiLocale, PsychotraumaCopy> = {
     deleteConfirmDesc:
       'Cette action supprime définitivement le dépistage sélectionné.',
     cancelBtn: 'Annuler',
+    incompleteTitle: 'Questionnaire incomplet',
+    incompleteDetail:
+      'Veuillez répondre aux 20 questions avant l’envoi ({answered}/20 répondues), ou saisir le score manuellement.',
   },
   es: {
     badge: 'Psicotraumatología',
@@ -495,6 +521,9 @@ const PSYCHOTRAUMA_COPY: Record<SupportedUiLocale, PsychotraumaCopy> = {
     deleteConfirmDesc:
       'Esta acción elimina permanentemente el registro seleccionado.',
     cancelBtn: 'Cancelar',
+    incompleteTitle: 'Cuestionario incompleto',
+    incompleteDetail:
+      'Responde las 20 preguntas antes de enviar ({answered}/20 respondidas), o cambia a entrada manual.',
   },
   de: {
     badge: 'Psychotraumatologie',
@@ -526,6 +555,9 @@ const PSYCHOTRAUMA_COPY: Record<SupportedUiLocale, PsychotraumaCopy> = {
     deleteConfirmDesc:
       'Dieser Vorgang entfernt das ausgewählte Screening dauerhaft.',
     cancelBtn: 'Abbrechen',
+    incompleteTitle: 'Unvollständiger Fragebogen',
+    incompleteDetail:
+      'Bitte beantworten Sie alle 20 Fragen ({answered}/20 beantwortet) oder wechseln Sie zur manuellen Eingabe.',
   },
 };
 
@@ -574,7 +606,7 @@ export const PsychotraumatologyFeatureView: React.FC<
     portalMode === 'client' ||
     (portalMode !== 'provider' &&
       Boolean(auth && !auth.hasRole('PROVIDER', 'MANAGEMENT')));
-  const { items: tests, loading, error, createItem, deleteItem, clearError } =
+  const { items: tests, loading, error, createItem, deleteItem, clearError, setError } =
     useBaseCrud(psychotraumatologyService);
 
   const [clientOptions, setClientOptions] = useState<ClientPickerOption[]>([]);
@@ -628,13 +660,24 @@ export const PsychotraumatologyFeatureView: React.FC<
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!manualMode && answeredCount < 20) {
+      const detail = copy.incompleteDetail.replace('{answered}', String(answeredCount));
+      setError({
+        type: 'about:blank',
+        title: copy.incompleteTitle,
+        status: 400,
+        detail,
+        errorCode: ErrorCode.VALIDATION_FAILED,
+        timestamp: new Date().toISOString(),
+        fields: { answers: detail },
+      });
+      return;
+    }
     const numericScore = effectiveScore;
-    const severity = calculatePcl5Severity(
-      Number.isFinite(numericScore) ? numericScore : 0
-    );
+    const severity = calculatePcl5Severity(numericScore);
     const answersPayload = manualMode
       ? [numericScore]
-      : Array.from({ length: 20 }, (_, i) => answers[i] ?? 0);
+      : Array.from({ length: 20 }, (_, i) => answers[i]);
     const created = await createItem({
       clientUuid: effectiveClientUuid,
       testType,

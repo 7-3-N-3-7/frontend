@@ -603,10 +603,13 @@ describe("baseDomainCore & baseUiCore (2-File Core Architecture)", () => {
       fireEvent.click(screen.getByTestId("dismiss-error"));
       expect(onDismissShellError).toHaveBeenCalledTimes(1);
 
-      // Minimal shell without userName or onNavigate
+      // Minimal shell without userName or onNavigate + custom sidebar labels
       render(
         <PortalWorkspaceShell
           navItems={[{ href: "/noop", label: "NoOp", icon: "bi-dot", active: false }]}
+          expandSidebarLabel="Expand"
+          collapseSidebarLabel="Collapse"
+          roleLabel="Behandler"
         >
           <span>DefaultShellChild</span>
         </PortalWorkspaceShell>
@@ -614,6 +617,39 @@ describe("baseDomainCore & baseUiCore (2-File Core Architecture)", () => {
       expect(screen.getAllByTestId("portal-workspace-shell")).toHaveLength(2);
       const navBtns = screen.getAllByTestId("sidebar-nav-0");
       fireEvent.click(navBtns[navBtns.length - 1]);
+
+      // Localized ProblemAlert: English dismiss, fallback locale, mapped clinical title and fields
+      render(
+        <>
+          <ProblemAlert
+            locale="en"
+            error={{
+              type: "about:blank",
+              title: "Client Domain Validation Error",
+              status: 400,
+              detail: "Invalid CVR",
+              errorCode: ErrorCode.VALIDATION_FAILED,
+              timestamp: new Date().toISOString(),
+              fields: { cvrNumber: "Must be 8 digits", otherField: "Bad value" },
+            }}
+            onDismiss={vi.fn()}
+          />
+          <ProblemAlert
+            locale="zz"
+            error={{
+              type: "about:blank",
+              title: "Custom Error",
+              status: 500,
+              detail: "Server issue",
+              errorCode: ErrorCode.INTERNAL_ERROR,
+              timestamp: new Date().toISOString(),
+            }}
+            onDismiss={vi.fn()}
+          />
+        </>
+      );
+      expect(screen.getAllByTestId("error-title")[1].textContent).toContain("Valideringsfejl");
+      expect(screen.getByTestId("field-error-cvrNumber").textContent).toContain("CVR-nummer");
     });
   });
 

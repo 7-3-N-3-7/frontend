@@ -319,6 +319,14 @@ export function resolveRecommendedSlotRange(
   return { startTime, endTime };
 }
 
+function formatHumanMonth(rawMonth: string, locale: SupportedUiLocale): string {
+  const lower = rawMonth.toLowerCase();
+  if (locale === "en" || locale === "de") {
+    return lower.charAt(0).toUpperCase() + lower.slice(1);
+  }
+  return lower;
+}
+
 /**
  * Udtrækker lokaliserede kalenderbadge-dele og tidsinterval fra `startTime` og `endTime`.
  */
@@ -358,7 +366,7 @@ export function formatAppointmentDateParts(
     dayNumber: dStr,
     weekdayShort,
     timeRange: endClock ? `${startClock} – ${endClock}` : startClock,
-    fullDate: `${Number(dStr)}${cal.dayDot} ${cal.months[monthIdx].toLowerCase()} ${yStr}`,
+    fullDate: `${Number(dStr)}${cal.dayDot} ${formatHumanMonth(cal.months[monthIdx], locale)} ${yStr}`,
   };
 }
 
@@ -601,7 +609,7 @@ export function formatIsoDateHuman(
   const [, yStr, mStr, dStr] = match;
   const cal = CALENDAR_LABELS_BY_LOCALE[locale];
   const monthIdx = Math.max(0, Math.min(11, Number(mStr) - 1));
-  return `${Number(dStr)}${cal.dayDot} ${cal.months[monthIdx].toLowerCase()} ${yStr}`;
+  return `${Number(dStr)}${cal.dayDot} ${formatHumanMonth(cal.months[monthIdx], locale)} ${yStr}`;
 }
 
 export function normalizeDirectoryProvider(
@@ -740,6 +748,9 @@ interface AppointmentCopy {
   nextMonthAria: string;
   anyTimeOption: string;
   selectedTimeSummaryLabel: string;
+  bookingSuccessNotice: string;
+  disabledBookingHint: string;
+  selectTimeHint: string;
 }
 
 const APPOINTMENT_COPY: Record<SupportedUiLocale, AppointmentCopy> = {
@@ -824,7 +835,7 @@ const APPOINTMENT_COPY: Record<SupportedUiLocale, AppointmentCopy> = {
     gitHistoryTitle: "Ændringshistorik",
     loadingHistory: "Henter revisionshistorik...",
     emptyHistory: "Ingen ændringer registreret endnu for denne aftale.",
-    searchPlaceholder: "Søg efter klient, titel eller behandler...",
+    searchPlaceholder: "Søg i aftaler...",
     searchAriaLabel: "Søg i aftaler",
     technicalAuditSummary: "Teknisk revisionsdetalje",
     confirmCancelTitle: "Bekræft aflysning af aftale",
@@ -853,6 +864,9 @@ const APPOINTMENT_COPY: Record<SupportedUiLocale, AppointmentCopy> = {
     nextMonthAria: "Næste måned",
     anyTimeOption: "Første ledige (anbefalet)",
     selectedTimeSummaryLabel: "Valgt tidspunkt",
+    bookingSuccessNotice: "Din aftale er booket og bekræftet i kalenderen.",
+    disabledBookingHint: "Vælg en behandler med mindst én aktiv ydelse for at booke.",
+    selectTimeHint: "Vælg dato og et ledigt tidspunkt ovenfor før du booker.",
   },
   en: {
     activeBadgeSuffix: "active",
@@ -935,7 +949,7 @@ const APPOINTMENT_COPY: Record<SupportedUiLocale, AppointmentCopy> = {
     gitHistoryTitle: "Change History",
     loadingHistory: "Loading revision history...",
     emptyHistory: "No changes recorded yet for this appointment.",
-    searchPlaceholder: "Search by client, title, or therapist...",
+    searchPlaceholder: "Search appointments...",
     searchAriaLabel: "Search appointments",
     technicalAuditSummary: "Technical audit details",
     confirmCancelTitle: "Confirm appointment cancellation",
@@ -964,6 +978,9 @@ const APPOINTMENT_COPY: Record<SupportedUiLocale, AppointmentCopy> = {
     nextMonthAria: "Next month",
     anyTimeOption: "First available (recommended)",
     selectedTimeSummaryLabel: "Selected time",
+    bookingSuccessNotice: "Your appointment has been booked and confirmed.",
+    disabledBookingHint: "Select a therapist with at least one active service to book.",
+    selectTimeHint: "Choose a date and an open time slot above before booking.",
   },
   fr: {
     activeBadgeSuffix: "actifs",
@@ -1046,7 +1063,7 @@ const APPOINTMENT_COPY: Record<SupportedUiLocale, AppointmentCopy> = {
     gitHistoryTitle: "Historique des modifications",
     loadingHistory: "Chargement de l'historique...",
     emptyHistory: "Aucune modification enregistrée pour ce rendez-vous.",
-    searchPlaceholder: "Rechercher par client, titre ou praticien...",
+    searchPlaceholder: "Rechercher un rendez-vous...",
     searchAriaLabel: "Rechercher des rendez-vous",
     technicalAuditSummary: "Détails techniques d'audit",
     confirmCancelTitle: "Confirmer l'annulation du rendez-vous",
@@ -1075,6 +1092,9 @@ const APPOINTMENT_COPY: Record<SupportedUiLocale, AppointmentCopy> = {
     nextMonthAria: "Mois suivant",
     anyTimeOption: "Premier disponible (recommandé)",
     selectedTimeSummaryLabel: "Créneau choisi",
+    bookingSuccessNotice: "Votre rendez-vous a été réservé et confirmé.",
+    disabledBookingHint: "Choisissez un praticien ayant au moins une prestation active.",
+    selectTimeHint: "Sélectionnez une date et un créneau libre ci-dessus.",
   },
   es: {
     activeBadgeSuffix: "activas",
@@ -1157,7 +1177,7 @@ const APPOINTMENT_COPY: Record<SupportedUiLocale, AppointmentCopy> = {
     gitHistoryTitle: "Historial de cambios",
     loadingHistory: "Cargando historial de revisiones...",
     emptyHistory: "Aún no hay cambios registrados para esta cita.",
-    searchPlaceholder: "Buscar por cliente, título o terapeuta...",
+    searchPlaceholder: "Buscar citas...",
     searchAriaLabel: "Buscar citas",
     technicalAuditSummary: "Detalles técnicos de auditoría",
     confirmCancelTitle: "Confirmar cancelación de cita",
@@ -1186,6 +1206,9 @@ const APPOINTMENT_COPY: Record<SupportedUiLocale, AppointmentCopy> = {
     nextMonthAria: "Mes siguiente",
     anyTimeOption: "Primero disponible (recomendado)",
     selectedTimeSummaryLabel: "Horario elegido",
+    bookingSuccessNotice: "Tu cita ha sido reservada y confirmada.",
+    disabledBookingHint: "Selecciona un terapeuta con al menos un servicio activo.",
+    selectTimeHint: "Elige una fecha y un horario libre arriba antes de reservar.",
   },
   de: {
     activeBadgeSuffix: "aktiv",
@@ -1268,7 +1291,7 @@ const APPOINTMENT_COPY: Record<SupportedUiLocale, AppointmentCopy> = {
     gitHistoryTitle: "Änderungsverlauf",
     loadingHistory: "Lade Revisionsverlauf...",
     emptyHistory: "Noch keine Änderungen für diesen Termin erfasst.",
-    searchPlaceholder: "Nach Klient, Titel oder Therapeut suchen...",
+    searchPlaceholder: "Termine durchsuchen...",
     searchAriaLabel: "Termine suchen",
     technicalAuditSummary: "Technische Revisionsdetails",
     confirmCancelTitle: "Terminstornierung bestätigen",
@@ -1284,7 +1307,7 @@ const APPOINTMENT_COPY: Record<SupportedUiLocale, AppointmentCopy> = {
     noServicesNotice: "Dieser Therapeut hat noch keine aktiven Leistungen.",
     loadingServices: "Lade Leistungen...",
     calendarTitle: "Datum wählen",
-    slotsTitle: "Freie Zeiten (Timefold AI)",
+    slotsTitle: "Freie Zeiten (Timefold KI)",
     loadingSlots: "Berechne freie Zeiten...",
     noSlotsAvailable: "An diesem Tag sind keine Zeiten verfügbar.",
     bookedSlotTag: "Belegt",
@@ -1297,6 +1320,9 @@ const APPOINTMENT_COPY: Record<SupportedUiLocale, AppointmentCopy> = {
     nextMonthAria: "Nächster Monat",
     anyTimeOption: "Nächstmöglicher Termin",
     selectedTimeSummaryLabel: "Gewählte Zeit",
+    bookingSuccessNotice: "Ihr Termin wurde gebucht und bestätigt.",
+    disabledBookingHint: "Wählen Sie einen Therapeuten mit aktiver Leistung.",
+    selectTimeHint: "Bitte wählen Sie oben zuerst Datum und freie Zeit aus.",
   },
 };
 
@@ -1663,7 +1689,7 @@ const BookingCalendarGrid: React.FC<BookingCalendarGridProps> = ({
               disabled={disabled}
               onClick={() => onSelectDate(iso)}
               data-testid={`${testId}-day-${iso}`}
-              className={`min-h-9 w-full rounded-xl text-xs font-semibold transition-colors ${
+              className={`min-h-11 w-full rounded-xl text-xs font-semibold transition-colors ${
                 isSelected
                   ? "bg-teal-700 text-white shadow-xs"
                   : disabled
@@ -1840,9 +1866,10 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
   const [windowItems, setWindowItems] = useState<AppointmentDto[] | null>(null);
   const [filterLoading, setFilterLoading] = useState(false);
 
-  // Bekræftelsesdialog før aflysning
+  // Bekræftelsesdialog før aflysning + succesbesked ved ny booking
   const [pendingCancelAppointment, setPendingCancelAppointment] =
     useState<AppointmentDto | null>(null);
+  const [bookingSuccessMsg, setBookingSuccessMsg] = useState<string | null>(null);
 
   // Timefold AI-panel
   const [showTimefold, setShowTimefold] = useState(false);
@@ -2156,7 +2183,15 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
     includeOutsideHours,
   ]);
 
-  const activeSourceItems = windowItems ?? items;
+  const rawSourceItems = windowItems ?? items;
+  const activeSourceItems = useMemo(() => {
+    if (!hasLiveUuid || !auth?.user.id) return rawSourceItems;
+    return rawSourceItems.filter((a) =>
+      isClientMode
+        ? !a.clientUuid || a.clientUuid === auth.user.id
+        : !a.therapistUuid || a.therapistUuid === auth.user.id
+    );
+  }, [rawSourceItems, hasLiveUuid, auth?.user.id, isClientMode]);
   const activeCount = useMemo(
     () =>
       activeSourceItems.filter((a) => (a.status ?? "SCHEDULED") !== "CANCELLED")
@@ -2233,6 +2268,7 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setBookingSuccessMsg(null);
     const resolvedEnd =
       endTime || addMinutesToIsoLocal(startTime, activeDurationMinutes);
     const created = await create({
@@ -2260,6 +2296,7 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
       setEndTime("");
       setTitle(selectedService?.name || "");
       setSlotsRefreshTick((n) => n + 1);
+      setBookingSuccessMsg(copy.bookingSuccessNotice);
     }
   };
 
@@ -2299,10 +2336,7 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
   };
 
   const handleFetchTimefoldSlots = async () => {
-    const targetTherapist =
-      timefoldTherapistUuid ||
-      effectiveTherapistUuid ||
-      (hasLiveUuid ? auth!.user.id : "");
+    const targetTherapist = timefoldTherapistUuid || effectiveTherapistUuid;
     setTimefoldLoading(true);
     clearError();
     try {
@@ -2535,7 +2569,7 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
               type="button"
               onClick={handleToggleTimefold}
               data-testid="toggle-timefold-panel"
-              className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors ${
+              className={`min-h-11 inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors ${
                 showTimefold
                   ? "border-teal-600 bg-teal-50 text-teal-900"
                   : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
@@ -2550,7 +2584,7 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
                 type="button"
                 onClick={() => setShowSchedulePanel((prev) => !prev)}
                 data-testid="toggle-weekly-schedule"
-                className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors ${
+                className={`min-h-11 inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors ${
                   showSchedulePanel
                     ? "border-sky-600 bg-sky-50 text-sky-900"
                     : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
@@ -2564,6 +2598,24 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
         </div>
 
         <ProblemAlert error={error} onDismiss={clearError} />
+
+        {bookingSuccessMsg && (
+          <div
+            role="status"
+            data-testid="booking-success-banner"
+            className="flex items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-xs font-semibold text-emerald-900"
+          >
+            <span>{bookingSuccessMsg}</span>
+            <button
+              type="button"
+              onClick={() => setBookingSuccessMsg(null)}
+              aria-label={copy.clearDateBtn}
+              className="rounded-lg px-2 py-1 text-emerald-700 hover:bg-emerald-100"
+            >
+              ×
+            </button>
+          </div>
+        )}
 
         {/* Timefold AI Sammenfoldeligt Slot-panel */}
         {showTimefold && (
@@ -2981,7 +3033,7 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
                 disabled={isProviderPortal}
                 onChange={(e) => setSelectedTherapistUuid(e.target.value)}
                 data-testid="select-therapist"
-                className="w-full min-h-11 disabled:bg-slate-100 disabled:text-slate-700"
+                className="w-full h-11 min-h-11 truncate disabled:bg-slate-100 disabled:text-slate-700"
               >
                 {!isProviderPortal && (
                   <option value="">{copy.selectTherapistOption}</option>
@@ -3229,7 +3281,7 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
                   />
                 </div>
 
-                <div className="sm:col-span-3 flex justify-end">
+                <div className="sm:col-span-3 flex flex-col items-stretch justify-end gap-1">
                   <button
                     type="submit"
                     disabled={
@@ -3239,6 +3291,14 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
                         !servicesLoading &&
                         filteredServices.length === 0)
                     }
+                    title={
+                      hasLiveUuid &&
+                      Boolean(effectiveTherapistUuid) &&
+                      !servicesLoading &&
+                      filteredServices.length === 0
+                        ? copy.disabledBookingHint
+                        : undefined
+                    }
                     data-testid="submit-booking"
                     className="w-full min-h-11 inline-flex items-center justify-center gap-2 rounded-xl bg-teal-700 hover:bg-teal-800 disabled:bg-slate-300 disabled:cursor-not-allowed text-white px-5 text-sm font-semibold shadow-sm transition-colors whitespace-nowrap"
                   >
@@ -3247,6 +3307,26 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
                   </button>
                 </div>
               </div>
+              {hasLiveUuid &&
+              Boolean(effectiveTherapistUuid) &&
+              !servicesLoading &&
+              filteredServices.length === 0 ? (
+                <p
+                  data-testid="booking-disabled-hint"
+                  className="text-[11px] font-medium text-amber-700 m-0 text-right"
+                >
+                  {copy.disabledBookingHint}
+                </p>
+              ) : (
+                !startTime && (
+                  <p
+                    data-testid="booking-time-hint"
+                    className="text-[11px] text-slate-500 m-0 text-right"
+                  >
+                    {copy.selectTimeHint}
+                  </p>
+                )
+              )}
             </div>
           </div>
         </form>

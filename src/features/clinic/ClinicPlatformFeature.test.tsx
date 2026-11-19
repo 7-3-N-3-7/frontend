@@ -1566,5 +1566,128 @@ describe("ClinicPlatformFeature Vertical Slice", () => {
     );
     await waitFor(() => expect(screen.getByText("UdenIdTerapeut")).toBeDefined());
     cleanup();
+
+    // Cover pending handshake badge in shell, edujournal:me-refresh, therapist alert CTA, and marketplace search
+    global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+      const u = String(input);
+      if (u.includes("/api/backend/clinic/me")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            authenticated: true,
+            userUuid: "th-pend-1",
+            username: "drpend",
+            roles: ["THERAPIST", "CLIENT"],
+            isTherapist: true,
+          }),
+        };
+      }
+      if (u.includes("/api/backend/clinic/handshakes/therapist/th-pend-1")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            { id: "hs-req-1", clientUuid: "c-1", therapistUuid: "th-pend-1", status: "REQUESTED" },
+            { id: "hs-act-1", clientUuid: "c-2", therapistUuid: "th-pend-1", status: "ACTIVE" },
+          ],
+        };
+      }
+      if (u.includes("/api/backend/clinic/directory")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            providers: [
+              { id: "pr-1", userUuid: "th-a", displayName: "Sofie Lind", organisation: { name: "Ro Klink", cvrNumber: "11223344" } },
+              { id: "pr-2", userUuid: "th-b", displayName: "Lars Holm", organisation: { name: "Nord Klink", cvrNumber: "87654321" } },
+              { id: "pr-empty", userUuid: "th-e" },
+            ],
+            services: [
+              { id: "sv-1", name: "EMDR Session", provider: { id: "pr-1", userUuid: "th-a" } },
+              { id: "sv-noname", provider: { id: "pr-empty", userUuid: "th-e" } },
+            ],
+          }),
+        };
+      }
+      return { ok: true, status: 200, json: async () => [] };
+    });
+
+    const onTabChange = vi.fn();
+    render(
+      <AuthProvider user={{ id: "th-pend-1", name: "Dr. Pend", email: "pend@dk.dk", roles: ["THERAPIST", "PROVIDER"] }}>
+        <ConnectedPortalWorkspaceShell locale="da" pathname="/da/dashboard/therapist" activeTab="overview">
+          <TherapistMultiWindowWorkspace activeTab="overview" onTabChange={onTabChange} />
+        </ConnectedPortalWorkspaceShell>
+      </AuthProvider>
+    );
+    await waitFor(() => expect(screen.getByTestId("therapist-pending-handshakes-alert")).toBeDefined());
+    window.dispatchEvent(new CustomEvent("edujournal:me-refresh"));
+    fireEvent.click(screen.getByTestId("therapist-review-handshakes-btn"));
+    expect(onTabChange).toHaveBeenCalledWith("clinic_cvr");
+    cleanup();
+
+    render(
+      <AuthProvider user={{ id: "c-search", name: "Search Klient", email: "s@dk.dk", roles: ["CLIENT"] }}>
+        <ClientMarketplaceView />
+      </AuthProvider>
+    );
+    await waitFor(() => expect(screen.getByTestId("marketplace-search-input")).toBeDefined());
+    fireEvent.change(screen.getByTestId("marketplace-search-input"), { target: { value: "EMDR" } });
+    expect(screen.getByText(/Sofie Lind/)).toBeDefined();
+    expect(screen.queryByText(/Lars Holm/)).toBeNull();
+    fireEvent.change(screen.getByTestId("marketplace-search-input"), { target: { value: "Ro Klink" } });
+    expect(screen.getByText(/Sofie Lind/)).toBeDefined();
+    fireEvent.change(screen.getByTestId("marketplace-search-input"), { target: { value: "87654321" } });
+    expect(screen.getByText(/Lars Holm/)).toBeDefined();
+    fireEvent.change(screen.getByTestId("marketplace-search-input"), { target: { value: "nonexistent-xyz" } });
+    expect(screen.queryByTestId("marketplace-provider-list")).toBeNull();
+    cleanup();
+
+    // Cover non-therapist client shell (hasTherapistAccess = false) + rejected handshake catch in therapist workspace
+    global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+      const u = String(input);
+      if (u.includes("/api/backend/clinic/me")) {
+        return { ok: true, status: 200, json: async () => ({ authenticated: true, userUuid: "c-only", roles: ["CLIENT"], isTherapist: false }) };
+      }
+      if (u.includes("/api/backend/clinic/handshakes/therapist/")) {
+        throw new Error("offline");
+      }
+      return { ok: true, status: 200, json: async () => [] };
+    });
+    render(
+      <ConnectedPortalWorkspaceShell locale="da" pathname="/da/dashboard/personal">
+        <div>client-shell</div>
+      </ConnectedPortalWorkspaceShell>
+    );
+    await waitFor(() => expect(screen.getByText("client-shell")).toBeDefined());
+    cleanup();
+
+    render(
+      <AuthProvider user={{ id: "th-err-hs", name: "Dr. Err", email: "err@dk.dk", roles: ["PROVIDER"] }}>
+        <TherapistMultiWindowWorkspace activeTab="overview" />
+      </AuthProvider>
+    );
+    await waitFor(() => expect(screen.getByTestId("therapist-multi-window-workspace")).toBeDefined());
+    cleanup();
+
+    // Cover ConnectedPortalWorkspaceShell when role comes from roles=['PROVIDER'] & handshakes returns !res.ok
+    global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+      const u = String(input);
+      if (u.includes("/api/backend/clinic/me")) {
+        return { ok: true, status: 200, json: async () => ({ authenticated: true, userUuid: "p-hs-fail", roles: ["PROVIDER"], isTherapist: false }) };
+      }
+      if (u.includes("/api/backend/clinic/handshakes/therapist/")) {
+        return { ok: false, status: 500, json: async () => ({}) };
+      }
+      return { ok: true, status: 200, json: async () => [] };
+    });
+    render(
+      <ConnectedPortalWorkspaceShell locale="da" pathname="/da/dashboard/therapist">
+        <div>provider-hs-fail</div>
+      </ConnectedPortalWorkspaceShell>
+    );
+    await waitFor(() => expect(screen.getByText("provider-hs-fail")).toBeDefined());
+    cleanup();
   });
 });

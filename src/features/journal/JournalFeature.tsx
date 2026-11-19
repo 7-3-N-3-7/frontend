@@ -360,6 +360,15 @@ interface JournalCopy {
   timelineInspectorTitle: string;
   timelineInspectorClose: string;
   timelineSignedBadge: string;
+  clientSelectLabel: string;
+  clientSelectPlaceholder: string;
+  internalNoteLabel: string;
+  internalNotePlaceholder: string;
+  internalNoteSavedNotice: string;
+  branchLabel: string;
+  branchMain: string;
+  branchTrauma: string;
+  branchSleep: string;
 }
 
 const JOURNAL_COPY: Record<SupportedUiLocale, JournalCopy> = {
@@ -424,6 +433,15 @@ const JOURNAL_COPY: Record<SupportedUiLocale, JournalCopy> = {
     timelineInspectorTitle: "Detalje-inspektør — Klinisk SOAP & Audit",
     timelineInspectorClose: "Luk detaljevisning",
     timelineSignedBadge: "Signeret",
+    clientSelectLabel: "Tilknyttet klient",
+    clientSelectPlaceholder: "Vælg klient (valgfrit)...",
+    internalNoteLabel: "Fortrolig klinisk behandlernote (vises aldrig for klient)",
+    internalNotePlaceholder: "Valgfri intern SOAP/klinisk observation gemt i JGit...",
+    internalNoteSavedNotice: "Fortrolig behandlernote gemt i JGit og knyttet til klientens tidslinje.",
+    branchLabel: "JGit gren (emne)",
+    branchMain: "Generelt (main)",
+    branchTrauma: "Traumebehandling (trauma)",
+    branchSleep: "Søvn & restitution (sleep)",
   },
   en: {
     badge: "Clinical Journal",
@@ -486,6 +504,15 @@ const JOURNAL_COPY: Record<SupportedUiLocale, JournalCopy> = {
     timelineInspectorTitle: "Detail Inspector — Clinical SOAP & Audit",
     timelineInspectorClose: "Close detail inspector",
     timelineSignedBadge: "Signed",
+    clientSelectLabel: "Associated client",
+    clientSelectPlaceholder: "Select client (optional)...",
+    internalNoteLabel: "Confidential clinical therapist note (never shown to client)",
+    internalNotePlaceholder: "Optional internal SOAP observation stored in JGit...",
+    internalNoteSavedNotice: "Confidential clinical note saved to JGit and linked to patient timeline.",
+    branchLabel: "JGit branch (topic)",
+    branchMain: "General (main)",
+    branchTrauma: "Trauma therapy (trauma)",
+    branchSleep: "Sleep & recovery (sleep)",
   },
   fr: {
     badge: "Dossier Clinique",
@@ -548,6 +575,15 @@ const JOURNAL_COPY: Record<SupportedUiLocale, JournalCopy> = {
     timelineInspectorTitle: "Inspecteur — SOAP Clinique & Audit",
     timelineInspectorClose: "Fermer l'inspecteur",
     timelineSignedBadge: "Signé",
+    clientSelectLabel: "Client associé",
+    clientSelectPlaceholder: "Choisir un client (optionnel)...",
+    internalNoteLabel: "Note clinique confidentielle (jamais visible par le client)",
+    internalNotePlaceholder: "Observation clinique interne optionnelle...",
+    internalNoteSavedNotice: "Note clinique confidentielle enregistrée dans JGit.",
+    branchLabel: "Branche JGit (thème)",
+    branchMain: "Général (main)",
+    branchTrauma: "Trauma (trauma)",
+    branchSleep: "Sommeil (sleep)",
   },
   es: {
     badge: "Diario Clínico",
@@ -610,6 +646,15 @@ const JOURNAL_COPY: Record<SupportedUiLocale, JournalCopy> = {
     timelineInspectorTitle: "Inspector de Detalle — SOAP Clínico y Auditoría",
     timelineInspectorClose: "Cerrar inspector",
     timelineSignedBadge: "Firmado",
+    clientSelectLabel: "Cliente asociado",
+    clientSelectPlaceholder: "Seleccionar cliente (opcional)...",
+    internalNoteLabel: "Nota clínica confidencial (nunca visible para el cliente)",
+    internalNotePlaceholder: "Observación clínica interna opcional...",
+    internalNoteSavedNotice: "Nota clínica confidencial guardada en JGit.",
+    branchLabel: "Rama JGit (tema)",
+    branchMain: "General (main)",
+    branchTrauma: "Trauma (trauma)",
+    branchSleep: "Sueño (sleep)",
   },
   de: {
     badge: "Klinisches Journal",
@@ -672,6 +717,15 @@ const JOURNAL_COPY: Record<SupportedUiLocale, JournalCopy> = {
     timelineInspectorTitle: "Detailinspektor — Klinisches SOAP & Audit",
     timelineInspectorClose: "Detailansicht schließen",
     timelineSignedBadge: "Signiert",
+    clientSelectLabel: "Zugeordneter Klient",
+    clientSelectPlaceholder: "Klient auswählen (optional)...",
+    internalNoteLabel: "Vertrauliche klinische Notiz (für Klient unsichtbar)",
+    internalNotePlaceholder: "Optionale interne klinische Beobachtung...",
+    internalNoteSavedNotice: "Vertrauliche Notiz in JGit gespeichert.",
+    branchLabel: "JGit-Zweig (Thema)",
+    branchMain: "Allgemein (main)",
+    branchTrauma: "Traumatherapie (trauma)",
+    branchSleep: "Schlaf (sleep)",
   },
 };
 
@@ -700,6 +754,28 @@ const JournalFeatureAuthorizedContent: React.FC<{
   );
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [showTimeline, setShowTimeline] = useState(false);
+  const [providerClients, setProviderClients] = useState<TimelineClientOption[]>([]);
+  const [selectedClientUuid, setSelectedClientUuid] = useState("");
+  const [internalNote, setInternalNote] = useState("");
+  const [internalNoteNotice, setInternalNoteNotice] = useState<string | null>(null);
+  const [gitBranch, setGitBranch] = useState("main");
+
+  useEffect(() => {
+    if (isClientMode || !auth?.user.id) {
+      return;
+    }
+    let cancelled = false;
+    journalApi
+      .getClinicClients(auth.user.id, auth.user.email)
+      .then((clients) => {
+        if (!cancelled) {
+          setProviderClients(clients);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isClientMode, auth?.user.id, auth?.user.email]);
 
   useEffect(() => {
     if (!isClientMode || !auth?.user.id) {
@@ -747,9 +823,14 @@ const JournalFeatureAuthorizedContent: React.FC<{
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setInternalNoteNotice(null);
     const shouldShare = isClientMode
       ? sharedWithTherapist && selectedTherapistUuids.length > 0
       : sharedWithTherapist;
+    const targetClientUuid =
+      !isClientMode && selectedClientUuid
+        ? selectedClientUuid
+        : auth?.user.id || undefined;
     const created = await create({
       title,
       content,
@@ -757,9 +838,30 @@ const JournalFeatureAuthorizedContent: React.FC<{
       sharedWithTherapist: shouldShare,
       sharedWithTherapists: shouldShare,
       sharedTherapistUuids: shouldShare ? selectedTherapistUuids : undefined,
-      clientUuid: auth?.user.id || undefined,
+      clientUuid: targetClientUuid,
+      gitBranch: isClientMode ? gitBranch : undefined,
     });
     if (created) {
+      if (!isClientMode && internalNote.trim() && targetClientUuid) {
+        try {
+          const noteRes = await fetch("/api/backend/journals/therapist-notes", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              clientUuid: targetClientUuid,
+              therapistNote: internalNote.trim(),
+              therapistName: auth?.user.name || copy.badge,
+            }),
+          });
+          if (noteRes.ok) {
+            setInternalNote("");
+            setInternalNoteNotice(copy.internalNoteSavedNotice);
+          }
+        } catch {
+          // Non-fatal confidential note persistence failure
+        }
+      }
       setTitle("");
       setContent("");
       setMoodRating("7");
@@ -881,16 +983,51 @@ const JournalFeatureAuthorizedContent: React.FC<{
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <label className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-medium text-slate-700 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={sharedWithTherapist}
-              onChange={(e) => setSharedWithTherapist(e.target.checked)}
-              data-testid="input-journal-shared"
-              className="h-4 w-4 accent-teal-700"
-            />
-            {copy.shareWithTherapist}
-          </label>
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-medium text-slate-700 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={sharedWithTherapist}
+                onChange={(e) => setSharedWithTherapist(e.target.checked)}
+                data-testid="input-journal-shared"
+                className="h-4 w-4 accent-teal-700"
+              />
+              {copy.shareWithTherapist}
+            </label>
+            {isClientMode && (
+              <label className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700">
+                <span>{copy.branchLabel}:</span>
+                <select
+                  value={gitBranch}
+                  onChange={(e) => setGitBranch(e.target.value)}
+                  data-testid="input-journal-branch"
+                  className="bg-transparent text-xs font-semibold text-slate-900 focus:outline-none"
+                >
+                  <option value="main">{copy.branchMain}</option>
+                  <option value="trauma">{copy.branchTrauma}</option>
+                  <option value="sleep">{copy.branchSleep}</option>
+                </select>
+              </label>
+            )}
+            {!isClientMode && providerClients.length > 0 && (
+              <label className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700">
+                <span>{copy.clientSelectLabel}:</span>
+                <select
+                  value={selectedClientUuid}
+                  onChange={(e) => setSelectedClientUuid(e.target.value)}
+                  data-testid="journal-client-select"
+                  className="max-w-xs truncate bg-transparent text-xs font-semibold text-slate-900 focus:outline-none"
+                >
+                  <option value="">{copy.clientSelectPlaceholder}</option>
+                  {providerClients.map((clientOpt) => (
+                    <option key={clientOpt.id} value={clientOpt.id}>
+                      {clientOpt.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </div>
           <button
             type="submit"
             disabled={loading}
@@ -900,6 +1037,35 @@ const JournalFeatureAuthorizedContent: React.FC<{
             {copy.saveBtn}
           </button>
         </div>
+
+        {!isClientMode && (
+          <div className="flex flex-col gap-1">
+            <label
+              htmlFor="journal-internal-note-input"
+              className="text-xs font-semibold text-slate-600"
+            >
+              {copy.internalNoteLabel}
+            </label>
+            <textarea
+              id="journal-internal-note-input"
+              rows={2}
+              placeholder={copy.internalNotePlaceholder}
+              value={internalNote}
+              onChange={(e) => setInternalNote(e.target.value)}
+              data-testid="input-journal-internal-note"
+              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
+            />
+          </div>
+        )}
+
+        {internalNoteNotice && (
+          <div
+            data-testid="internal-note-saved-banner"
+            className="rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-xs font-medium text-emerald-900"
+          >
+            {internalNoteNotice}
+          </div>
+        )}
 
         {isClientMode && sharedWithTherapist && (
           <div

@@ -85,6 +85,25 @@ async function proxyRequest(
     }
   }
 
+  let deletedUsername: string | null = null;
+  if (req.method === 'DELETE' && /^users\/[^/]+$/.test(targetPath)) {
+    try {
+      const lookupRes = await fetch(targetUrl, {
+        method: 'GET',
+        headers,
+        cache: 'no-store',
+      });
+      if (lookupRes.ok) {
+        const userRecord = (await lookupRes.json()) as { username?: string };
+        if (userRecord?.username) {
+          deletedUsername = String(userRecord.username).trim();
+        }
+      }
+    } catch {
+      // Non-fatal lookup before delete
+    }
+  }
+
   try {
     let backendRes = await fetch(targetUrl, {
       method: req.method,
@@ -106,7 +125,41 @@ async function proxyRequest(
       });
     }
 
-    const responseText = await backendRes.text();
+    let responseText = await backendRes.text();
+
+    if (backendRes.ok && req.method === 'GET' && userUuid) {
+      responseText = await scopeGetResponse({
+        targetPath,
+        searchParams: req.nextUrl.searchParams,
+        responseText,
+        userUuid: String(userUuid),
+        roles,
+        headers,
+      });
+    }
+
+    if (backendRes.ok && req.method === 'POST' && targetPath === 'users' && body) {
+      try {
+        const userPayload = JSON.parse(body) as {
+          username?: string;
+          password?: string;
+          role?: string;
+        };
+        if (userPayload?.username && userPayload?.password) {
+          await syncKeycloakUserCreate(
+            String(userPayload.username),
+            String(userPayload.password),
+            String(userPayload.role || 'CLIENT')
+          );
+        }
+      } catch {
+        // Ignore malformed user sync payload
+      }
+    }
+
+    if (backendRes.ok && req.method === 'DELETE' && deletedUsername) {
+      await syncKeycloakUserDelete(deletedUsername);
+    }
 
     if (backendRes.ok && req.method === 'POST' && userUuid) {
       if (targetPath === 'clinic/therapist-onboarding') {
@@ -257,5 +310,338 @@ async function syncKeycloakRealmRole(
   } catch {
     // Non-blocking: backend SecurityConfig & FinanceFeature already honor upgraded platform roles
   }
+}
+
+async function getKeycloakAdminContext(): Promise<{
+  baseUrl: string;
+  realm: string;
+  authHeaders: Record<string, string>;
+} | null> {
+  const issuerUrl = process.env.KEYCLOAK_ISSUER || '';
+  const clientId = process.env.KEYCLOAK_ADMIN_CLIENT_ID || '';
+  const clientSecret = process.env.KEYCLOAK_ADMIN_CLIENT_SECRET || '';
+  if (!issuerUrl.includes('/realms/') || !clientId || !clientSecret) {
+    return null;
+  }
+
+  const [baseUrl, realm] = issuerUrl.split('/realms/');
+  const params = new URLSearchParams({
+    grant_type: 'client_credentials',
+    client_id: clientId,
+    client_secret: clientSecret,
+  });
+
+  const tokenRes = await fetch(`${issuerUrl}/protocol/openid-connect/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: params.toString(),
+    cache: 'no-store',
+  });
+  if (!tokenRes.ok) return null;
+  const tokenData = await tokenRes.json();
+  if (!tokenData?.access_token) return null;
+
+  return {
+    baseUrl,
+    realm,
+    authHeaders: {
+      Authorization: `Bearer ${tokenData.access_token}`,
+      'Content-Type': 'application/json',
+    },
+  };
+}
+
+function mapUserRoleToKeycloakRoles(role: string): string[] {
+  const upper = role.trim().toUpperCase();
+  if (upper === 'ADMIN' || upper === 'MANAGEMENT') {
+    return ['client', 'therapist', 'admin'];
+  }
+  if (upper === 'THERAPIST' || upper === 'PROVIDER') {
+    return ['client', 'therapist'];
+  }
+  return ['client'];
+}
+
+async function syncKeycloakUserCreate(
+  username: string,
+  password: string,
+  role: string
+): Promise<void> {
+  try {
+    const ctx = await getKeycloakAdminContext();
+    if (!ctx) return;
+
+    const usersUrl = `${ctx.baseUrl}/admin/realms/${ctx.realm}/users`;
+    const cleanUsername = username.trim();
+    const createRes = await fetch(usersUrl, {
+      method: 'POST',
+      headers: ctx.authHeaders,
+      body: JSON.stringify({
+        username: cleanUsername,
+        firstName: cleanUsername,
+        lastName: 'Bruger',
+        email: `${cleanUsername}@edujournal.local`,
+        enabled: true,
+        emailVerified: true,
+        requiredActions: [],
+        credentials: [
+          {
+            type: 'password',
+            value: password,
+            temporary: false,
+          },
+        ],
+      }),
+    });
+
+    let kcUserId = createRes.headers.get('location')?.split('/').pop() || '';
+    if (!kcUserId) {
+      const searchRes = await fetch(
+        `${usersUrl}?username=${encodeURIComponent(cleanUsername)}&exact=true`,
+        { headers: ctx.authHeaders, cache: 'no-store' }
+      );
+      if (searchRes.ok) {
+        const list = (await searchRes.json()) as Array<{ id?: string }>;
+        kcUserId = list?.[0]?.id || '';
+      }
+    }
+    if (!kcUserId) return;
+
+    const targetRoles = mapUserRoleToKeycloakRoles(role);
+    const representations: Array<{ id: string; name: string }> = [];
+    for (const rName of targetRoles) {
+      const rRes = await fetch(
+        `${ctx.baseUrl}/admin/realms/${ctx.realm}/roles/${encodeURIComponent(rName)}`,
+        { headers: ctx.authHeaders, cache: 'no-store' }
+      );
+      if (rRes.ok) {
+        const rep = (await rRes.json()) as { id?: string; name?: string };
+        if (rep?.id && rep?.name) {
+          representations.push({ id: rep.id, name: rep.name });
+        }
+      }
+    }
+    if (representations.length > 0) {
+      await fetch(`${usersUrl}/${encodeURIComponent(kcUserId)}/role-mappings/realm`, {
+        method: 'POST',
+        headers: ctx.authHeaders,
+        body: JSON.stringify(representations),
+      });
+    }
+  } catch {
+    // Non-blocking sync to Keycloak
+  }
+}
+
+async function syncKeycloakUserDelete(username: string): Promise<void> {
+  try {
+    const ctx = await getKeycloakAdminContext();
+    if (!ctx) return;
+
+    const usersUrl = `${ctx.baseUrl}/admin/realms/${ctx.realm}/users`;
+    const searchRes = await fetch(
+      `${usersUrl}?username=${encodeURIComponent(username.trim())}&exact=true`,
+      { headers: ctx.authHeaders, cache: 'no-store' }
+    );
+    if (!searchRes.ok) return;
+    const list = (await searchRes.json()) as Array<{ id?: string }>;
+    const kcUserId = list?.[0]?.id;
+    if (!kcUserId) return;
+
+    await fetch(`${usersUrl}/${encodeURIComponent(kcUserId)}`, {
+      method: 'DELETE',
+      headers: ctx.authHeaders,
+    });
+  } catch {
+    // Non-blocking cleanup in Keycloak
+  }
+}
+
+const SCOPED_GET_PATHS = new Set([
+  'appointments',
+  'clinic/clients',
+  'clinic/services',
+  'journals',
+  'psychotraumatology/tests',
+]);
+
+interface ActiveTherapistHandshakeRecord {
+  clientUuid: string;
+  clientName?: string;
+}
+
+async function fetchActiveTherapistHandshakes(
+  userUuid: string,
+  headers: Record<string, string>
+): Promise<ActiveTherapistHandshakeRecord[]> {
+  const allowed: ActiveTherapistHandshakeRecord[] = [];
+  const seen = new Set<string>();
+  try {
+    const hsRes = await fetch(
+      `${resolveBackendUrl()}/api/v1/clinic/handshakes/therapist/${encodeURIComponent(userUuid)}`,
+      { method: 'GET', headers, cache: 'no-store' }
+    );
+    if (!hsRes.ok) return allowed;
+    const handshakes = (await hsRes.json()) as Array<{
+      clientUuid?: string;
+      clientName?: string;
+      status?: string;
+    }>;
+    if (!Array.isArray(handshakes)) return allowed;
+    for (const hs of handshakes) {
+      if (String(hs?.status || '').toUpperCase() === 'ACTIVE' && hs?.clientUuid) {
+        const clientUuid = String(hs.clientUuid).trim();
+        if (!clientUuid || seen.has(clientUuid)) continue;
+        seen.add(clientUuid);
+        allowed.push({
+          clientUuid,
+          clientName: typeof hs.clientName === 'string' ? hs.clientName.trim() : undefined,
+        });
+      }
+    }
+  } catch {
+    // Default to empty list if handshakes cannot be loaded
+  }
+  return allowed;
+}
+
+async function scopeGetResponse(params: {
+  targetPath: string;
+  searchParams: URLSearchParams;
+  responseText: string;
+  userUuid: string;
+  roles: unknown[];
+  headers: Record<string, string>;
+}): Promise<string> {
+  const { targetPath, searchParams, responseText, userUuid, roles, headers } = params;
+  if (!SCOPED_GET_PATHS.has(targetPath)) {
+    return responseText;
+  }
+
+  const normalizedRoles = roles.map((r) => String(r).toLowerCase().replace(/^role_/, ''));
+  const isAdminOrMgmt =
+    normalizedRoles.includes('admin') || normalizedRoles.includes('management');
+  if (isAdminOrMgmt) {
+    return responseText;
+  }
+
+  const isTherapist =
+    normalizedRoles.includes('therapist') || normalizedRoles.includes('provider');
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(responseText);
+  } catch {
+    return responseText;
+  }
+  if (!Array.isArray(parsed)) {
+    return responseText;
+  }
+
+  if (targetPath === 'appointments') {
+    const scoped = parsed.filter((item: any) =>
+      isTherapist
+        ? item?.clientUuid === userUuid || item?.therapistUuid === userUuid
+        : item?.clientUuid === userUuid
+    );
+    return JSON.stringify(scoped);
+  }
+
+  if (targetPath === 'clinic/services') {
+    const hasTherapistFilter = Boolean(searchParams.get('therapistUuid'));
+    const activeOnly = searchParams.get('activeOnly') === 'true';
+    if (isTherapist && !hasTherapistFilter && !activeOnly) {
+      const scoped = parsed.filter(
+        (item: any) =>
+          item?.provider?.userUuid === userUuid || item?.therapistUuid === userUuid
+      );
+      return JSON.stringify(scoped);
+    }
+    return responseText;
+  }
+
+  if (targetPath === 'clinic/clients') {
+    if (!isTherapist) {
+      const scoped = parsed.filter(
+        (item: any) => item?.userId === userUuid || item?.id === userUuid
+      );
+      return JSON.stringify(scoped);
+    }
+    const activeHandshakes = await fetchActiveTherapistHandshakes(userUuid, headers);
+    const activeClients = new Set(activeHandshakes.map((h) => h.clientUuid));
+    const representedUuids = new Set<string>();
+    const scoped = parsed
+      .filter(
+        (item: any) =>
+          (item?.userId && activeClients.has(String(item.userId))) ||
+          (item?.id && activeClients.has(String(item.id)))
+      )
+      .map((item: any) => {
+        const resolvedUuid = String(item?.userId || item?.id || '').trim();
+        if (resolvedUuid) representedUuids.add(resolvedUuid);
+        return item?.userId ? item : { ...item, userId: resolvedUuid };
+      });
+
+    for (const hs of activeHandshakes) {
+      if (representedUuids.has(hs.clientUuid)) continue;
+      const normalizedHsName = hs.clientName?.toLowerCase();
+      const matched = parsed.find((item: any) => {
+        if (!item || typeof item !== 'object') return false;
+        if (String(item.userId || '') === hs.clientUuid || String(item.id || '') === hs.clientUuid) {
+          return true;
+        }
+        if (normalizedHsName && typeof item.fullName === 'string') {
+          return item.fullName.trim().toLowerCase() === normalizedHsName;
+        }
+        return false;
+      }) as Record<string, any> | undefined;
+
+      scoped.push({
+        ...(matched ?? {}),
+        id: matched?.id || hs.clientUuid,
+        userId: hs.clientUuid,
+        fullName: matched?.fullName || hs.clientName || hs.clientUuid,
+        email: matched?.email || '',
+      });
+      representedUuids.add(hs.clientUuid);
+    }
+    return JSON.stringify(scoped);
+  }
+
+  if (targetPath === 'journals') {
+    if (!isTherapist) {
+      const scoped = parsed.filter(
+        (item: any) => item?.clientUuid === userUuid || item?.userId === userUuid
+      );
+      return JSON.stringify(scoped);
+    }
+    const activeHandshakes = await fetchActiveTherapistHandshakes(userUuid, headers);
+    const activeClients = new Set(activeHandshakes.map((h) => h.clientUuid));
+    const scoped = parsed.filter((item: any) => {
+      const targetId = String(item?.clientUuid || item?.userId || '');
+      if (targetId === userUuid) return true;
+      const isShared = Boolean(item?.sharedWithTherapists || item?.sharedWithTherapist);
+      return isShared && activeClients.has(targetId);
+    });
+    return JSON.stringify(scoped);
+  }
+
+  if (targetPath === 'psychotraumatology/tests') {
+    if (!isTherapist) {
+      const scoped = parsed.filter((item: any) => item?.clientUuid === userUuid);
+      return JSON.stringify(scoped);
+    }
+    const activeHandshakes = await fetchActiveTherapistHandshakes(userUuid, headers);
+    const activeClients = new Set(activeHandshakes.map((h) => h.clientUuid));
+    const scoped = parsed.filter(
+      (item: any) =>
+        item?.therapistUuid === userUuid ||
+        item?.clientUuid === userUuid ||
+        (item?.clientUuid && activeClients.has(String(item.clientUuid)))
+    );
+    return JSON.stringify(scoped);
+  }
+
+  return responseText;
 }
 

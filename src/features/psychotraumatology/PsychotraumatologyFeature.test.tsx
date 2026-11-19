@@ -72,7 +72,36 @@ describe("PsychotraumatologyFeature Vertical Slice", () => {
     fireEvent.click(screen.getByTestId("pcl5-cluster-tab-2"));
     fireEvent.click(screen.getByTestId("pcl5-q-7-opt-2"));
 
-    // Interactive submit with calculated total 6
+    // Attempting interactive submit before answering all 20 items shows ProblemDetail error
+    fireEvent.change(screen.getByTestId("input-clientUuid"), {
+      target: { value: "client-2" },
+    });
+    fireEvent.click(screen.getByTestId("submit-psychotraumatology"));
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("error-banner").getAttribute("data-error-code")
+      ).toBe("VALIDATION_FAILED");
+    });
+
+    // Answer all remaining 18 items across clusters (B=0..4, C=5..6, D=7..13, E=14..19)
+    fireEvent.click(screen.getByTestId("pcl5-cluster-tab-0"));
+    for (const q of [1, 2, 3, 4]) {
+      fireEvent.click(screen.getByTestId(`pcl5-q-${q}-opt-0`));
+    }
+    fireEvent.click(screen.getByTestId("pcl5-cluster-tab-1"));
+    for (const q of [5, 6]) {
+      fireEvent.click(screen.getByTestId(`pcl5-q-${q}-opt-0`));
+    }
+    fireEvent.click(screen.getByTestId("pcl5-cluster-tab-2"));
+    for (const q of [8, 9, 10, 11, 12, 13]) {
+      fireEvent.click(screen.getByTestId(`pcl5-q-${q}-opt-0`));
+    }
+    fireEvent.click(screen.getByTestId("pcl5-cluster-tab-3"));
+    for (const q of [14, 15, 16, 17, 18, 19]) {
+      fireEvent.click(screen.getByTestId(`pcl5-q-${q}-opt-0`));
+    }
+
+    // Interactive submit with calculated total 6 (q-0=4, q-7=2, others=0)
     fetchMock.mockResolvedValueOnce({
       ok: true,
       status: 201,
@@ -84,9 +113,6 @@ describe("PsychotraumatologyFeature Vertical Slice", () => {
         severity: "Minimal",
         answersJson: "[]",
       }),
-    });
-    fireEvent.change(screen.getByTestId("input-clientUuid"), {
-      target: { value: "client-2" },
     });
     fireEvent.click(screen.getByTestId("submit-psychotraumatology"));
 

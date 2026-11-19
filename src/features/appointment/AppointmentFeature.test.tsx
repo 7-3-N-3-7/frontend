@@ -2147,6 +2147,7 @@ describe("AppointmentFeature Trin 1 UI (Timefold AI, Reschedule, JGit, Filters &
           status: 200,
           json: async () => [
             { id: "apt-nostatus", clientName: "Uden Status", therapistUuid: provLiveUuid, startTime: "2026-12-10T10:00:00", endTime: "2026-12-10T10:00:00" },
+            { id: "apt-other", clientUuid: "other-client", therapistUuid: "other-therapist", clientName: "Anden Klient", startTime: "2026-12-10T12:00:00", endTime: "2026-12-10T13:00:00" },
           ],
         };
       }
@@ -2191,7 +2192,11 @@ describe("AppointmentFeature Trin 1 UI (Timefold AI, Reschedule, JGit, Filters &
     await waitFor(() => expect(screen.queryByTestId("reschedule-panel-apt-w1")).toBeNull());
     cleanup();
 
-    // Provider submit with selectedClientUuid
+    // Cover en/de capitalized month formatting and closing booking-success-banner
+    expect(formatAppointmentDateParts("2026-05-01T10:00:00", "2026-05-01T11:00:00", "en").monthShort.length).toBeGreaterThan(0);
+    expect(formatAppointmentDateParts("2026-05-01T10:00:00", "2026-05-01T11:00:00", "de").monthShort.length).toBeGreaterThan(0);
+
+    // Provider submit with selectedClientUuid + dismiss success banner
     render(
       <AuthProvider user={{ id: provLiveUuid, name: "Dr. Sofie", email: "sofie@klinik.dk", roles: ["PROVIDER"] }}>
         <AppointmentFeatureView portalMode="provider" />
@@ -2199,10 +2204,20 @@ describe("AppointmentFeature Trin 1 UI (Timefold AI, Reschedule, JGit, Filters &
     );
     await waitFor(() => expect(screen.getByTestId("select-booking-client")).toBeDefined());
     fireEvent.change(screen.getByTestId("select-booking-client"), { target: { value: "client-uuid-99" } });
+    fireEvent.change(screen.getByTestId("select-booking-client"), { target: { value: "" } });
+    fireEvent.change(screen.getByTestId("select-booking-client"), { target: { value: "client-uuid-99" } });
     fireEvent.change(screen.getByTestId("input-startTime"), { target: { value: "2026-12-10T10:00" } });
     fireEvent.change(screen.getByTestId("input-endTime"), { target: { value: "2026-12-10T11:00" } });
     fireEvent.click(screen.getByTestId("submit-booking"));
-    await waitFor(() => expect(screen.getByText("Created")).toBeDefined());
+    await waitFor(() => expect(screen.getByTestId("booking-success-banner")).toBeDefined());
+    const closeSuccessBtn = screen.getByTestId("booking-success-banner").querySelector("button");
+    expect(closeSuccessBtn).not.toBeNull();
+    fireEvent.click(closeSuccessBtn as HTMLElement);
+    expect(screen.queryByTestId("booking-success-banner")).toBeNull();
+    fireEvent.click(screen.getByTestId("toggle-timefold-panel"));
+    await waitFor(() => expect(screen.getByTestId("fetch-timefold-slots")).toBeDefined());
+    fireEvent.click(screen.getByTestId("fetch-timefold-slots"));
+    await waitFor(() => expect((global.fetch as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0));
     cleanup();
   });
 });

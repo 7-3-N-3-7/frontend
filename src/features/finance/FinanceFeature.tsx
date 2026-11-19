@@ -644,7 +644,7 @@ const FINANCE_COPY: Record<SupportedUiLocale, FinanceCopy> = {
     singleSessionDesc: "One-time payment for a single therapy session via Vipps MobilePay or card.",
     subscriptionTitle: "Monthly Subscription",
     subscriptionDesc: "Automatic monthly care plan via Vipps MobilePay.",
-    clipcardTitle: "5-Session Clip Card",
+    clipcardTitle: "5-Session Pass",
     clipcardDesc: "Prepaid session pass covering 5 therapy sessions.",
     openCheckoutBtn: "Pay via Checkout",
     openVippsRedirectBtn: "Open Vipps MobilePay payment page",
@@ -1262,7 +1262,7 @@ const VippsPaymentHub: React.FC<VippsPaymentHubProps> = ({
 
       {separateProfessionalLicenses ? (
         <>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
             {clientPlanOptions.map(renderPlanCard)}
           </div>
           <details

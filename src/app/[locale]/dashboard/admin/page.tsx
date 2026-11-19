@@ -136,7 +136,7 @@ const AdminContent: React.FC = () => {
             <i className="bi bi-sliders2" aria-hidden="true" />
             {copy.badge}
           </span>
-          <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900">
+          <h1 className="mt-2 break-words [overflow-wrap:anywhere] text-xl sm:text-2xl font-bold tracking-tight text-slate-900">
             {title}
           </h1>
           <p className="mt-1 mb-0 text-sm text-slate-600">{description}</p>

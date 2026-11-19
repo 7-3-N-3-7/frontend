@@ -1111,5 +1111,77 @@ describe("JournalFeature Vertical Slice", () => {
       unm2.unmount();
       if (resolvePendingClients) resolvePendingClients([]);
     });
+
+    it("supports authenticated PROVIDER client selector, confidential therapist-note POST, and CLIENT branch selector", async () => {
+      let notePostShouldThrow = false;
+      let postCount = 0;
+      global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const u = String(input);
+        const method = init?.method ?? "GET";
+        if (u.includes("/api/backend/clinic/clients")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => [{ id: "cp-1", userId: "c-live-1", fullName: "Maja Klient", email: "maja@k.dk" }],
+          };
+        }
+        if (u.includes("/api/backend/clinic/handshakes/client/")) {
+          return { ok: true, status: 200, json: async () => [] };
+        }
+        if (u.includes("/api/backend/journals/therapist-notes") && method === "POST") {
+          if (notePostShouldThrow) {
+            throw new Error("note failed");
+          }
+          return { ok: true, status: 201, json: async () => ({ id: "tn-1" }) };
+        }
+        if (u.includes("/api/backend/journals") && method === "POST") {
+          postCount += 1;
+          const body = typeof init?.body === "string" ? JSON.parse(init.body) : {};
+          return {
+            ok: true,
+            status: 201,
+            json: async () => ({
+              id: `j-prov-${postCount}`,
+              title: body.title || `Session ${postCount}`,
+              content: body.content || "Shared note",
+              moodRating: body.moodRating ?? 7,
+              sharedWithTherapist: true,
+            }),
+          };
+        }
+        return { ok: true, status: 200, json: async () => [] };
+      });
+
+      const provRender = render(
+        <AuthProvider user={{ id: "th-live-1", name: "Dr. Hansen", email: "hansen@klinik.dk", roles: ["PROVIDER"] }}>
+          <JournalFeatureView portalMode="provider" />
+        </AuthProvider>
+      );
+      await waitFor(() => expect(screen.getByTestId("journal-client-select")).toBeDefined());
+      fireEvent.change(screen.getByTestId("journal-client-select"), { target: { value: "c-live-1" } });
+      fireEvent.change(screen.getByTestId("input-journal-title"), { target: { value: "Session 1" } });
+      fireEvent.change(screen.getByTestId("input-journal-content"), { target: { value: "Shared note" } });
+      fireEvent.change(screen.getByTestId("input-journal-internal-note"), { target: { value: "Confidential observation" } });
+      fireEvent.click(screen.getByTestId("submit-journal"));
+      await waitFor(() => expect(screen.getByTestId("internal-note-saved-banner")).toBeDefined());
+
+      notePostShouldThrow = true;
+      fireEvent.change(screen.getByTestId("input-journal-title"), { target: { value: "Session 2" } });
+      fireEvent.change(screen.getByTestId("input-journal-content"), { target: { value: "Shared 2" } });
+      fireEvent.change(screen.getByTestId("input-journal-internal-note"), { target: { value: "Fails softly" } });
+      fireEvent.click(screen.getByTestId("submit-journal"));
+      await waitFor(() => expect(screen.getByText("Session 2")).toBeDefined());
+      provRender.unmount();
+
+      const clientRender = render(
+        <AuthProvider user={{ id: "c-branch-1", name: "Klara", email: "klara@dk.dk", roles: ["CLIENT"] }}>
+          <JournalFeatureView portalMode="client" />
+        </AuthProvider>
+      );
+      await waitFor(() => expect(screen.getByTestId("input-journal-branch")).toBeDefined());
+      fireEvent.change(screen.getByTestId("input-journal-branch"), { target: { value: "trauma" } });
+      expect((screen.getByTestId("input-journal-branch") as HTMLSelectElement).value).toBe("trauma");
+      clientRender.unmount();
+    });
   });
 });

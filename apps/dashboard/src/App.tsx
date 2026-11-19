@@ -29,84 +29,135 @@ export type DashboardTab =
 
 export const DashboardNavigation: React.FC = () => {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<DashboardTab>("booking");
+  const initialTab: DashboardTab =
+    user.roles.includes("MANAGEMENT") &&
+    !user.roles.includes("CLIENT") &&
+    !user.roles.includes("PROVIDER")
+      ? "management"
+      : "booking";
+  const [activeTab, setActiveTab] = useState<DashboardTab>(initialTab);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  const selectTab = (tab: DashboardTab) => {
+    setActiveTab(tab);
+    setMobileNavOpen(false);
+  };
+
+  const navBtnClass = (tab: DashboardTab) =>
+    `min-h-11 text-left px-3 py-2 rounded font-medium transition-colors ${
+      activeTab === tab
+        ? "bg-teal-700 text-white"
+        : "text-slate-100 hover:bg-slate-800"
+    }`;
+
+  const sidebarContent = (
+    <>
+      <div className="mb-8">
+        <p className="font-bold" data-testid="dashboard-user-name">
+          {user.name}
+        </p>
+        <span
+          className="inline-block mt-1 text-xs bg-slate-700 px-2 py-1 rounded"
+          data-testid="dashboard-user-roles"
+        >
+          {user.roles.join(", ")}
+        </span>
+      </div>
+
+      <nav className="flex flex-col gap-2">
+        <RoleGuard allowed={["CLIENT", "PROVIDER"]}>
+          <button
+            type="button"
+            data-testid="tab-booking"
+            onClick={() => selectTab("booking")}
+            className={navBtnClass("booking")}
+          >
+            Booking &amp; Kalender
+          </button>
+        </RoleGuard>
+
+        <RoleGuard allowed={["PROVIDER"]}>
+          <button
+            type="button"
+            data-testid="tab-journal"
+            onClick={() => selectTab("journal")}
+            className={navBtnClass("journal")}
+          >
+            Klientjournaler
+          </button>
+          <button
+            type="button"
+            data-testid="tab-psychotraumatology"
+            onClick={() => selectTab("psychotraumatology")}
+            className={navBtnClass("psychotraumatology")}
+          >
+            PCL-5 Screening
+          </button>
+        </RoleGuard>
+
+        <RoleGuard allowed={["MANAGEMENT"]}>
+          <button
+            type="button"
+            data-testid="tab-management"
+            onClick={() => selectTab("management")}
+            className={navBtnClass("management")}
+          >
+            Virksomhedsledelse
+          </button>
+          <button
+            type="button"
+            data-testid="tab-finance"
+            onClick={() => selectTab("finance")}
+            className={navBtnClass("finance")}
+          >
+            Økonomi &amp; Hovedbog
+          </button>
+          <button
+            type="button"
+            data-testid="tab-user"
+            onClick={() => selectTab("user")}
+            className={navBtnClass("user")}
+          >
+            Brugerstyring
+          </button>
+        </RoleGuard>
+      </nav>
+    </>
+  );
 
   return (
-    <div className="min-h-screen flex" data-testid="dashboard-shell">
-      <aside className="w-64 bg-slate-900 text-white p-6">
-        <div className="mb-8">
-          <p className="font-bold" data-testid="dashboard-user-name">
-            {user.name}
-          </p>
-          <span
-            className="text-xs bg-slate-700 px-2 py-1 rounded"
-            data-testid="dashboard-user-roles"
-          >
-            {user.roles.join(", ")}
-          </span>
+    <div className="min-h-screen flex flex-col md:flex-row" data-testid="dashboard-shell">
+      <header className="flex items-center justify-between bg-slate-900 px-4 py-3 text-white md:hidden">
+        <div className="min-w-0">
+          <p className="font-bold text-sm truncate m-0">{user.name}</p>
+          <span className="text-[11px] text-slate-300">{user.roles.join(", ")}</span>
         </div>
+        <button
+          type="button"
+          data-testid="vite-mobile-menu-toggle"
+          aria-label="Åbn navigation"
+          aria-expanded={mobileNavOpen}
+          onClick={() => setMobileNavOpen((prev) => !prev)}
+          className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-slate-700 bg-slate-800 text-white"
+        >
+          <i className={`bi ${mobileNavOpen ? "bi-x-lg" : "bi-list"} text-lg`} aria-hidden="true" />
+        </button>
+      </header>
 
-        <nav className="flex flex-col gap-2">
-          <RoleGuard allowed={["CLIENT", "PROVIDER"]}>
-            <button
-              type="button"
-              data-testid="tab-booking"
-              onClick={() => setActiveTab("booking")}
-              className="text-left p-2 hover:bg-slate-800 rounded"
-            >
-              Booking &amp; Kalender
-            </button>
-          </RoleGuard>
+      {mobileNavOpen && (
+        <aside
+          data-testid="vite-mobile-drawer"
+          className="md:hidden bg-slate-900 text-white p-4 border-t border-slate-800"
+        >
+          {sidebarContent}
+        </aside>
+      )}
 
-          <RoleGuard allowed={["PROVIDER"]}>
-            <button
-              type="button"
-              data-testid="tab-journal"
-              onClick={() => setActiveTab("journal")}
-              className="text-left p-2 hover:bg-slate-800 rounded"
-            >
-              Klientjournaler
-            </button>
-            <button
-              type="button"
-              data-testid="tab-psychotraumatology"
-              onClick={() => setActiveTab("psychotraumatology")}
-              className="text-left p-2 hover:bg-slate-800 rounded"
-            >
-              PCL-5 Screening
-            </button>
-          </RoleGuard>
-
-          <RoleGuard allowed={["MANAGEMENT"]}>
-            <button
-              type="button"
-              data-testid="tab-management"
-              onClick={() => setActiveTab("management")}
-              className="text-left p-2 hover:bg-slate-800 rounded"
-            >
-              Virksomhedsledelse
-            </button>
-            <button
-              type="button"
-              data-testid="tab-finance"
-              onClick={() => setActiveTab("finance")}
-              className="text-left p-2 hover:bg-slate-800 rounded"
-            >
-              Økonomi &amp; Hovedbog
-            </button>
-            <button
-              type="button"
-              data-testid="tab-user"
-              onClick={() => setActiveTab("user")}
-              className="text-left p-2 hover:bg-slate-800 rounded"
-            >
-              Brugerstyring
-            </button>
-          </RoleGuard>
-        </nav>
+      <aside className="hidden md:flex md:flex-col w-64 shrink-0 bg-slate-900 text-white p-6">
+        {sidebarContent}
       </aside>
 
-      <main className="flex-1 p-8 bg-slate-50">
+      <main className="flex-1 min-w-0 p-4 sm:p-8 bg-slate-50">
         {activeTab === "booking" && <BookingFeatureView />}
         {activeTab === "journal" && <JournalFeatureView />}
         {activeTab === "management" && <ManagementFeatureView />}

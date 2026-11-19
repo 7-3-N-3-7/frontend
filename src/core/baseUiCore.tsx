@@ -301,7 +301,31 @@ export interface ProblemAlertProps {
   error?: ProblemDetail | null;
   problem?: ProblemDetail | null;
   onDismiss?: () => void;
+  locale?: string;
 }
+
+const PROBLEM_DISMISS_LABELS: Record<string, { label: string; ariaLabel: string }> = {
+  da: { label: "Luk", ariaLabel: "Luk fejlbesked" },
+  en: { label: "Dismiss", ariaLabel: "Dismiss error message" },
+  fr: { label: "Fermer", ariaLabel: "Fermer le message d'erreur" },
+  es: { label: "Cerrar", ariaLabel: "Cerrar mensaje de error" },
+  de: { label: "Schließen", ariaLabel: "Fehlermeldung schließen" },
+};
+
+const PROBLEM_TITLE_LABELS: Record<string, string> = {
+  "Client Domain Validation Error": "Valideringsfejl",
+  "Validation Failed": "Valideringsfejl",
+};
+
+const PROBLEM_FIELD_LABELS: Record<string, string> = {
+  cvrNumber: "CVR-nummer",
+  startTime: "Starttidspunkt",
+  endTime: "Sluttidspunkt",
+  clientName: "Klientnavn",
+  moodRating: "Humørscore",
+  answers: "Spørgeskema",
+  amount: "Beløb",
+};
 
 /**
  * [Component: <ProblemAlert />]
@@ -313,10 +337,16 @@ export const ProblemAlert: React.FC<ProblemAlertProps> = ({
   error,
   problem,
   onDismiss,
+  locale,
 }) => {
   const activeProblem = error ?? problem ?? null;
   if (!activeProblem) return null;
 
+  const rawLocale = locale || document.documentElement.lang || "da";
+  const langKey = rawLocale.slice(0, 2).toLowerCase();
+  const dismissCopy = PROBLEM_DISMISS_LABELS[langKey] ?? PROBLEM_DISMISS_LABELS.da;
+  const displayTitle =
+    PROBLEM_TITLE_LABELS[activeProblem.title] ?? activeProblem.title;
   const fieldErrors = activeProblem.fieldErrors ?? activeProblem.fields;
 
   return (
@@ -340,7 +370,7 @@ export const ProblemAlert: React.FC<ProblemAlertProps> = ({
               data-testid="error-title"
               className="block text-sm font-semibold text-rose-950"
             >
-              {activeProblem.title} ({activeProblem.status})
+              {displayTitle} ({activeProblem.status})
             </strong>
             <p
               data-testid="error-detail"
@@ -354,12 +384,12 @@ export const ProblemAlert: React.FC<ProblemAlertProps> = ({
           <button
             type="button"
             onClick={onDismiss}
-            aria-label="Luk fejlbesked"
+            aria-label={dismissCopy.ariaLabel}
             data-testid="dismiss-error"
-            className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-rose-200 bg-white px-2.5 py-1 text-xs font-medium text-rose-700 transition-colors hover:bg-rose-100"
+            className="inline-flex min-h-9 shrink-0 items-center gap-1 rounded-lg border border-rose-200 bg-white px-2.5 py-1 text-xs font-medium text-rose-700 transition-colors hover:bg-rose-100"
           >
             <i className="bi bi-x-lg" aria-hidden="true" />
-            <span>Dismiss</span>
+            <span>{dismissCopy.label}</span>
           </button>
         )}
       </div>
@@ -371,7 +401,10 @@ export const ProblemAlert: React.FC<ProblemAlertProps> = ({
         >
           {Object.entries(fieldErrors).map(([field, message]) => (
             <li key={field} data-testid={`field-error-${field}`}>
-              <strong className="font-semibold">{field}:</strong> {message}
+              <strong className="font-semibold">
+                {PROBLEM_FIELD_LABELS[field] ?? field}:
+              </strong>{" "}
+              {message}
             </li>
           ))}
         </ul>
@@ -445,6 +478,10 @@ export interface PortalWorkspaceShellProps {
   portalOptions?: PortalSwitcherOption[];
   upgradeAction?: PortalUpgradeAction;
   defaultSidebarCollapsed?: boolean;
+  expandSidebarLabel?: string;
+  collapseSidebarLabel?: string;
+  mobileMenuAriaLabel?: string;
+  closeMenuAriaLabel?: string;
   onNavigate?: (href: string) => void;
   onLogout?: () => void;
   shellError?: ProblemDetail | null;
@@ -483,6 +520,10 @@ export const PortalWorkspaceShell: React.FC<PortalWorkspaceShellProps> = ({
   portalOptions,
   upgradeAction,
   defaultSidebarCollapsed = false,
+  expandSidebarLabel = "Udvid sidepanel",
+  collapseSidebarLabel = "Minimer sidepanel",
+  mobileMenuAriaLabel = "Åbn menu",
+  closeMenuAriaLabel = "Luk menu",
   onNavigate,
   onLogout,
   shellError,
@@ -697,7 +738,7 @@ export const PortalWorkspaceShell: React.FC<PortalWorkspaceShellProps> = ({
             type="button"
             onClick={() => setCollapsed((prev) => !prev)}
             aria-expanded={!collapsed}
-            aria-label={collapsed ? "Udvid sidepanel" : "Minimer sidepanel"}
+            aria-label={collapsed ? expandSidebarLabel : collapseSidebarLabel}
             data-testid="sidebar-collapse-toggle"
             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900"
           >
@@ -726,21 +767,26 @@ export const PortalWorkspaceShell: React.FC<PortalWorkspaceShellProps> = ({
           />
           <aside className="relative z-10 flex w-72 max-w-[85vw] flex-col bg-white shadow-xl">
             <div className="flex h-16 items-center justify-between border-b border-slate-100 px-4">
-              <div className="flex items-center gap-2.5">
+              <div className="flex min-w-0 items-center gap-2">
                 <div
                   className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-white"
                   style={{ backgroundColor: accentColor }}
                 >
                   <i className={`bi ${iconClass} text-base`} aria-hidden="true" />
                 </div>
-                <span className="text-sm font-bold text-slate-900">
+                <span className="truncate text-sm font-bold text-slate-900">
                   {effectiveBrandTitle}
                 </span>
+                {roleLabel && (
+                  <span className="inline-flex shrink-0 items-center rounded-full border border-teal-200 bg-teal-50 px-2 py-0.5 text-[11px] font-semibold text-teal-800">
+                    {roleLabel}
+                  </span>
+                )}
               </div>
               <button
                 type="button"
                 onClick={() => setMobileOpen(false)}
-                aria-label="Luk menu"
+                aria-label={closeMenuAriaLabel}
                 data-testid="mobile-menu-close"
                 className="flex h-11 w-11 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100"
               >
@@ -759,7 +805,7 @@ export const PortalWorkspaceShell: React.FC<PortalWorkspaceShellProps> = ({
             <button
               type="button"
               onClick={() => setMobileOpen(true)}
-              aria-label="Åbn menu"
+              aria-label={mobileMenuAriaLabel}
               data-testid="mobile-menu-toggle"
               className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 md:hidden"
             >
@@ -778,7 +824,7 @@ export const PortalWorkspaceShell: React.FC<PortalWorkspaceShellProps> = ({
             {roleLabel && (
               <span
                 data-role-badge={roleBadge}
-                className="inline-flex shrink-0 items-center rounded-full border border-teal-200 bg-teal-50 px-2.5 py-0.5 text-xs font-semibold text-teal-800"
+                className="hidden sm:inline-flex shrink-0 items-center rounded-full border border-teal-200 bg-teal-50 px-2.5 py-0.5 text-xs font-semibold text-teal-800"
               >
                 {roleLabel}
               </span>

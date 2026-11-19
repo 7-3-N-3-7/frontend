@@ -38,32 +38,32 @@ export const LandingFeatureView: React.FC<LandingFeatureViewProps> = ({
       data-testid="landing-feature-view"
       className="min-h-screen flex flex-col justify-between bg-slate-50 text-slate-900"
     >
-      <header className="flex justify-between items-center p-6 max-w-6xl mx-auto w-full">
+      <header className="flex flex-wrap justify-between items-center gap-3 p-4 sm:p-6 max-w-6xl mx-auto w-full">
         <h1 className="text-2xl font-bold tracking-tight">Integr8te Platform</h1>
         <button
           type="button"
           data-testid="landing-login-btn"
           onClick={() => triggerLogin()}
-          className="px-5 py-2.5 bg-slate-900 text-white rounded-md font-medium hover:bg-slate-800"
+          className="min-h-11 px-5 py-2.5 bg-slate-900 text-white rounded-md font-medium hover:bg-slate-800"
         >
           Log ind på Portal
         </button>
       </header>
 
-      <section className="max-w-4xl mx-auto text-center py-24 px-6">
-        <h2 className="text-5xl font-extrabold mb-6">
+      <section className="max-w-4xl mx-auto text-center py-12 sm:py-24 px-4 sm:px-6">
+        <h2 className="text-3xl sm:text-5xl font-extrabold mb-6">
           Sikker journalføring, booking og klinikstyring samlet ét sted
         </h2>
-        <p className="text-lg text-slate-600 mb-10">
+        <p className="text-base sm:text-lg text-slate-600 mb-10">
           En rollebaseret platform til klienter, terapeuter og virksomhedsledelse
           med fuld sporbarhed.
         </p>
-        <div className="flex gap-4 justify-center">
+        <div className="flex flex-wrap gap-3 sm:gap-4 justify-center">
           <button
             type="button"
             data-testid="landing-client-login-btn"
             onClick={() => triggerLogin("CLIENT")}
-            className="px-6 py-3 bg-blue-600 text-white rounded-md font-semibold"
+            className="min-h-11 px-6 py-3 bg-blue-600 text-white rounded-md font-semibold hover:bg-blue-700"
           >
             Klient Login
           </button>
@@ -71,7 +71,7 @@ export const LandingFeatureView: React.FC<LandingFeatureViewProps> = ({
             type="button"
             data-testid="landing-provider-login-btn"
             onClick={() => triggerLogin("PROVIDER")}
-            className="px-6 py-3 border border-slate-300 bg-white rounded-md font-semibold"
+            className="min-h-11 px-6 py-3 border border-slate-300 bg-white rounded-md font-semibold hover:bg-slate-50"
           >
             Terapeut / Ledelse Login
           </button>
@@ -79,7 +79,7 @@ export const LandingFeatureView: React.FC<LandingFeatureViewProps> = ({
             type="button"
             data-testid="landing-management-login-btn"
             onClick={() => triggerLogin("MANAGEMENT")}
-            className="px-6 py-3 border border-slate-300 bg-white rounded-md font-semibold"
+            className="min-h-11 px-6 py-3 border border-slate-300 bg-white rounded-md font-semibold hover:bg-slate-50"
           >
             Virksomhedsledelse Login
           </button>
