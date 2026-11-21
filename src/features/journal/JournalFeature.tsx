@@ -202,14 +202,13 @@ class JournalApiService extends BaseApiService<JournalEntryDto, string> {
   protected override validateBeforeCreate(dto: Partial<JournalEntryDto>): void {
     DomainGuard.requireNotBlank(dto.title, "Journal title", "title");
     DomainGuard.requireNotBlank(dto.content, "Journal content", "content");
-    if (dto.moodRating !== undefined) {
-      DomainGuard.check(
-        dto.moodRating >= 1 && dto.moodRating <= 10,
-        "Mood rating must be between 1 and 10",
-        ErrorCode.VALIDATION_FAILED,
-        "moodRating"
-      );
-    }
+    const mood = Number(dto.moodRating);
+    DomainGuard.check(
+      mood >= 1 && mood <= 10,
+      "Mood rating must be between 1 and 10",
+      ErrorCode.VALIDATION_FAILED,
+      "moodRating"
+    );
   }
 
   private async fetchJsonOrDefault<T>(url: string, fallback: T): Promise<T> {
@@ -733,6 +732,86 @@ export interface JournalFeatureViewProps {
   portalMode?: "client" | "provider";
 }
 
+function renderFormattedInline(text: string): React.ReactNode[] {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return parts.map((part, idx) => {
+    if (part.startsWith("**") && part.endsWith("**") && part.length > 4) {
+      return (
+        <strong key={idx} className="font-semibold text-slate-900">
+          {part.slice(2, -2)}
+        </strong>
+      );
+    }
+    return <React.Fragment key={idx}>{part}</React.Fragment>;
+  });
+}
+
+function renderFormattedJournalContent(rawText: string): React.ReactNode {
+  const lines = rawText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length === 0) {
+    return null;
+  }
+
+  const blocks: React.ReactNode[] = [];
+  let listItems: string[] = [];
+
+  const flushList = (keyPrefix: string) => {
+    if (listItems.length === 0) return;
+    const currentItems = listItems;
+    listItems = [];
+    blocks.push(
+      <ul
+        key={`${keyPrefix}-list`}
+        className="m-0 list-disc space-y-0.5 pl-5 text-sm text-slate-700"
+      >
+        {currentItems.map((itemText, itemIdx) => (
+          <li key={itemIdx}>{renderFormattedInline(itemText)}</li>
+        ))}
+      </ul>
+    );
+  };
+
+  lines.forEach((line, idx) => {
+    if (/^[-*]\s+/.test(line)) {
+      listItems.push(line.replace(/^[-*]\s+/, ""));
+      return;
+    }
+    flushList(`b-${idx}`);
+    if (/^#{4,6}\s+/.test(line)) {
+      const text = line.replace(/^#{4,6}\s+/, "");
+      blocks.push(
+        <h5
+          key={idx}
+          className="m-0 pt-0.5 text-xs font-bold uppercase tracking-wide text-slate-800"
+        >
+          {renderFormattedInline(text)}
+        </h5>
+      );
+      return;
+    }
+    if (/^#{1,3}\s+/.test(line)) {
+      const text = line.replace(/^#{1,3}\s+/, "");
+      blocks.push(
+        <h4 key={idx} className="m-0 pt-0.5 text-sm font-bold text-slate-900">
+          {renderFormattedInline(text)}
+        </h4>
+      );
+      return;
+    }
+    blocks.push(
+      <p key={idx} className="m-0 leading-relaxed text-slate-700">
+        {renderFormattedInline(line)}
+      </p>
+    );
+  });
+
+  flushList("end");
+  return <div className="space-y-1 text-sm text-slate-700">{blocks}</div>;
+}
+
 const JournalFeatureAuthorizedContent: React.FC<{
   portalMode: "client" | "provider";
 }> = ({ portalMode }) => {
@@ -759,6 +838,9 @@ const JournalFeatureAuthorizedContent: React.FC<{
   const [internalNote, setInternalNote] = useState("");
   const [internalNoteNotice, setInternalNoteNotice] = useState<string | null>(null);
   const [gitBranch, setGitBranch] = useState("main");
+  const [activeBranchFilter, setActiveBranchFilter] = useState<
+    "all" | "main" | "trauma" | "sleep"
+  >("all");
 
   useEffect(() => {
     if (isClientMode || !auth?.user.id) {
@@ -812,14 +894,22 @@ const JournalFeatureAuthorizedContent: React.FC<{
   };
 
   const visibleItems = useMemo(() => {
-    if (!isClientMode || !auth?.user.id) return items;
-    return items.filter(
-      (item) =>
-        (!item.clientUuid && !item.userId) ||
-        item.clientUuid === auth.user.id ||
-        item.userId === auth.user.id
+    const clientScoped =
+      !isClientMode || !auth?.user.id
+        ? items
+        : items.filter(
+            (item) =>
+              (!item.clientUuid && !item.userId) ||
+              item.clientUuid === auth.user.id ||
+              item.userId === auth.user.id
+          );
+    if (!isClientMode || activeBranchFilter === "all") {
+      return clientScoped;
+    }
+    return clientScoped.filter(
+      (item) => (item.gitBranch || "main") === activeBranchFilter
     );
-  }, [items, isClientMode, auth?.user.id]);
+  }, [items, isClientMode, auth?.user.id, activeBranchFilter]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -831,13 +921,57 @@ const JournalFeatureAuthorizedContent: React.FC<{
       !isClientMode && selectedClientUuid
         ? selectedClientUuid
         : auth?.user.id || undefined;
+    const authUserId = auth?.user.id?.trim();
+
+    // R4-01 Privacy guard: if a therapist unchecks sharing for a selected client,
+    // persist only to /journals/therapist-notes so confidential entries never leak into client journals.
+    if (!isClientMode && selectedClientUuid && !shouldShare) {
+      const combinedConfidential = [
+        title.trim() ? `### ${title.trim()}` : "",
+        content.trim(),
+        internalNote.trim(),
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+      if (combinedConfidential) {
+        try {
+          const noteRes = await fetch("/api/backend/journals/therapist-notes", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              clientUuid: selectedClientUuid,
+              therapistNote: combinedConfidential,
+              therapistName: auth?.user.name || copy.badge,
+            }),
+          });
+          if (noteRes.ok) {
+            setTitle("");
+            setContent("");
+            setInternalNote("");
+            setMoodRating("7");
+            setInternalNoteNotice(copy.internalNoteSavedNotice);
+          }
+        } catch {
+          // Non-fatal confidential note persistence failure
+        }
+        return;
+      }
+    }
+
+    const effectiveSharedTherapistUuids = shouldShare
+      ? !isClientMode && authUserId
+        ? Array.from(new Set([...selectedTherapistUuids, authUserId]))
+        : selectedTherapistUuids
+      : undefined;
+
     const created = await create({
       title,
       content,
       moodRating: Number(moodRating),
       sharedWithTherapist: shouldShare,
       sharedWithTherapists: shouldShare,
-      sharedTherapistUuids: shouldShare ? selectedTherapistUuids : undefined,
+      sharedTherapistUuids: effectiveSharedTherapistUuids,
       clientUuid: targetClientUuid,
       gitBranch: isClientMode ? gitBranch : undefined,
     });
@@ -910,24 +1044,26 @@ const JournalFeatureAuthorizedContent: React.FC<{
 
       <ProblemAlert error={error} onDismiss={clearError} />
 
-      <ConfirmActionDialog
-        open={pendingDeleteId !== null}
-        title={copy.confirmDeleteTitle}
-        description={copy.confirmDeleteDesc}
-        confirmLabel={copy.confirmDeleteBtn}
-        cancelLabel={copy.cancelBtn}
-        tone="danger"
-        onCancel={() => setPendingDeleteId(null)}
-        onConfirm={() => {
-          const targetId = pendingDeleteId;
-          setPendingDeleteId(null);
-          if (targetId) void remove(targetId);
-        }}
-      />
+      {pendingDeleteId && (
+        <ConfirmActionDialog
+          open
+          title={copy.confirmDeleteTitle}
+          description={copy.confirmDeleteDesc}
+          confirmLabel={copy.confirmDeleteBtn}
+          cancelLabel={copy.cancelBtn}
+          tone="danger"
+          onCancel={() => setPendingDeleteId(null)}
+          onConfirm={() => {
+            const targetId = pendingDeleteId;
+            setPendingDeleteId(null);
+            void remove(targetId);
+          }}
+        />
+      )}
 
       <form noValidate onSubmit={handleSubmit} className="space-y-3">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-12 items-end">
-          <div className="flex flex-col gap-1 sm:col-span-4">
+          <div className="flex flex-col gap-1 sm:col-span-8">
             <label
               htmlFor="journal-title-input"
               className="text-xs font-semibold text-slate-600"
@@ -944,27 +1080,10 @@ const JournalFeatureAuthorizedContent: React.FC<{
               data-testid="input-journal-title"
             />
           </div>
-          <div className="flex flex-col gap-1 sm:col-span-6">
-            <label
-              htmlFor="journal-content-input"
-              className="text-xs font-semibold text-slate-600"
-            >
-              {copy.contentLabel}
-            </label>
-            <input
-              id="journal-content-input"
-              type="text"
-              placeholder={copy.contentPlaceholder}
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              className="min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
-              data-testid="input-journal-content"
-            />
-          </div>
-          <div className="flex flex-col gap-1 sm:col-span-2">
+          <div className="flex flex-col gap-1 sm:col-span-4">
             <label
               htmlFor="journal-mood-input"
-              className="text-xs font-semibold text-slate-600"
+              className="whitespace-nowrap text-xs font-semibold text-slate-600"
             >
               {copy.moodInputLabel}
             </label>
@@ -978,6 +1097,23 @@ const JournalFeatureAuthorizedContent: React.FC<{
               onChange={(e) => setMoodRating(e.target.value)}
               className="min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
               data-testid="input-journal-mood"
+            />
+          </div>
+          <div className="flex flex-col gap-1 sm:col-span-12">
+            <label
+              htmlFor="journal-content-input"
+              className="text-xs font-semibold text-slate-600"
+            >
+              {copy.contentLabel}
+            </label>
+            <textarea
+              id="journal-content-input"
+              rows={3}
+              placeholder={copy.contentPlaceholder}
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              className="min-h-[84px] w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
+              data-testid="input-journal-content"
             />
           </div>
         </div>
@@ -1028,14 +1164,6 @@ const JournalFeatureAuthorizedContent: React.FC<{
               </label>
             )}
           </div>
-          <button
-            type="submit"
-            disabled={loading}
-            className="min-h-11 rounded-xl bg-teal-700 px-5 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-50"
-            data-testid="submit-journal"
-          >
-            {copy.saveBtn}
-          </button>
         </div>
 
         {!isClientMode && (
@@ -1057,6 +1185,17 @@ const JournalFeatureAuthorizedContent: React.FC<{
             />
           </div>
         )}
+
+        <div className="flex justify-end">
+          <button
+            type="submit"
+            disabled={loading}
+            className="min-h-11 rounded-xl bg-teal-700 px-5 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-50"
+            data-testid="submit-journal"
+          >
+            {copy.saveBtn}
+          </button>
+        </div>
 
         {internalNoteNotice && (
           <div
@@ -1112,16 +1251,53 @@ const JournalFeatureAuthorizedContent: React.FC<{
         </p>
       )}
 
-      <ul className="space-y-2" data-testid="journal-list">
+      {isClientMode && (
+        <div
+          data-testid="journal-branch-filters"
+          className="flex flex-wrap items-center gap-2"
+        >
+          {(
+            [
+              ["all", copy.timelineFilterAll],
+              ["main", copy.branchMain],
+              ["trauma", copy.branchTrauma],
+              ["sleep", copy.branchSleep],
+            ] as const
+          ).map(([branchKey, branchLabel]) => (
+            <button
+              key={branchKey}
+              type="button"
+              data-testid={`journal-branch-filter-${branchKey}`}
+              onClick={() => setActiveBranchFilter(branchKey)}
+              className={`min-h-11 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                activeBranchFilter === branchKey
+                  ? "border-teal-700 bg-teal-700 text-white"
+                  : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              {branchLabel}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <ul className="list-none space-y-2 pl-0" style={{ paddingLeft: 0 }} data-testid="journal-list">
         {visibleItems.map((item) => {
           const isShared =
             item.sharedWithTherapists ?? item.sharedWithTherapist ?? false;
+          const itemBranch = item.gitBranch || "main";
+          const branchLabel =
+            itemBranch === "trauma"
+              ? copy.branchTrauma
+              : itemBranch === "sleep"
+                ? copy.branchSleep
+                : copy.branchMain;
           return (
             <li
               key={item.id}
               className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-3 text-sm"
             >
-              <div className="min-w-0 space-y-1">
+              <div className="min-w-0 space-y-1.5">
                 <div className="flex flex-wrap items-center gap-2">
                   <strong className="text-slate-900">{item.title}</strong>
                   <span
@@ -1133,15 +1309,21 @@ const JournalFeatureAuthorizedContent: React.FC<{
                   >
                     {isShared ? copy.sharedBadge : copy.privateBadge}
                   </span>
+                  {isClientMode && (
+                    <span
+                      data-testid={`journal-branch-badge-${item.id}`}
+                      className="rounded-full border border-slate-200 bg-white px-2.5 py-0.5 text-[11px] font-medium text-slate-600"
+                    >
+                      {branchLabel}
+                    </span>
+                  )}
                   {item.moodRating !== undefined && (
                     <span className="rounded-full bg-indigo-50 px-2.5 py-0.5 text-[11px] font-semibold text-indigo-800">
                       {copy.moodLabel}: {item.moodRating}/10
                     </span>
                   )}
                 </div>
-                <p className="m-0 text-slate-700">
-                  {filterInternalNotes(item.content, false)}
-                </p>
+                {renderFormattedJournalContent(filterInternalNotes(item.content, false))}
               </div>
               {item.id && (
                 <button
@@ -1272,6 +1454,7 @@ export function classifyCommit(
 ): JGitCommitCategory {
   const msgLower = (message || "").toLowerCase();
   const deltaUpper = delta || "";
+  const authorLower = (author || "").toLowerCase();
 
   if (
     msgLower.startsWith("aftale") ||
@@ -1297,10 +1480,10 @@ export function classifyCommit(
     msgLower.includes("terapeut") ||
     msgLower.includes("opfølgning") ||
     deltaUpper.includes("Terapeutisk opfølgning") ||
-    author.toLowerCase().includes("dr.") ||
-    author.toLowerCase().includes("psykolog") ||
-    author.toLowerCase().includes("bjens") ||
-    author.toLowerCase().includes("bo jensen")
+    authorLower.includes("dr.") ||
+    authorLower.includes("psykolog") ||
+    authorLower.includes("bjens") ||
+    authorLower.includes("bo jensen")
   ) {
     return "THERAPIST";
   }
@@ -1679,7 +1862,7 @@ export function mapBundleToClinicalTimelineEvents(
             ? copy.timelineFilterInterventions
             : `${copy.timelineFilterSessions} #${idx + 1}`,
       title: entry.title,
-      summary: cleanedSummary.slice(0, 220),
+      summary: cleanedSummary.slice(0, 400),
       version: `v${1 + Math.floor(idx / 3)}.${(idx % 3) + 1}`,
       who5Score,
       soap: parseSoapSections(entry.content, cleanedSummary, uiLocale),
@@ -1690,8 +1873,12 @@ export function mapBundleToClinicalTimelineEvents(
   (input.clinicalNotes || []).forEach((note, idx) => {
     const markdown = note.confidentialMarkdown || note.content || "";
     const { date, timestamp } = normalizeIsoDateAndTime(note.createdAt);
+    const resolvedOrg =
+      note.organisationName && note.organisationName !== "Associated Clinic"
+        ? note.organisationName
+        : undefined;
     const author =
-      note.authorTherapistName || note.organisationName || copy.timelineBadge;
+      note.authorTherapistName || resolvedOrg || copy.timelineBadge;
     const lane = inferCategoryFromText(`${note.title || ""} ${markdown}`);
     const sha = note.gitCommitHash ? ` · #${note.gitCommitHash.slice(0, 7)}` : "";
     events.push({
@@ -1699,9 +1886,9 @@ export function mapBundleToClinicalTimelineEvents(
       date,
       timestamp,
       lane,
-      tag: note.organisationName || copy.badge,
+      tag: resolvedOrg || copy.badge,
       title: note.title || `${copy.badge} · ${author}`,
-      summary: markdown.replace(/\s+/g, " ").trim().slice(0, 220),
+      summary: markdown.trim().slice(0, 400),
       version: `v2.${idx}`,
       soap: parseSoapSections(markdown, markdown, uiLocale),
       auditLog: `${author} · ${copy.timelineSignedBadge}${sha}`,
@@ -2231,13 +2418,13 @@ const ClinicalSoapGrid: React.FC<{
           >
             {cell.label}
           </div>
-          <p
-            className={`mt-1 mb-0 text-xs leading-relaxed ${
+          <div
+            className={`mt-1 text-xs leading-relaxed ${
               cell.highlight ? "font-medium text-teal-950" : "text-slate-800"
             }`}
           >
-            {cell.text}
-          </p>
+            {renderFormattedJournalContent(cell.text)}
+          </div>
         </div>
       ))}
     </div>
@@ -2392,9 +2579,9 @@ export const SemanticTimelineStream: React.FC<SemanticTimelineStreamProps> = ({
                           <h3 className="m-0 text-sm font-bold leading-snug text-slate-900">
                             {event.title}
                           </h3>
-                          <p className="m-0 line-clamp-3 text-sm leading-relaxed text-slate-600">
-                            {event.summary}
-                          </p>
+                          <div className="line-clamp-4 text-sm leading-relaxed text-slate-600">
+                            {renderFormattedJournalContent(event.summary)}
+                          </div>
                         </div>
                       )}
 
@@ -2486,7 +2673,7 @@ export const VerticalZoomScrollbar: React.FC<VerticalZoomScrollbarProps> = ({
     cleanupDragRef.current?.();
     const startZoom = zoomLevel;
     const startRatio = scrollRatio;
-    const trackHeight = trackRef.current?.getBoundingClientRect().height ?? 0;
+    const trackHeight = trackRef.current!.getBoundingClientRect().height;
 
     setIsDragging(true);
     document.body.classList.add("select-none");
@@ -2733,9 +2920,9 @@ export const JournalDetailInspector: React.FC<JournalDetailInspectorProps> = ({
         </button>
       </div>
 
-      <p className="mt-3 mb-4 text-sm leading-relaxed text-slate-600">
-        {event.summary}
-      </p>
+      <div className="mt-3 mb-4 text-sm leading-relaxed text-slate-600">
+        {renderFormattedJournalContent(event.summary)}
+      </div>
 
       <ClinicalSoapGrid soap={event.soap} copy={copy} />
 
@@ -2786,6 +2973,7 @@ const PatientTimelineContent: React.FC<PatientTimelineContainerProps> = ({
   const streamRef = useRef<HTMLDivElement | null>(null);
   const scrollRatioRef = useRef<number>(0);
   scrollRatioRef.current = scrollRatio;
+  const hasAutoSelectedRef = useRef<boolean>(false);
 
   useEffect(() => {
     if (providedEvents) return;
@@ -2793,12 +2981,23 @@ const PatientTimelineContent: React.FC<PatientTimelineContainerProps> = ({
     journalApi
       .getClinicClients(auth?.user.id, auth?.user.email)
       .then((clients) => {
-        if (!cancelled) setClientOptions(clients);
+        if (cancelled) return;
+        setClientOptions(clients);
+        if (
+          !hasAutoSelectedRef.current &&
+          initialClientId === DEMO_SOURCE_ID &&
+          clients.length > 0
+        ) {
+          hasAutoSelectedRef.current = true;
+          setSelectedSourceId((prev) =>
+            prev === DEMO_SOURCE_ID ? clients[0].id : prev
+          );
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [providedEvents, auth?.user.id, auth?.user.email]);
+  }, [providedEvents, auth?.user.id, auth?.user.email, initialClientId]);
 
   useEffect(() => {
     if (providedEvents || selectedSourceId === DEMO_SOURCE_ID) {
@@ -2854,11 +3053,9 @@ const PatientTimelineContent: React.FC<PatientTimelineContainerProps> = ({
   const handleScrollbarRatioChange = useCallback((nextRatio: number) => {
     const clamped = clampNumber(nextRatio, 0, 1);
     setScrollRatio(clamped);
-    const el = streamRef.current;
-    if (el) {
-      const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
-      el.scrollTop = clamped * maxScroll;
-    }
+    const el = streamRef.current!;
+    const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
+    el.scrollTop = clamped * maxScroll;
   }, []);
 
   const tier = resolveSemanticZoomTier(zoomLevel);

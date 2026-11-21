@@ -7,7 +7,7 @@
  * komponenterne `I18nFeatureView`, `UserFeatureView` og `ManagementFeatureView`.
  */
 
-import React, { Suspense } from "react";
+import React, { Suspense, useCallback, useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { I18nFeatureView, useI18nCache } from "@/features/i18n/I18nFeature";
 import { ManagementFeatureView } from "@/features/management/ManagementFeature";
@@ -105,10 +105,27 @@ const ADMIN_COPY_BY_LOCALE: Record<AdminLocale, AdminPageCopy> = {
   },
 };
 
+const AdminTabObserver: React.FC<{ onTab: (tab: AdminTab) => void }> = ({
+  onTab,
+}) => {
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    const rawTab = searchParams?.get("tab");
+    const nextTab: AdminTab =
+      rawTab === "management"
+        ? "management"
+        : rawTab === "users"
+          ? "users"
+          : "overview";
+    onTab(nextTab);
+  }, [searchParams, onTab]);
+  return null;
+};
+
 const AdminContent: React.FC = () => {
   const params = useParams();
   const i18nCache = useI18nCache();
-  const searchParams = useSearchParams();
+  const [activeTab, setActiveTab] = useState<AdminTab | null>(null);
   const activeLocale = (
     (typeof params?.locale === "string" && params.locale) ||
     i18nCache?.locale ||
@@ -117,19 +134,19 @@ const AdminContent: React.FC = () => {
     .split("-")[0]
     .toLowerCase() as AdminLocale;
   const copy = ADMIN_COPY_BY_LOCALE[activeLocale] || ADMIN_COPY_BY_LOCALE.en;
-  const rawTab = searchParams?.get("tab");
-  const activeTab: AdminTab =
-    rawTab === "management"
-      ? "management"
-      : rawTab === "users"
-        ? "users"
-        : "overview";
+  const displayTab: AdminTab = activeTab ?? "overview";
+  const handleTabChange = useCallback((nextTab: AdminTab) => {
+    setActiveTab(nextTab);
+  }, []);
 
-  const title = copy.titles[activeTab];
-  const description = copy.descriptions[activeTab];
+  const title = copy.titles[displayTab];
+  const description = copy.descriptions[displayTab];
 
   return (
     <div className="space-y-6" data-testid="admin-i18n-page">
+      <Suspense fallback={null}>
+        <AdminTabObserver onTab={handleTabChange} />
+      </Suspense>
       <header className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs space-y-3">
         <div>
           <span className="inline-flex items-center gap-1.5 rounded-full bg-teal-50 px-2.5 py-0.5 text-xs font-semibold text-teal-800">
@@ -143,7 +160,12 @@ const AdminContent: React.FC = () => {
         </div>
       </header>
       <section className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs">
-        {activeTab === "management" ? (
+        {activeTab === null ? (
+          <div
+            data-testid="admin-tab-skeleton"
+            className="h-40 animate-pulse rounded-xl bg-slate-100"
+          />
+        ) : activeTab === "management" ? (
           <ManagementFeatureView />
         ) : activeTab === "users" ? (
           <UserFeatureView />
@@ -156,15 +178,5 @@ const AdminContent: React.FC = () => {
 };
 
 export default function I18nAdminDashboardPage() {
-  return (
-    <Suspense
-      fallback={
-        <div className="space-y-6" data-testid="admin-i18n-page">
-          <I18nFeatureView />
-        </div>
-      }
-    >
-      <AdminContent />
-    </Suspense>
-  );
+  return <AdminContent />;
 }

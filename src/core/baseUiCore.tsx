@@ -317,6 +317,32 @@ const PROBLEM_TITLE_LABELS: Record<string, string> = {
   "Validation Failed": "Valideringsfejl",
 };
 
+const PROBLEM_HTTP_TITLE_LABELS_DA: Record<string, string> = {
+  "Internal Server Error": "Midlertidig serverfejl",
+  "Bad Gateway": "Forbindelsesfejl til server",
+  "Unauthorized": "Log ind påkrævet",
+  "Forbidden": "Ingen adgang",
+  "Request Error": "Netværks- eller serverfejl",
+};
+
+const PROBLEM_DETAIL_MAP_DA: Record<string, string> = {
+  "Internal Server Error": "Der opstod en midlertidig serverfejl. Prøv venligst igen.",
+  "Bad Gateway": "Tjenesten svarer ikke i øjeblikket. Prøv igen om et øjeblik.",
+  "Failed to fetch": "Kunne ikke oprette forbindelse til serveren. Tjek netværksforbindelsen og prøv igen.",
+  "NetworkError when attempting to fetch resource.": "Kunne ikke oprette forbindelse til serveren. Prøv venligst igen.",
+  "CVR number must be exactly 8 Danish digits": "CVR-nummeret skal bestå af præcis 8 danske cifre.",
+  "Valid MobilePay phone number (min 8 digits) is required": "Indtast et gyldigt MobilePay-telefonnummer (mindst 8 cifre).",
+  "An unexpected network or server error occurred.": "Der opstod en netværks- eller serverfejl — tjek forbindelsen eller log ind igen.",
+  Unauthorized: "Log ind på EduJournal for at fortsætte.",
+};
+
+function localizeProblemMessage(message: string | undefined, langKey: string): string {
+  if (!message) return "";
+  if (langKey !== "da") return message;
+  const mapped = PROBLEM_DETAIL_MAP_DA[message] ?? message;
+  return mapped.replaceAll("hjemmeadresse", "klinikadresse");
+}
+
 const PROBLEM_FIELD_LABELS: Record<string, string> = {
   cvrNumber: "CVR-nummer",
   startTime: "Starttidspunkt",
@@ -346,8 +372,21 @@ export const ProblemAlert: React.FC<ProblemAlertProps> = ({
   const langKey = rawLocale.slice(0, 2).toLowerCase();
   const dismissCopy = PROBLEM_DISMISS_LABELS[langKey] ?? PROBLEM_DISMISS_LABELS.da;
   const displayTitle =
-    PROBLEM_TITLE_LABELS[activeProblem.title] ?? activeProblem.title;
+    PROBLEM_TITLE_LABELS[activeProblem.title] ??
+    (langKey === "da"
+      ? (PROBLEM_HTTP_TITLE_LABELS_DA[activeProblem.title] ?? activeProblem.title)
+      : activeProblem.title);
+  const localizedDetail = localizeProblemMessage(activeProblem.detail, langKey);
   const fieldErrors = activeProblem.fieldErrors ?? activeProblem.fields;
+  const fieldEntries = fieldErrors ? Object.entries(fieldErrors) : [];
+  const isDuplicateSingleField =
+    fieldEntries.length === 1 &&
+    localizeProblemMessage(fieldEntries[0][1], langKey) === localizedDetail;
+  const displayDetail = isDuplicateSingleField
+    ? langKey === "da"
+      ? "Kontrollér det markerede felt nedenfor."
+      : "Please check the highlighted field below."
+    : localizedDetail;
 
   return (
     <div
@@ -376,7 +415,7 @@ export const ProblemAlert: React.FC<ProblemAlertProps> = ({
               data-testid="error-detail"
               className="mt-1 mb-0 text-sm text-rose-800"
             >
-              {activeProblem.detail}
+              {displayDetail}
             </p>
           </div>
         </div>
@@ -386,7 +425,7 @@ export const ProblemAlert: React.FC<ProblemAlertProps> = ({
             onClick={onDismiss}
             aria-label={dismissCopy.ariaLabel}
             data-testid="dismiss-error"
-            className="inline-flex min-h-9 shrink-0 items-center gap-1 rounded-lg border border-rose-200 bg-white px-2.5 py-1 text-xs font-medium text-rose-700 transition-colors hover:bg-rose-100"
+            className="inline-flex min-h-11 shrink-0 items-center gap-1 rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-medium text-rose-700 transition-colors hover:bg-rose-100"
           >
             <i className="bi bi-x-lg" aria-hidden="true" />
             <span>{dismissCopy.label}</span>
@@ -394,17 +433,17 @@ export const ProblemAlert: React.FC<ProblemAlertProps> = ({
         )}
       </div>
 
-      {fieldErrors && Object.keys(fieldErrors).length > 0 && (
+      {fieldEntries.length > 0 && (
         <ul
           data-testid="field-errors"
           className="mt-3 mb-0 list-disc space-y-1 rounded-lg bg-white/75 px-4 py-2.5 pl-7 text-xs text-rose-900"
         >
-          {Object.entries(fieldErrors).map(([field, message]) => (
+          {fieldEntries.map(([field, message]) => (
             <li key={field} data-testid={`field-error-${field}`}>
               <strong className="font-semibold">
                 {PROBLEM_FIELD_LABELS[field] ?? field}:
               </strong>{" "}
-              {message}
+              {localizeProblemMessage(message, langKey)}
             </li>
           ))}
         </ul>
@@ -609,7 +648,7 @@ export const PortalWorkspaceShell: React.FC<PortalWorkspaceShellProps> = ({
 
       {navItems && navItems.length > 0 && (
         <nav
-          aria-label="Portalnavigation"
+          aria-label={featuresHeaderLabel}
           className="flex-1 space-y-1 overflow-y-auto px-3 py-3"
         >
           {!isCollapsed && (
@@ -704,7 +743,7 @@ export const PortalWorkspaceShell: React.FC<PortalWorkspaceShellProps> = ({
     >
       {/* Desktop Sidebar */}
       <aside
-        aria-label="Hovedsidepanel"
+        aria-label={effectiveSubtitle || effectiveBrandTitle}
         data-testid="desktop-sidebar"
         className={`hidden md:flex md:shrink-0 md:flex-col border-r border-slate-200/80 bg-white transition-all duration-200 ${
           collapsed ? "md:w-20" : "md:w-64"
@@ -788,7 +827,7 @@ export const PortalWorkspaceShell: React.FC<PortalWorkspaceShellProps> = ({
                 onClick={() => setMobileOpen(false)}
                 aria-label={closeMenuAriaLabel}
                 data-testid="mobile-menu-close"
-                className="flex h-11 w-11 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100"
+                className="flex h-11 w-11 min-w-11 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100"
               >
                 <i className="bi bi-x-lg text-sm" aria-hidden="true" />
               </button>

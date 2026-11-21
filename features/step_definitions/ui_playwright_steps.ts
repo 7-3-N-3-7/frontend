@@ -1570,6 +1570,7 @@ When(
 
     const client = this.usersByLogicalName.get(clientName);
     const selectClient = page.getByTestId("select-pcl5-client");
+    await selectClient.waitFor({ state: "visible", timeout: 2500 }).catch(() => {});
     if ((await selectClient.count()) > 0 && (await selectClient.isVisible())) {
       const matched = await selectClient.evaluate(
         (el, target) => {

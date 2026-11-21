@@ -148,19 +148,19 @@ export default async function proxy(request: NextRequest) {
     }
 
     if (pathWithoutLocale === '/dashboard') {
-      return NextResponse.redirect(
-        new URL(
-          `/${locale}/dashboard/${hasTherapistRole ? 'therapist' : 'personal'}`,
-          platformOrigin,
-        ),
-      );
+      const targetPath = hasAdminRole
+        ? `/${locale}/dashboard/admin?tab=management`
+        : `/${locale}/dashboard/${hasTherapistRole ? 'therapist' : 'personal'}`;
+      return NextResponse.redirect(new URL(targetPath, platformOrigin));
     }
   }
 
   // Redirect authenticated users on root /{locale} directly to their dashboard on platform.<domain>
   if (token && pathWithoutLocale === '/') {
-    const dashboard = hasTherapistRole ? 'therapist' : 'personal';
-    const dashboardUrl = new URL(`/${locale}/dashboard/${dashboard}`, platformOrigin);
+    const dashboardPath = hasAdminRole
+      ? `/${locale}/dashboard/admin?tab=management`
+      : `/${locale}/dashboard/${hasTherapistRole ? 'therapist' : 'personal'}`;
+    const dashboardUrl = new URL(dashboardPath, platformOrigin);
     if (url.searchParams.get('emailVerified') === '1') {
       dashboardUrl.searchParams.set('emailVerified', '1');
     }

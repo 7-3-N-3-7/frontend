@@ -285,20 +285,22 @@ const ManagementFeatureAuthorizedContent: React.FC = () => {
 
       <ProblemAlert error={error} onDismiss={clearError} />
 
-      <ConfirmActionDialog
-        open={pendingDeleteId !== null}
-        title={copy.confirmDeleteTitle}
-        description={copy.confirmDeleteDesc}
-        confirmLabel={copy.confirmDeleteBtn}
-        cancelLabel={copy.cancelBtn}
-        tone="danger"
-        onCancel={() => setPendingDeleteId(null)}
-        onConfirm={() => {
-          const targetId = pendingDeleteId;
-          setPendingDeleteId(null);
-          if (targetId) void remove(targetId);
-        }}
-      />
+      {pendingDeleteId && (
+        <ConfirmActionDialog
+          open
+          title={copy.confirmDeleteTitle}
+          description={copy.confirmDeleteDesc}
+          confirmLabel={copy.confirmDeleteBtn}
+          cancelLabel={copy.cancelBtn}
+          tone="danger"
+          onCancel={() => setPendingDeleteId(null)}
+          onConfirm={() => {
+            const targetId = pendingDeleteId;
+            setPendingDeleteId(null);
+            void remove(targetId);
+          }}
+        />
+      )}
 
       <form
         onSubmit={handleSubmit}
@@ -394,7 +396,7 @@ const ManagementFeatureAuthorizedContent: React.FC = () => {
         </div>
       )}
 
-      <ul className="space-y-2" data-testid="kpi-list">
+      <ul className="list-none space-y-2 pl-0" style={{ paddingLeft: 0 }} data-testid="kpi-list">
         {kpis.map((kpi) => (
           <li
             key={kpi.id}

@@ -749,6 +749,7 @@ interface AppointmentCopy {
   anyTimeOption: string;
   selectedTimeSummaryLabel: string;
   bookingSuccessNotice: string;
+  cancelSuccessNotice: string;
   disabledBookingHint: string;
   selectTimeHint: string;
 }
@@ -865,6 +866,7 @@ const APPOINTMENT_COPY: Record<SupportedUiLocale, AppointmentCopy> = {
     anyTimeOption: "Første ledige (anbefalet)",
     selectedTimeSummaryLabel: "Valgt tidspunkt",
     bookingSuccessNotice: "Din aftale er booket og bekræftet i kalenderen.",
+    cancelSuccessNotice: "Aftalen er nu aflyst, og tiden er frigivet i kalenderen.",
     disabledBookingHint: "Vælg en behandler med mindst én aktiv ydelse for at booke.",
     selectTimeHint: "Vælg dato og et ledigt tidspunkt ovenfor før du booker.",
   },
@@ -979,6 +981,7 @@ const APPOINTMENT_COPY: Record<SupportedUiLocale, AppointmentCopy> = {
     anyTimeOption: "First available (recommended)",
     selectedTimeSummaryLabel: "Selected time",
     bookingSuccessNotice: "Your appointment has been booked and confirmed.",
+    cancelSuccessNotice: "Your appointment has been cancelled and the slot is open again.",
     disabledBookingHint: "Select a therapist with at least one active service to book.",
     selectTimeHint: "Choose a date and an open time slot above before booking.",
   },
@@ -1093,6 +1096,7 @@ const APPOINTMENT_COPY: Record<SupportedUiLocale, AppointmentCopy> = {
     anyTimeOption: "Premier disponible (recommandé)",
     selectedTimeSummaryLabel: "Créneau choisi",
     bookingSuccessNotice: "Votre rendez-vous a été réservé et confirmé.",
+    cancelSuccessNotice: "Votre rendez-vous a été annulé et le créneau est à nouveau libre.",
     disabledBookingHint: "Choisissez un praticien ayant au moins une prestation active.",
     selectTimeHint: "Sélectionnez une date et un créneau libre ci-dessus.",
   },
@@ -1207,6 +1211,7 @@ const APPOINTMENT_COPY: Record<SupportedUiLocale, AppointmentCopy> = {
     anyTimeOption: "Primero disponible (recomendado)",
     selectedTimeSummaryLabel: "Horario elegido",
     bookingSuccessNotice: "Tu cita ha sido reservada y confirmada.",
+    cancelSuccessNotice: "Tu cita ha sido cancelada y el horario vuelve a estar disponible.",
     disabledBookingHint: "Selecciona un terapeuta con al menos un servicio activo.",
     selectTimeHint: "Elige una fecha y un horario libre arriba antes de reservar.",
   },
@@ -1321,6 +1326,7 @@ const APPOINTMENT_COPY: Record<SupportedUiLocale, AppointmentCopy> = {
     anyTimeOption: "Nächstmöglicher Termin",
     selectedTimeSummaryLabel: "Gewählte Zeit",
     bookingSuccessNotice: "Ihr Termin wurde gebucht und bestätigt.",
+    cancelSuccessNotice: "Der Termin wurde storniert und das Zeitfenster ist wieder frei.",
     disabledBookingHint: "Wählen Sie einen Therapeuten mit aktiver Leistung.",
     selectTimeHint: "Bitte wählen Sie oben zuerst Datum und freie Zeit aus.",
   },
@@ -1335,6 +1341,21 @@ function localizeScheduleSummary(summaryText: string, copy: AppointmentCopy): st
     .replaceAll("Weekend: Lukket", copy.weekendClosed)
     .replaceAll("Lukket", copy.closedLabel)
     .replaceAll("(Alle hverdage)", copy.allWeekdaysSuffix);
+}
+
+export function formatGitCommitSummary(
+  rawMessage: string,
+  locale: SupportedUiLocale
+): string {
+  const withoutBranch = (rawMessage || "")
+    .replace(/\s*\[Branch:[^\]]+\]\s*/gi, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  return withoutBranch.replace(
+    /(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(?::\d{2}(?:\.\d+)?)?(?:Z)?/g,
+    (_, datePart: string, timePart: string) =>
+      `${formatIsoDateHuman(datePart, locale)} · ${timePart}`
+  );
 }
 
 function getStatusPresentation(
@@ -1574,9 +1595,9 @@ const BookingCalendarGrid: React.FC<BookingCalendarGridProps> = ({
   copy,
   minDate,
   weeklySchedule = null,
-  allowClosedDays = false,
+  allowClosedDays,
   compact = false,
-  testId = "booking-calendar",
+  testId,
 }) => {
   const todayIso = getTodayIsoDate();
   const anchorIso = /^\d{4}-\d{2}-\d{2}$/.test(selectedDate)
@@ -1627,7 +1648,7 @@ const BookingCalendarGrid: React.FC<BookingCalendarGridProps> = ({
     <div
       data-testid={testId}
       className={`rounded-2xl border border-slate-200 bg-white ${
-        compact ? "p-3 shadow-lg" : "p-3.5 shadow-xs"
+        compact ? "p-2 sm:p-3 shadow-lg" : "p-2 sm:p-3.5 shadow-xs"
       }`}
     >
       <div className="flex items-center justify-between gap-2 mb-2.5">
@@ -1657,52 +1678,56 @@ const BookingCalendarGrid: React.FC<BookingCalendarGridProps> = ({
         </button>
       </div>
 
-      <div className="grid grid-cols-7 gap-1 mb-1">
-        {monFirstWeekdays.map((wd) => (
-          <div
-            key={wd}
-            className="text-center text-[10px] font-bold uppercase text-slate-400 py-1"
-          >
-            {wd}
+      <div className="overflow-x-auto">
+        <div className="min-w-[314px] sm:min-w-0">
+          <div className="grid grid-cols-7 gap-0.5 sm:gap-1 mb-1">
+            {monFirstWeekdays.map((wd) => (
+              <div
+                key={wd}
+                className="text-center text-[10px] font-bold uppercase text-slate-400 py-1"
+              >
+                {wd}
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
 
-      <div className="grid grid-cols-7 gap-1">
-        {cells.map((iso, idx) => {
-          if (!iso) {
-            return <div key={`empty-${idx}`} className="h-9" />;
-          }
-          const dayNum = Number(iso.slice(8, 10));
-          const isBeforeMin = Boolean(minDate && iso < minDate);
-          const isClosed =
-            !allowClosedDays &&
-            Boolean(weeklySchedule && isDayClosed(weeklySchedule, iso));
-          const disabled = isBeforeMin || isClosed;
-          const isSelected = iso === selectedDate;
-          const isToday = iso === todayIso;
+          <div className="grid grid-cols-7 gap-0.5 sm:gap-1">
+            {cells.map((iso, idx) => {
+              if (!iso) {
+                return <div key={`empty-${idx}`} className="h-11" />;
+              }
+              const dayNum = Number(iso.slice(8, 10));
+              const isBeforeMin = Boolean(minDate && iso < minDate);
+              const isClosed =
+                !allowClosedDays &&
+                Boolean(weeklySchedule && isDayClosed(weeklySchedule, iso));
+              const disabled = isBeforeMin || isClosed;
+              const isSelected = iso === selectedDate;
+              const isToday = iso === todayIso;
 
-          return (
-            <button
-              key={iso}
-              type="button"
-              disabled={disabled}
-              onClick={() => onSelectDate(iso)}
-              data-testid={`${testId}-day-${iso}`}
-              className={`min-h-11 w-full rounded-xl text-xs font-semibold transition-colors ${
-                isSelected
-                  ? "bg-teal-700 text-white shadow-xs"
-                  : disabled
-                    ? "bg-slate-50 text-slate-300 cursor-not-allowed"
-                    : isToday
-                      ? "border border-teal-500 bg-teal-50/70 text-teal-900 hover:bg-teal-100"
-                      : "bg-white text-slate-700 hover:bg-teal-50 hover:text-teal-900"
-              }`}
-            >
-              {dayNum}
-            </button>
-          );
-        })}
+              return (
+                <button
+                  key={iso}
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => onSelectDate(iso)}
+                  data-testid={`${testId}-day-${iso}`}
+                  className={`min-h-11 min-w-11 w-full rounded-xl text-xs font-semibold transition-colors ${
+                    isSelected
+                      ? "bg-teal-700 text-white shadow-xs"
+                      : disabled
+                        ? "bg-slate-50 text-slate-300 cursor-not-allowed"
+                        : isToday
+                          ? "border border-teal-500 bg-teal-50/70 text-teal-900 hover:bg-teal-100"
+                          : "bg-white text-slate-700 hover:bg-teal-50 hover:text-teal-900"
+                  }`}
+                >
+                  {dayNum}
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -1870,6 +1895,7 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
   const [pendingCancelAppointment, setPendingCancelAppointment] =
     useState<AppointmentDto | null>(null);
   const [bookingSuccessMsg, setBookingSuccessMsg] = useState<string | null>(null);
+  const [locallyCancelledItems, setLocallyCancelledItems] = useState<AppointmentDto[]>([]);
 
   // Timefold AI-panel
   const [showTimefold, setShowTimefold] = useState(false);
@@ -1888,6 +1914,7 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
   );
   const [scheduleSaving, setScheduleSaving] = useState(false);
   const [scheduleSavedMsg, setScheduleSavedMsg] = useState<string | null>(null);
+  const [scheduleValidationError, setScheduleValidationError] = useState<string | null>(null);
 
   // Inline Ombook + Ændringshistorik
   const [rescheduleId, setRescheduleId] = useState<string | null>(null);
@@ -1963,7 +1990,36 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
           : loadedProviders;
 
       if (pool.length > 0) {
-        const preferred = pool[0];
+        let preferred = pool[0];
+        if (isClientMode && hasLiveUuid && auth?.user.id) {
+          try {
+            const hsRes = await fetch(
+              `/api/backend/clinic/handshakes/client/${encodeURIComponent(auth.user.id)}`,
+              { credentials: "same-origin", cache: "no-store" }
+            );
+            if (hsRes.ok) {
+              const hsList = (await hsRes.json()) as Array<{
+                therapistUuid?: string;
+                status?: string;
+              }>;
+              if (Array.isArray(hsList)) {
+                const activeMatch = hsList.find(
+                  (h) =>
+                    String(h?.status || "").toUpperCase() === "ACTIVE" &&
+                    pool.some((p) => p.userUuid === h.therapistUuid)
+                );
+                const foundProvider = activeMatch
+                  ? pool.find((p) => p.userUuid === activeMatch.therapistUuid)
+                  : undefined;
+                if (foundProvider) {
+                  preferred = foundProvider;
+                }
+              }
+            }
+          } catch {
+            // Optional ACTIVE handshake pre-selection
+          }
+        }
         setSelectedTherapistUuid((prev) => prev || preferred.userUuid);
         setTimefoldTherapistUuid((prev) => prev || preferred.userUuid);
         if (preferred.workingHoursJson && isProviderPortal) {
@@ -2101,6 +2157,22 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
     effectiveTherapistUuid,
   ]);
 
+  useEffect(() => {
+    if (!selectedProviderSchedule || startTime || !bookingDate) return;
+    if (!isDayClosed(selectedProviderSchedule, bookingDate)) return;
+    const baseMs = Date.parse(`${bookingDate}T12:00:00Z`);
+    if (Number.isNaN(baseMs)) return;
+    for (let offset = 1; offset <= 14; offset += 1) {
+      const candidateIso = new Date(baseMs + offset * 86400000)
+        .toISOString()
+        .slice(0, 10);
+      if (!isDayClosed(selectedProviderSchedule, candidateIso)) {
+        setBookingDate(candidateIso);
+        break;
+      }
+    }
+  }, [selectedProviderSchedule, bookingDate, startTime]);
+
   // Hent live Timefold AI ledige tidsslots når behandler, dato eller ydelse skifter
   useEffect(() => {
     if (!hasLiveUuid || !effectiveTherapistUuid || !bookingDate) {
@@ -2183,7 +2255,13 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
     includeOutsideHours,
   ]);
 
-  const rawSourceItems = windowItems ?? items;
+  const rawSourceItems = useMemo(() => {
+    const baseList = windowItems ?? items;
+    if (locallyCancelledItems.length === 0) return baseList;
+    const existingIds = new Set(baseList.map((a) => a.id).filter(Boolean));
+    const extras = locallyCancelledItems.filter((c) => c.id && !existingIds.has(c.id));
+    return extras.length > 0 ? [...baseList, ...extras] : baseList;
+  }, [windowItems, items, locallyCancelledItems]);
   const activeSourceItems = useMemo(() => {
     if (!hasLiveUuid || !auth?.user.id) return rawSourceItems;
     return rawSourceItems.filter((a) =>
@@ -2403,12 +2481,27 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
     }
   };
 
-  const handleCancelAppointment = async (id: string) => {
+  const handleCancelAppointment = async (targetEntry: AppointmentDto) => {
+    const id = targetEntry.id!;
     const ok = await remove(id);
     if (ok) {
       setWindowItems((prev) =>
-        prev ? prev.filter((entry) => entry.id !== id) : null
+        prev
+          ? prev.map((entry) =>
+              entry.id === id ? { ...entry, status: "CANCELLED" } : entry
+            )
+          : null
       );
+      const cancelledCopy: AppointmentDto = {
+        ...targetEntry,
+        id,
+        status: "CANCELLED",
+      };
+      setLocallyCancelledItems((prev) => [
+        ...prev.filter((entry) => entry.id !== id),
+        cancelledCopy,
+      ]);
+      setBookingSuccessMsg(copy.cancelSuccessNotice);
       setSlotsRefreshTick((n) => n + 1);
     }
   };
@@ -2455,9 +2548,24 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
 
   const updateDayInterval = (
     dayKey: WeekdayKey,
-    intervalId: string,
+    currentIntv: TimeInterval,
     patch: Partial<TimeInterval>
   ) => {
+    const nextStart = patch.start ?? currentIntv.start;
+    const nextEnd = patch.end ?? currentIntv.end;
+    if (timeToMinutes(nextEnd, true) <= timeToMinutes(nextStart)) {
+      const INVALID_INTERVAL_MSG: Record<SupportedUiLocale, string> = {
+        da: `Ugyldigt tidsrum (${nextStart}–${nextEnd}): Sluttidspunktet skal være efter starttidspunktet.`,
+        en: `Invalid interval (${nextStart}–${nextEnd}): End time must be after start time.`,
+        fr: `Plage invalide (${nextStart}–${nextEnd}) : l'heure de fin doit suivre l'heure de début.`,
+        es: `Intervalo inválido (${nextStart}–${nextEnd}): la hora de fin debe ser posterior a la de inicio.`,
+        de: `Ungültiges Zeitfenster (${nextStart}–${nextEnd}): Die Endzeit muss nach der Startzeit liegen.`,
+      };
+      setScheduleValidationError(INVALID_INTERVAL_MSG[locale]);
+      setScheduleSavedMsg(null);
+      return;
+    }
+    setScheduleValidationError(null);
     setWeeklySchedule((prev) =>
       recomputeSchedule({
         ...prev,
@@ -2466,7 +2574,7 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
             ? {
                 ...d,
                 intervals: d.intervals.map((intv) =>
-                  intv.id === intervalId ? { ...intv, ...patch } : intv
+                  intv.id === currentIntv.id ? { ...intv, ...patch } : intv
                 ),
               }
             : d
@@ -2524,6 +2632,7 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
     setScheduleSaving(true);
     clearError();
     setScheduleSavedMsg(null);
+    setScheduleValidationError(null);
     try {
       const serialized = serializeWeeklySchedule(weeklySchedule);
       await appointmentApi.saveWorkingHours(serialized);
@@ -2855,6 +2964,16 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
               </button>
             </div>
 
+            {scheduleValidationError && (
+              <div
+                role="alert"
+                className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-800"
+                data-testid="weekly-schedule-error"
+              >
+                {scheduleValidationError}
+              </div>
+            )}
+
             {scheduleSavedMsg && (
               <div
                 className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800"
@@ -2894,7 +3013,7 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
                               type="time"
                               value={intv.start}
                               onChange={(e) =>
-                                updateDayInterval(day.day, intv.id, {
+                                updateDayInterval(day.day, intv, {
                                   start: roundTo5Min(e.target.value),
                                 })
                               }
@@ -2905,7 +3024,7 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
                               type="time"
                               value={intv.end}
                               onChange={(e) =>
-                                updateDayInterval(day.day, intv.id, {
+                                updateDayInterval(day.day, intv, {
                                   end: roundTo5Min(e.target.value),
                                 })
                               }
@@ -2953,24 +3072,26 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
         )}
 
         {/* Bekræftelsesdialog før aflysning */}
-        <ConfirmActionDialog
-          open={Boolean(pendingCancelAppointment)}
-          title={copy.confirmCancelTitle}
-          description={`${copy.confirmCancelDescPrefix}${
-            pendingCancelAppointment?.title || pendingCancelAppointment?.clientName
-              ? ` "${pendingCancelAppointment.title || pendingCancelAppointment.clientName}"`
-              : ""
-          }?`}
-          confirmLabel={copy.confirmCancelBtn}
-          cancelLabel={copy.dismissDialogBtn}
-          tone="danger"
-          onCancel={() => setPendingCancelAppointment(null)}
-          onConfirm={() => {
-            const targetId = pendingCancelAppointment?.id;
-            setPendingCancelAppointment(null);
-            if (targetId) void handleCancelAppointment(targetId);
-          }}
-        />
+        {pendingCancelAppointment?.id && (
+          <ConfirmActionDialog
+            open
+            title={copy.confirmCancelTitle}
+            description={`${copy.confirmCancelDescPrefix}${
+              pendingCancelAppointment.title || pendingCancelAppointment.clientName
+                ? ` "${pendingCancelAppointment.title || pendingCancelAppointment.clientName}"`
+                : ""
+            }?`}
+            confirmLabel={copy.confirmCancelBtn}
+            cancelLabel={copy.dismissDialogBtn}
+            tone="danger"
+            onCancel={() => setPendingCancelAppointment(null)}
+            onConfirm={() => {
+              const target = pendingCancelAppointment;
+              setPendingCancelAppointment(null);
+              void handleCancelAppointment(target);
+            }}
+          />
+        )}
 
         {/* Moderne Booking-formular (Klient/Behandler) */}
         <form
@@ -2978,7 +3099,7 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
           onSubmit={handleSubmit}
           className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4 sm:p-5 space-y-4"
         >
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="flex flex-col gap-1">
               <label className="text-xs font-semibold text-slate-600">
                 {copy.clientNameLabel}
@@ -3016,10 +3137,10 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
                   if (selectedClientUuid) setSelectedClientUuid("");
                 }}
                 data-testid="input-clientName"
-                className={`w-full min-h-11 ${
+                className={`w-full min-h-11 rounded-xl border border-slate-300 px-3 py-2 text-sm focus:border-teal-600 focus:outline-none ${
                   isClientMode && auth?.user.name
                     ? "bg-slate-100 text-slate-700 cursor-not-allowed"
-                    : ""
+                    : "bg-white text-slate-900"
                 }`}
               />
             </div>
@@ -3033,7 +3154,7 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
                 disabled={isProviderPortal}
                 onChange={(e) => setSelectedTherapistUuid(e.target.value)}
                 data-testid="select-therapist"
-                className="w-full h-11 min-h-11 truncate disabled:bg-slate-100 disabled:text-slate-700"
+                className="w-full h-11 min-h-11 truncate rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none disabled:bg-slate-100 disabled:text-slate-700"
               >
                 {!isProviderPortal && (
                   <option value="">{copy.selectTherapistOption}</option>
@@ -3059,7 +3180,7 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
                 }
                 onChange={(e) => handleSelectService(e.target.value)}
                 data-testid="select-service"
-                className="w-full min-h-11 disabled:bg-slate-100 disabled:text-slate-500"
+                className="w-full min-h-11 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500"
               >
                 <option value="">
                   {servicesLoading
@@ -3068,12 +3189,17 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
                       ? copy.noServicesOption
                       : copy.selectServiceOption}
                 </option>
-                {filteredServices.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                    {s.durationMinutes ? ` (${s.durationMinutes} min)` : ""}
-                  </option>
-                ))}
+                {filteredServices.map((s) => {
+                  const hasDurInName =
+                    Boolean(s.durationMinutes) &&
+                    new RegExp(`\\(\\s*${s.durationMinutes}\\s*min\\s*\\)`, "i").test(s.name);
+                  return (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                      {s.durationMinutes && !hasDurInName ? ` (${s.durationMinutes} min)` : ""}
+                    </option>
+                  );
+                })}
               </select>
               {hasLiveUuid &&
                 Boolean(effectiveTherapistUuid) &&
@@ -3098,7 +3224,7 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 data-testid="input-title"
-                className="w-full min-h-11"
+                className="w-full min-h-11 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
               />
             </div>
           </div>
@@ -3250,10 +3376,10 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
                 </div>
 
                 <div className="sm:col-span-5 flex flex-col gap-1">
-                  <label className="text-xs font-semibold text-slate-600 flex items-center justify-between gap-2">
+                  <label className="text-xs font-semibold text-slate-600 flex flex-wrap items-center justify-between gap-2">
                     <span>{copy.endTimeLabel}</span>
                     {selectedService?.durationMinutes && (
-                      <span className="rounded-full bg-teal-50 border border-teal-200 px-2 py-0.5 text-[10px] font-semibold text-teal-800">
+                      <span className="shrink-0 whitespace-nowrap rounded-full bg-teal-50 border border-teal-200 px-2 py-0.5 text-[10px] font-semibold text-teal-800">
                         {copy.autoFromServicePrefix}: +{selectedService.durationMinutes} min
                       </span>
                     )}
@@ -3366,7 +3492,7 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 data-testid="filter-appointment-search"
-                className="min-h-11 w-full sm:w-56 !py-2 !px-3 !text-xs"
+                className="min-h-11 w-full sm:w-56 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:border-teal-600 focus:outline-none"
               />
               <DatePopoverPicker
                 value={dateFrom}
@@ -3411,7 +3537,7 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
               <button
                 type="button"
                 onClick={() => void fetchAll()}
-                className="min-h-11 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-3 py-2 text-xs text-slate-600"
+                className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-3 py-2 text-xs text-slate-600"
                 title={copy.refreshTitle}
               >
                 <i className="bi bi-arrow-clockwise" aria-hidden="true" />
@@ -3448,8 +3574,18 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
           </div>
         ) : (
           <>
-            <ul className="space-y-3" data-testid="booking-list">
+            <ul className="list-none space-y-3 pl-0" style={{ paddingLeft: 0 }} data-testid="booking-list">
               {paginatedAppointments.map((item) => {
+                const matchedProvider = item.therapistUuid
+                  ? providers.find((p) => p.userUuid === item.therapistUuid)
+                  : undefined;
+                const resolvedTherapistName =
+                  item.therapistName || matchedProvider?.displayName;
+                const resolvedOrgName =
+                  item.organisationName || matchedProvider?.organisationName;
+                const rescheduleSchedule = matchedProvider?.workingHoursJson
+                  ? parseWeeklySchedule(matchedProvider.workingHoursJson)
+                  : undefined;
                 const dateParts = formatAppointmentDateParts(
                   item.startTime,
                   item.endTime,
@@ -3490,7 +3626,11 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
 
                         <div className="min-w-0 space-y-1">
                           <div className="flex flex-wrap items-center gap-2">
-                            {item.clientName ? (
+                            {isClientMode ? (
+                              <strong className="text-sm font-bold text-slate-900">
+                                {item.title || item.clientName || copy.fallbackCardTitle}
+                              </strong>
+                            ) : item.clientName ? (
                               <>
                                 <strong className="text-sm font-bold text-slate-900">
                                   {item.clientName}
@@ -3519,16 +3659,16 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
                               {dateParts.weekdayShort ? `${dateParts.weekdayShort} ` : ""}
                               {dateParts.fullDate} · {dateParts.timeRange}
                             </span>
-                            {item.therapistName && (
+                            {resolvedTherapistName && (
                               <span className="inline-flex items-center gap-1">
                                 <i className="bi bi-person-badge" aria-hidden="true" />
-                                {item.therapistName}
+                                {resolvedTherapistName}
                               </span>
                             )}
-                            {item.organisationName && (
+                            {resolvedOrgName && (
                               <span className="inline-flex items-center gap-1">
                                 <i className="bi bi-building" aria-hidden="true" />
-                                {item.organisationName}
+                                {resolvedOrgName}
                               </span>
                             )}
                             {item.location && (
@@ -3574,15 +3714,17 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
                             </button>
                           )}
 
-                          <button
-                            type="button"
-                            onClick={() => setPendingCancelAppointment(item)}
-                            data-testid={`delete-booking-${item.id}`}
-                            className="min-h-11 inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 px-3.5 py-2 text-xs font-semibold transition-colors"
-                          >
-                            <i className="bi bi-x-circle" aria-hidden="true" />
-                            {copy.cancelBtn}
-                          </button>
+                          {!isCancelled && (
+                            <button
+                              type="button"
+                              onClick={() => setPendingCancelAppointment(item)}
+                              data-testid={`delete-booking-${item.id}`}
+                              className="min-h-11 inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 px-3.5 py-2 text-xs font-semibold transition-colors"
+                            >
+                              <i className="bi bi-x-circle" aria-hidden="true" />
+                              {copy.cancelBtn}
+                            </button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -3601,6 +3743,7 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
                               locale={locale}
                               copy={copy}
                               minDate={getTodayIsoDate()}
+                              weeklySchedule={rescheduleSchedule}
                               allowClosedDays={isProviderPortal && includeOutsideHours}
                               compact
                               testId={`reschedule-calendar-${item.id}`}
@@ -3735,20 +3878,30 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
                           )}
                         {historyEntries && historyEntries.length > 0 && (
                           <>
-                            <ul className="space-y-1.5">
-                              {historyEntries.map((commit) => (
-                                <li
-                                  key={commit.commitHash}
-                                  className="rounded-xl bg-slate-50 border border-slate-200 px-3 py-2 text-xs flex flex-wrap items-center justify-between gap-2"
-                                >
-                                  <span className="font-medium text-slate-800">
-                                    {commit.message}
-                                  </span>
-                                  <span className="text-slate-500">
-                                    {commit.author} · {commit.timestamp}
-                                  </span>
-                                </li>
-                              ))}
+                            <ul className="list-none space-y-1.5 pl-0" style={{ paddingLeft: 0 }}>
+                              {historyEntries.map((commit) => {
+                                let formattedTs = commit.timestamp;
+                                const parsedDate = commit.timestamp ? new Date(commit.timestamp) : null;
+                                if (parsedDate && !Number.isNaN(parsedDate.getTime())) {
+                                  formattedTs = new Intl.DateTimeFormat(locale === "en" ? "en-GB" : locale, {
+                                    dateStyle: "medium",
+                                    timeStyle: "short",
+                                  }).format(parsedDate);
+                                }
+                                return (
+                                  <li
+                                    key={commit.commitHash}
+                                    className="rounded-xl bg-slate-50 border border-slate-200 px-3 py-2 text-xs flex flex-wrap items-center justify-between gap-2"
+                                  >
+                                    <span className="font-medium text-slate-800">
+                                      {formatGitCommitSummary(commit.message, locale)}
+                                    </span>
+                                    <span className="text-slate-500">
+                                      {commit.author} · {formattedTs}
+                                    </span>
+                                  </li>
+                                );
+                              })}
                             </ul>
                             {!isClientMode && (
                               <details
@@ -3758,7 +3911,7 @@ export const AppointmentFeatureView: React.FC<AppointmentFeatureViewProps> = ({
                                 <summary className="cursor-pointer font-semibold text-slate-700 select-none">
                                   {copy.technicalAuditSummary}
                                 </summary>
-                                <ul className="mt-2 space-y-1">
+                                <ul className="mt-2 list-none space-y-1 pl-0" style={{ paddingLeft: 0 }}>
                                   {historyEntries.map((commit) => (
                                     <li
                                       key={`sha-${commit.commitHash}`}

@@ -6,12 +6,14 @@ import {
   calculatePcl5Severity,
   filterPcl5ClientOptions,
   localizePcl5Severity,
+  normalizeUtcTimestamp,
   PCL5_CLUSTERS,
   PCL5_QUESTIONS_DA,
   PCL5_QUESTIONS_EN,
 } from "./PsychotraumatologyFeature";
 import { AuthProvider } from "../../core/baseUiCore";
 import { ErrorCode, ProblemDetail } from "../../core/baseDomainCore";
+import { CachedI18nProvider } from "../i18n/I18nFeature";
 
 describe("PsychotraumatologyFeature Vertical Slice", () => {
   beforeEach(() => {
@@ -454,5 +456,162 @@ describe("PsychotraumatologyFeature Vertical Slice", () => {
     );
     unmount();
     resolveClients({ ok: false, status: 500, json: async () => [] } as Response);
+  });
+
+  it("blocks therapist self-assessment in manual mode and renders client name and timestamp on assessments", async () => {
+    global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/backend/clinic/clients")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [{ id: "cp-9", userId: "c-listed-9", fullName: "Lukas Holm", email: "lukas@dk.dk" }],
+        };
+      }
+      if (url.includes("/api/backend/psychotraumatology/tests")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            {
+              id: "pcl-9",
+              clientUuid: "c-listed-9",
+              testType: "PCL-5",
+              score: 42,
+              severity: "SIGNIFICANT_PTSD",
+              createdAt: "2026-10-12T09:15:00Z",
+            },
+          ],
+        };
+      }
+      return { ok: true, status: 200, json: async () => [] };
+    });
+
+    render(
+      <AuthProvider user={{ id: "th-self-1", name: "Dr. Egen", email: "egen@dk.dk", roles: ["THERAPIST"] }}>
+        <PsychotraumatologyFeatureView portalMode="provider" />
+      </AuthProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("psychotraumatology-item-pcl-9").textContent).toContain("Lukas Holm");
+    });
+
+    fireEvent.click(screen.getByTestId("toggle-manual-score-mode"));
+    fireEvent.change(screen.getByTestId("select-pcl5-client"), { target: { value: "__manual__" } });
+    fireEvent.change(screen.getByTestId("input-clientUuid"), { target: { value: "th-self-1" } });
+    fireEvent.change(screen.getByTestId("input-score"), { target: { value: "25" } });
+    fireEvent.click(screen.getByTestId("submit-psychotraumatology"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("error-detail").textContent).toContain(
+        "Kontrollér det markerede felt nedenfor."
+      );
+      expect(screen.getByTestId("field-error-clientUuid").textContent).toContain(
+        "sig selv som klient"
+      );
+    });
+
+    // Cover English self-assessment error & invalid/missing createdAt date fallback
+    global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/clinic/clients")) {
+        return { ok: true, status: 200, json: async () => [{ id: "cp-x", userId: null, fullName: "Client ById", email: "o@dk.dk" }] };
+      }
+      if (url.includes("/psychotraumatology/tests")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            { id: "pcl-bad", clientUuid: "unknown-id", testType: "PCL-5", score: 15, severity: "Minimal", createdAt: "bad-date" },
+            { id: "pcl-ts-en", clientUuid: "cp-x", testType: "PCL-5", score: 28, severity: "Mild / Sub-threshold", timestamp: "2026-10-12T10:00:00Z" },
+            { id: "pcl-noclient", clientUuid: "", testType: "PCL-5", score: 5, severity: "Minimal" },
+          ],
+        };
+      }
+      return { ok: true, status: 200, json: async () => [] };
+    });
+
+    const enRender = render(
+      <CachedI18nProvider initialLocale="en" initialMessages={{}}>
+        <AuthProvider user={{ id: "th-en-1", name: "Dr. En", email: "en@dk.dk", roles: ["THERAPIST"] }}>
+          <PsychotraumatologyFeatureView portalMode="provider" />
+        </AuthProvider>
+      </CachedI18nProvider>
+    );
+    await waitFor(() => expect(screen.getByTestId("psychotraumatology-item-pcl-ts-en").textContent).toContain("Client ById"));
+    fireEvent.click(screen.getAllByTestId("toggle-manual-score-mode").pop()!);
+    fireEvent.change(screen.getAllByTestId("select-pcl5-client").pop()!, { target: { value: "__manual__" } });
+    fireEvent.change(screen.getAllByTestId("input-clientUuid").pop()!, { target: { value: "th-en-1" } });
+    fireEvent.change(screen.getAllByTestId("input-score").pop()!, { target: { value: "25" } });
+    fireEvent.click(screen.getAllByTestId("submit-psychotraumatology").pop()!);
+    await waitFor(() => {
+      expect(screen.getAllByTestId("field-error-clientUuid").pop()?.textContent).toContain("for themselves as client");
+    });
+    enRender.unmount();
+
+    // Cover normalizeUtcTimestamp + loading&&!error + client self-view name display
+    expect(normalizeUtcTimestamp("")).toBe("");
+    expect(normalizeUtcTimestamp("2026-11-20T12:32:00")).toBe("2026-11-20T12:32:00Z");
+    expect(normalizeUtcTimestamp("2026-11-20T12:32:00Z")).toBe("2026-11-20T12:32:00Z");
+
+    global.fetch = vi.fn().mockImplementation(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => [
+        {
+          id: "pcl-client-self",
+          clientUuid: "c-self-1",
+          testType: "PCL-5",
+          score: 35,
+          severity: "Moderate",
+          createdAt: "2026-11-20T12:32:00",
+        },
+      ],
+    }));
+    const clientView = render(
+      <AuthProvider user={{ id: "c-self-1", name: "Maja Lindholm", email: "m@dk.dk", roles: ["CLIENT"] }}>
+        <PsychotraumatologyFeatureView portalMode="client" />
+      </AuthProvider>
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("psychotraumatology-item-pcl-client-self").textContent).toContain(
+        "Maja Lindholm"
+      );
+    });
+    clientView.unmount();
+
+    expect(filterPcl5ClientOptions([{ id: "cp-z", userId: "u-z", fullName: "Zoe", email: "z@dk.dk" }], "u1", null)).toHaveLength(1);
+
+    // Client self-view with empty auth.user.name renders item cleanly with '' fallback
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => [
+        { id: "pcl-empty-auth", clientUuid: "c-empty-name", testType: "PCL-5", score: 10, severity: "Minimal" },
+      ],
+    });
+    const emptyNameClient = render(
+      <AuthProvider user={{ id: "c-empty-name", name: "", email: "e@dk.dk", roles: ["CLIENT"] }}>
+        <PsychotraumatologyFeatureView portalMode="client" />
+      </AuthProvider>
+    );
+    await waitFor(() => expect(screen.getByTestId("psychotraumatology-item-pcl-empty-auth")).toBeDefined());
+    emptyNameClient.unmount();
+
+    // Empty auth.user.name + API 401 error hides loading indicator
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      json: async () => ({ status: 401, title: "Unauthorized", detail: "Unauthorized", errorCode: ErrorCode.UNAUTHORIZED, timestamp: "" }),
+    });
+    const unauthView = render(
+      <AuthProvider user={{ id: "c-empty-name", name: "", email: "e@dk.dk", roles: ["CLIENT"] }}>
+        <PsychotraumatologyFeatureView portalMode="client" />
+      </AuthProvider>
+    );
+    await waitFor(() => expect(screen.getByTestId("error-banner")).toBeDefined());
+    expect(screen.queryByTestId("loading-indicator")).toBeNull();
+    unauthView.unmount();
   });
 });

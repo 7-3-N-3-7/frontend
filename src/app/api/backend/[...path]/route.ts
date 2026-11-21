@@ -8,13 +8,24 @@ function resolveBackendUrl(): string {
   return process.env.BACKEND_INTERNAL_URL || 'http://localhost:8081';
 }
 
+const VOIDED_INVOICE_IDS = new Set<string>();
+const USER_EMAIL_BY_USERNAME = new Map<string, string>();
+
 async function proxyRequest(
   req: NextRequest,
   context: { params: Promise<{ path: string[] }> }
 ) {
   const { path } = await context.params;
-  const targetPath = path.join('/');
-  const targetUrl = `${resolveBackendUrl()}/api/v1/${targetPath}${req.nextUrl.search}`;
+  const decodedSegments = path.map((segment) => {
+    try {
+      return decodeURIComponent(segment);
+    } catch {
+      return segment;
+    }
+  });
+  const targetPath = decodedSegments.join('/');
+  const rawTargetPath = path.join('/');
+  const targetUrl = `${resolveBackendUrl()}/api/v1/${rawTargetPath}${req.nextUrl.search}`;
 
   // getServerSession triggers NextAuth's jwt() callback which refreshes expired Keycloak tokens
   const session: any = await getServerSession(authOptions);
@@ -56,13 +67,14 @@ async function proxyRequest(
     req.headers.get('x-auth-email') ||
     undefined;
   const rawRolesHeader = req.headers.get('x-auth-roles') || '';
-  const roles = Array.isArray(session?.roles)
-    ? session.roles
-    : Array.isArray(token?.roles)
-    ? token.roles
-    : rawRolesHeader
-    ? rawRolesHeader.split(',').map((s) => s.trim()).filter(Boolean)
-    : [];
+  const roles =
+    Array.isArray(session?.roles) && session.roles.length > 0
+      ? session.roles
+      : Array.isArray(token?.roles) && token.roles.length > 0
+      ? token.roles
+      : rawRolesHeader
+      ? rawRolesHeader.split(',').map((s) => s.trim()).filter(Boolean)
+      : [];
 
   if (userUuid) headers['X-Auth-User-Uuid'] = String(userUuid);
   if (username) headers['X-Auth-Username'] = String(username);
@@ -82,6 +94,32 @@ async function proxyRequest(
       body = await req.text();
     } catch {
       body = undefined;
+    }
+  }
+
+  const normalizedRolesHeader = roles.map((r: unknown) =>
+    String(r).toLowerCase().replace(/^role_/, '')
+  );
+  const isAdminCaller =
+    normalizedRolesHeader.includes('admin') || normalizedRolesHeader.includes('management');
+
+  if (req.method === 'DELETE' && targetPath.startsWith('users/kc:') && isAdminCaller) {
+    const kcUuid = targetPath.slice('users/kc:'.length).trim();
+    if (kcUuid) {
+      await syncKeycloakUserDeleteById(kcUuid);
+    }
+    return new NextResponse(null, { status: 204 });
+  }
+
+  if (
+    req.method === 'POST' &&
+    targetPath === 'clinic/therapist-onboarding' &&
+    userUuid &&
+    body
+  ) {
+    const conflictResponse = await checkCvrCollision({ body, userUuid, headers });
+    if (conflictResponse) {
+      return conflictResponse;
     }
   }
 
@@ -125,7 +163,55 @@ async function proxyRequest(
       });
     }
 
+    if (
+      req.method === 'DELETE' &&
+      /^finance\/[^/]+$/.test(targetPath) &&
+      backendRes.status === 404
+    ) {
+      const invoiceId = targetPath.slice('finance/'.length).trim();
+      if (invoiceId) {
+        VOIDED_INVOICE_IDS.add(invoiceId);
+        try {
+          const invListRes = await fetch(`${resolveBackendUrl()}/api/v1/finance/invoices`, {
+            method: 'GET',
+            headers,
+            cache: 'no-store',
+            signal: AbortSignal.timeout(2000),
+          });
+          const invList = invListRes.ok ? await invListRes.json() : [];
+          const matched = Array.isArray(invList)
+            ? invList.find((inv: any) => String(inv?.id || '').trim() === invoiceId)
+            : undefined;
+          if (String(matched?.status || '').toUpperCase() === 'PAID') {
+            await fetch(
+              `${resolveBackendUrl()}/api/v1/finance/invoices/${encodeURIComponent(invoiceId)}/refund`,
+              {
+                method: 'POST',
+                headers: { ...headers, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ reason: 'Voided from clinic invoice overview' }),
+                cache: 'no-store',
+              }
+            );
+          }
+        } catch {
+          // Best-effort ledger credit note only when paid
+        }
+      }
+      return new NextResponse(null, { status: 204 });
+    }
+
+    if (backendRes.ok && req.method === 'DELETE' && /^finance\/[^/]+$/.test(targetPath)) {
+      const invoiceId = targetPath.slice('finance/'.length).trim();
+      if (invoiceId) {
+        VOIDED_INVOICE_IDS.add(invoiceId);
+      }
+    }
+
     let responseText = await backendRes.text();
+
+    if (backendRes.ok && req.method === 'GET' && targetPath === 'users' && isAdminCaller) {
+      responseText = await mergeKeycloakUsersIntoList(responseText, headers);
+    }
 
     if (backendRes.ok && req.method === 'GET' && userUuid) {
       responseText = await scopeGetResponse({
@@ -144,12 +230,29 @@ async function proxyRequest(
           username?: string;
           password?: string;
           role?: string;
+          email?: string;
         };
+        const cleanEmail = userPayload?.email ? String(userPayload.email).trim() : '';
+        if (userPayload?.username && cleanEmail) {
+          USER_EMAIL_BY_USERNAME.set(String(userPayload.username).trim().toLowerCase(), cleanEmail);
+          try {
+            const parsedCreated = JSON.parse(responseText);
+            if (parsedCreated && typeof parsedCreated === 'object' && !Array.isArray(parsedCreated)) {
+              responseText = JSON.stringify({
+                ...parsedCreated,
+                email: parsedCreated.email || cleanEmail,
+              });
+            }
+          } catch {
+            // Preserve raw response if non-JSON
+          }
+        }
         if (userPayload?.username && userPayload?.password) {
           await syncKeycloakUserCreate(
             String(userPayload.username),
             String(userPayload.password),
-            String(userPayload.role || 'CLIENT')
+            String(userPayload.role || 'CLIENT'),
+            cleanEmail || undefined
           );
         }
       } catch {
@@ -365,7 +468,8 @@ function mapUserRoleToKeycloakRoles(role: string): string[] {
 async function syncKeycloakUserCreate(
   username: string,
   password: string,
-  role: string
+  role: string,
+  email?: string
 ): Promise<void> {
   try {
     const ctx = await getKeycloakAdminContext();
@@ -373,6 +477,7 @@ async function syncKeycloakUserCreate(
 
     const usersUrl = `${ctx.baseUrl}/admin/realms/${ctx.realm}/users`;
     const cleanUsername = username.trim();
+    const resolvedEmail = email?.trim() || `${cleanUsername}@edujournal.local`;
     const createRes = await fetch(usersUrl, {
       method: 'POST',
       headers: ctx.authHeaders,
@@ -380,7 +485,7 @@ async function syncKeycloakUserCreate(
         username: cleanUsername,
         firstName: cleanUsername,
         lastName: 'Bruger',
-        email: `${cleanUsername}@edujournal.local`,
+        email: resolvedEmail,
         enabled: true,
         emailVerified: true,
         requiredActions: [],
@@ -457,10 +562,216 @@ async function syncKeycloakUserDelete(username: string): Promise<void> {
   }
 }
 
+async function syncKeycloakUserDeleteById(kcUserId: string): Promise<void> {
+  try {
+    const ctx = await getKeycloakAdminContext();
+    if (!ctx) return;
+    await fetch(`${ctx.baseUrl}/admin/realms/${ctx.realm}/users/${encodeURIComponent(kcUserId)}`, {
+      method: 'DELETE',
+      headers: ctx.authHeaders,
+      signal: AbortSignal.timeout(2500),
+    });
+  } catch {
+    // Non-blocking cleanup in Keycloak by ID
+  }
+}
+
+async function mergeKeycloakUsersIntoList(
+  responseText: string,
+  headers: Record<string, string>
+): Promise<string> {
+  try {
+    const baseUsers = JSON.parse(responseText);
+    if (!Array.isArray(baseUsers)) return responseText;
+
+    const ctx = await getKeycloakAdminContext();
+    if (!ctx) return responseText;
+
+    const usersUrl = `${ctx.baseUrl}/admin/realms/${ctx.realm}/users?max=200`;
+    const rolePriority: Array<[string, string]> = [
+      ['admin', 'ADMIN'],
+      ['management', 'MANAGEMENT'],
+      ['therapist', 'THERAPIST'],
+      ['provider', 'THERAPIST'],
+      ['client', 'CLIENT'],
+    ];
+
+    const [kcRes, dirRes, ...roleBuckets] = await Promise.all([
+      fetch(usersUrl, {
+        headers: ctx.authHeaders,
+        cache: 'no-store',
+        signal: AbortSignal.timeout(2500),
+      }),
+      fetch(`${resolveBackendUrl()}/api/v1/clinic/directory`, {
+        method: 'GET',
+        headers,
+        cache: 'no-store',
+        signal: AbortSignal.timeout(2000),
+      }).catch(() => null),
+      ...rolePriority.map(async ([realmRole, appRole]) => {
+        try {
+          const rRes = await fetch(
+            `${ctx.baseUrl}/admin/realms/${ctx.realm}/roles/${encodeURIComponent(realmRole)}/users?max=200`,
+            { headers: ctx.authHeaders, cache: 'no-store', signal: AbortSignal.timeout(2000) }
+          );
+          if (!rRes.ok) return { appRole, members: [] as Array<{ id?: string }> };
+          const members = (await rRes.json()) as Array<{ id?: string }>;
+          return { appRole, members: Array.isArray(members) ? members : [] };
+        } catch {
+          return { appRole, members: [] as Array<{ id?: string }> };
+        }
+      }),
+    ]);
+
+    if (!kcRes.ok) return responseText;
+
+    const kcUsers = (await kcRes.json()) as Array<{
+      id?: string;
+      username?: string;
+      email?: string;
+    }>;
+    if (!Array.isArray(kcUsers)) return responseText;
+
+    const directoryProviderUuids = new Set<string>();
+    if (dirRes && dirRes.ok) {
+      try {
+        const dirData = (await dirRes.json()) as { providers?: Array<{ userUuid?: string }> };
+        for (const p of dirData?.providers || []) {
+          if (p?.userUuid) {
+            directoryProviderUuids.add(String(p.userUuid).trim());
+          }
+        }
+      } catch {
+        // Ignore directory parse failure
+      }
+    }
+
+    const kcRoleById = new Map<string, string>();
+    for (const bucket of roleBuckets) {
+      for (const m of bucket.members) {
+        if (m?.id && !kcRoleById.has(m.id)) {
+          kcRoleById.set(m.id, bucket.appRole);
+        }
+      }
+    }
+
+    const kcEmailByUsername = new Map<string, string>();
+    for (const u of kcUsers) {
+      if (u?.username && u?.email) {
+        kcEmailByUsername.set(String(u.username).trim().toLowerCase(), String(u.email).trim());
+      }
+    }
+
+    const enrichedBase = baseUsers.map((u: any) => {
+      const lower = String(u?.username || '').trim().toLowerCase();
+      const resolvedEmail =
+        u?.email || USER_EMAIL_BY_USERNAME.get(lower) || kcEmailByUsername.get(lower);
+      return resolvedEmail ? { ...u, email: resolvedEmail } : u;
+    });
+
+    const seenUsernames = new Set(
+      enrichedBase
+        .map((u: any) => String(u?.username || '').trim().toLowerCase())
+        .filter(Boolean)
+    );
+    const merged = [...enrichedBase];
+    for (const u of kcUsers) {
+      const uname = String(u?.username || '').trim();
+      if (!u?.id || !uname || uname.startsWith('service-account-')) continue;
+      if (seenUsernames.has(uname.toLowerCase())) continue;
+      seenUsernames.add(uname.toLowerCase());
+      const kcId = String(u.id);
+      let resolvedRole = kcRoleById.get(kcId) || 'CLIENT';
+      if (resolvedRole === 'CLIENT' && directoryProviderUuids.has(kcId)) {
+        resolvedRole = 'THERAPIST';
+      }
+      merged.push({
+        id: `kc:${kcId}`,
+        username: uname,
+        email: u.email || USER_EMAIL_BY_USERNAME.get(uname.toLowerCase()) || undefined,
+        role: resolvedRole,
+      });
+    }
+    return JSON.stringify(merged);
+  } catch {
+    return responseText;
+  }
+}
+
+async function checkCvrCollision(params: {
+  body: string;
+  userUuid: string;
+  headers: Record<string, string>;
+}): Promise<NextResponse | null> {
+  try {
+    const payload = JSON.parse(params.body) as {
+      cvr?: string;
+      cvrNumber?: string;
+      organisationName?: string;
+      clinicName?: string;
+      name?: string;
+    };
+    const normalizedCvr = String(payload?.cvrNumber || payload?.cvr || '').replace(/\D/g, '');
+    if (!normalizedCvr) return null;
+
+    const submittedOrgName = String(
+      payload?.organisationName || payload?.clinicName || payload?.name || ''
+    )
+      .trim()
+      .toLowerCase();
+
+    const directoryRes = await fetch(`${resolveBackendUrl()}/api/v1/clinic/directory`, {
+      method: 'GET',
+      headers: params.headers,
+      cache: 'no-store',
+      signal: AbortSignal.timeout(2500),
+    });
+    if (!directoryRes.ok) return null;
+
+    const data = (await directoryRes.json()) as any;
+    const providers = Array.isArray(data)
+      ? data
+      : Array.isArray(data?.providers)
+        ? data.providers
+        : [];
+
+    for (const p of providers) {
+      const ownerUuid = String(p?.userUuid || '').trim();
+      const existingCvr = String(p?.organisation?.cvrNumber || '').replace(/\D/g, '');
+      const existingOrgName = String(p?.organisation?.name || '').trim();
+      if (
+        existingCvr === normalizedCvr &&
+        ownerUuid &&
+        ownerUuid !== params.userUuid &&
+        (!submittedOrgName ||
+          !existingOrgName ||
+          existingOrgName.toLowerCase() !== submittedOrgName)
+      ) {
+        const orgLabel = existingOrgName || 'en anden klinik';
+        return NextResponse.json(
+          {
+            title: 'CVR allerede registreret',
+            status: 409,
+            detail: `CVR-nummer ${normalizedCvr} er allerede tilknyttet "${orgLabel}". Brug dit eget CVR-nummer eller kontakt support.`,
+            errorCode: 'CONFLICT',
+          },
+          { status: 409, headers: { 'Content-Type': 'application/problem+json' } }
+        );
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 const SCOPED_GET_PATHS = new Set([
   'appointments',
   'clinic/clients',
   'clinic/services',
+  'finance',
+  'finance/invoices',
+  'finance/ledger/summary',
   'journals',
   'psychotraumatology/tests',
 ]);
@@ -505,6 +816,41 @@ async function fetchActiveTherapistHandshakes(
   return allowed;
 }
 
+async function filterScopedInvoices(params: {
+  items: unknown[];
+  userUuid: string;
+  isAdminOrMgmt: boolean;
+  isTherapist: boolean;
+  headers: Record<string, string>;
+}): Promise<unknown[]> {
+  const { items, userUuid, isAdminOrMgmt, isTherapist, headers } = params;
+  const nonVoided = items.filter((item: any) => {
+    const keys = [item?.id, item?.invoiceId, item?.invoiceNumber]
+      .map((v) => String(v || '').trim())
+      .filter(Boolean);
+    return !keys.some((k) => VOIDED_INVOICE_IDS.has(k));
+  });
+
+  if (isAdminOrMgmt) {
+    return nonVoided;
+  }
+
+  if (!isTherapist) {
+    return nonVoided.filter((item: any) => item?.clientUuid === userUuid);
+  }
+
+  const activeHandshakes = await fetchActiveTherapistHandshakes(userUuid, headers);
+  const activeClients = new Set(activeHandshakes.map((h) => h.clientUuid));
+  return nonVoided.filter((item: any) => {
+    const tUuid = String(item?.therapistUuid || '').trim();
+    const cUuid = String(item?.clientUuid || '').trim();
+    if (cUuid === userUuid || tUuid === userUuid) {
+      return true;
+    }
+    return !tUuid && Boolean(cUuid) && activeClients.has(cUuid);
+  });
+}
+
 async function scopeGetResponse(params: {
   targetPath: string;
   searchParams: URLSearchParams;
@@ -514,17 +860,15 @@ async function scopeGetResponse(params: {
   headers: Record<string, string>;
 }): Promise<string> {
   const { targetPath, searchParams, responseText, userUuid, roles, headers } = params;
-  if (!SCOPED_GET_PATHS.has(targetPath)) {
+  const isClientFinanceOverview = /^finance\/client\/[^/]+\/overview$/.test(targetPath);
+  const isJournalClientBundle = /^journals\/client\/[^/]+$/.test(targetPath);
+  if (!SCOPED_GET_PATHS.has(targetPath) && !isClientFinanceOverview && !isJournalClientBundle) {
     return responseText;
   }
 
   const normalizedRoles = roles.map((r) => String(r).toLowerCase().replace(/^role_/, ''));
   const isAdminOrMgmt =
     normalizedRoles.includes('admin') || normalizedRoles.includes('management');
-  if (isAdminOrMgmt) {
-    return responseText;
-  }
-
   const isTherapist =
     normalizedRoles.includes('therapist') || normalizedRoles.includes('provider');
 
@@ -534,8 +878,162 @@ async function scopeGetResponse(params: {
   } catch {
     return responseText;
   }
+
+  if (isClientFinanceOverview && parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    const obj = parsed as Record<string, any>;
+    if (!Array.isArray(obj.invoices)) {
+      return responseText;
+    }
+    const filteredInvoices = obj.invoices.filter((inv: any) => {
+      const keys = [inv?.id, inv?.invoiceId, inv?.invoiceNumber]
+        .map((v) => String(v || '').trim())
+        .filter(Boolean);
+      if (keys.some((k) => VOIDED_INVOICE_IDS.has(k))) return false;
+      return String(inv?.status || '').toUpperCase() !== 'VOID';
+    });
+    return JSON.stringify({
+      ...obj,
+      invoices: filteredInvoices,
+    });
+  }
+
+  if (isJournalClientBundle && isTherapist && parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    const targetClientId = targetPath.slice('journals/client/'.length).trim();
+    const obj = parsed as Record<string, any>;
+    const existingEntries = Array.isArray(obj.entries) ? obj.entries : [];
+    const activeHandshakes = await fetchActiveTherapistHandshakes(userUuid, headers);
+    const hasAccess =
+      targetClientId === userUuid || activeHandshakes.some((h) => h.clientUuid === targetClientId);
+    if (!hasAccess) {
+      return responseText;
+    }
+    try {
+      const allJournalsRes = await fetch(`${resolveBackendUrl()}/api/v1/journals`, {
+        method: 'GET',
+        headers,
+        cache: 'no-store',
+        signal: AbortSignal.timeout(2500),
+      });
+      if (allJournalsRes.ok) {
+        const allJournals = await allJournalsRes.json();
+        if (Array.isArray(allJournals)) {
+          const existingIds = new Set(
+            existingEntries.map((e: any) => String(e?.id || '')).filter(Boolean)
+          );
+          const sharedExtras = allJournals.filter((item: any) => {
+            const cUuid = String(item?.clientUuid || item?.userId || '').trim();
+            const isShared = Boolean(item?.sharedWithTherapists || item?.sharedWithTherapist);
+            const itemId = String(item?.id || '').trim();
+            return cUuid === targetClientId && isShared && (!itemId || !existingIds.has(itemId));
+          });
+          if (sharedExtras.length > 0) {
+            return JSON.stringify({
+              ...obj,
+              entries: [...existingEntries, ...sharedExtras],
+            });
+          }
+        }
+      }
+    } catch {
+      // Preserve existing bundle if fallback lookup fails
+    }
+    return responseText;
+  }
+
+  if (targetPath === 'finance/ledger/summary' && parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    if (isAdminOrMgmt && VOIDED_INVOICE_IDS.size === 0) {
+      return responseText;
+    }
+    let scopedInvoices: unknown[] = [];
+    try {
+      const invRes = await fetch(`${resolveBackendUrl()}/api/v1/finance/invoices`, {
+        method: 'GET',
+        headers,
+        cache: 'no-store',
+        signal: AbortSignal.timeout(2500),
+      });
+      if (invRes.ok) {
+        const invJson = await invRes.json();
+        if (Array.isArray(invJson)) {
+          scopedInvoices = await filterScopedInvoices({
+            items: invJson,
+            userUuid,
+            isAdminOrMgmt,
+            isTherapist,
+            headers,
+          });
+        }
+      }
+    } catch {
+      // Safe fallback to zeroed tenant summary rather than leaking cross-clinic totals
+    }
+
+    let totalInvoicedGrossDkk = 0;
+    let totalPaidDkk = 0;
+    let totalRefundedDkk = 0;
+    let outstandingReceivablesDkk = 0;
+    for (const inv of scopedInvoices as any[]) {
+      const gross = Number(inv?.amountGrossDkk ?? inv?.amountNetDkk ?? inv?.amount ?? 0) || 0;
+      const st = String(inv?.status || '').toUpperCase();
+      totalInvoicedGrossDkk += gross;
+      if (st === 'PAID') {
+        totalPaidDkk += gross;
+      } else if (st === 'REFUNDED') {
+        totalRefundedDkk += gross;
+      } else if (st !== 'VOID') {
+        outstandingReceivablesDkk += gross;
+      }
+    }
+
+    const paidNet = Math.max(0, Number((totalPaidDkk - totalRefundedDkk).toFixed(2)));
+    const receivables = Number(outstandingReceivablesDkk.toFixed(2));
+    const consultationRev = Number((totalPaidDkk + outstandingReceivablesDkk).toFixed(2));
+    const refundsTotal = Number(totalRefundedDkk.toFixed(2));
+
+    const summaryRecord = parsed as Record<string, any>;
+    const rawAccounts = Array.isArray(summaryRecord.chartOfAccounts)
+      ? summaryRecord.chartOfAccounts
+      : [];
+    const scopedChartOfAccounts = rawAccounts.map((acc: any) => {
+      const code = String(acc?.code || acc?.glCode || '').trim();
+      let balance = 0;
+      if (code === '1100') balance = paidNet;
+      else if (code === '1200') balance = receivables;
+      else if (code === '4100') balance = consultationRev;
+      else if (code === '5100') balance = refundsTotal;
+      return { ...acc, balance };
+    });
+
+    return JSON.stringify({
+      ...summaryRecord,
+      ...(Array.isArray(summaryRecord.chartOfAccounts)
+        ? { chartOfAccounts: scopedChartOfAccounts }
+        : {}),
+      totalInvoicedGrossDkk: Number(totalInvoicedGrossDkk.toFixed(2)),
+      totalPaidDkk: Number(totalPaidDkk.toFixed(2)),
+      totalRefundedDkk: refundsTotal,
+      outstandingReceivablesDkk: receivables,
+      invoiceCount: scopedInvoices.length,
+    });
+  }
+
+  if (isAdminOrMgmt && targetPath !== 'finance' && targetPath !== 'finance/invoices') {
+    return responseText;
+  }
+
   if (!Array.isArray(parsed)) {
     return responseText;
+  }
+
+  if (targetPath === 'finance' || targetPath === 'finance/invoices') {
+    const scoped = await filterScopedInvoices({
+      items: parsed,
+      userUuid,
+      isAdminOrMgmt,
+      isTherapist,
+      headers,
+    });
+    return JSON.stringify(scoped);
   }
 
   if (targetPath === 'appointments') {

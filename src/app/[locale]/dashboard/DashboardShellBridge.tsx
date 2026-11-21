@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Suspense, useEffect, useState } from "react";
+import React, { Suspense, useCallback, useEffect, useState } from "react";
 import {
   ReadonlyURLSearchParams,
   useParams,
@@ -93,11 +93,15 @@ const VALID_THERAPIST_TABS: ReadonlySet<string> = new Set([
 
 function buildTabHref(
   pathname: string,
-  searchParams: ReadonlyURLSearchParams | null,
+  searchParams: ReadonlyURLSearchParams | string | null,
   nextTab: string,
   defaultTab: string
 ): string {
-  const params = new URLSearchParams(searchParams?.toString() || "");
+  const rawQuery =
+    typeof searchParams === "string"
+      ? searchParams
+      : searchParams?.toString() || "";
+  const params = new URLSearchParams(rawQuery);
   params.delete("welcome");
   params.delete("emailVerified");
   if (nextTab === defaultTab) {
@@ -109,12 +113,40 @@ function buildTabHref(
   return query ? `${pathname}?${query}` : pathname;
 }
 
+const TabSearchParamObserver: React.FC<{
+  onParamsChange: (tab: string | null, query: string) => void;
+}> = ({ onParamsChange }) => {
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    onParamsChange(searchParams?.get("tab") ?? null, searchParams?.toString() ?? "");
+  }, [searchParams, onParamsChange]);
+  return null;
+};
+
 interface DashboardShellBridgeProps {
   locale?: string;
   initialUserName?: string;
   initialUserEmail?: string;
   children: React.ReactNode;
 }
+
+const DashboardSearchParamsObserver: React.FC<{
+  onSearchParamsChange: (tab: string | null, query: string, banner: "emailVerified" | "welcome" | null) => void;
+}> = ({ onSearchParamsChange }) => {
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    const tab = searchParams?.get("tab") ?? null;
+    const query = searchParams?.toString() ?? "";
+    const banner =
+      searchParams?.get("emailVerified") === "1"
+        ? "emailVerified"
+        : searchParams?.get("welcome") === "1"
+          ? "welcome"
+          : null;
+    onSearchParamsChange(tab, query, banner);
+  }, [searchParams, onSearchParamsChange]);
+  return null;
+};
 
 const DashboardShellInner: React.FC<DashboardShellBridgeProps> = ({
   locale: fallbackLocale = "da",
@@ -125,25 +157,28 @@ const DashboardShellInner: React.FC<DashboardShellBridgeProps> = ({
   const params = useParams();
   const router = useRouter();
   const pathname = usePathname() || `/${fallbackLocale}/dashboard/personal`;
-  const searchParams = useSearchParams();
 
   const locale =
     typeof params?.locale === "string" && params.locale
       ? params.locale
       : fallbackLocale;
-  const activeTab = searchParams?.get("tab") ?? null;
+  const [activeTab, setActiveTab] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const [statusBanner, setStatusBanner] = useState<"emailVerified" | "welcome" | null>(
     null
   );
   const bannerCopy = DASHBOARD_BANNER_COPY[resolveUiLocale(locale)];
 
-  useEffect(() => {
-    if (searchParams?.get("emailVerified") === "1") {
-      setStatusBanner("emailVerified");
-    } else if (searchParams?.get("welcome") === "1") {
-      setStatusBanner("welcome");
-    }
-  }, [searchParams]);
+  const handleSearchParamsChange = React.useCallback(
+    (tab: string | null, query: string, banner: "emailVerified" | "welcome" | null) => {
+      setActiveTab(tab);
+      setSearchQuery(query);
+      if (banner) {
+        setStatusBanner(banner);
+      }
+    },
+    []
+  );
 
   const handleDismissBanner = () => {
     setStatusBanner(null);
@@ -164,8 +199,7 @@ const DashboardShellInner: React.FC<DashboardShellBridgeProps> = ({
     const normalizedRest = restOfPath.startsWith("/")
       ? restOfPath
       : `/${restOfPath}`;
-    const query = searchParams?.toString();
-    const target = `/${nextLocale}${normalizedRest}${query ? `?${query}` : ""}`;
+    const target = `/${nextLocale}${normalizedRest}${searchQuery ? `?${searchQuery}` : ""}`;
     router.push(target);
     router.refresh();
   };
@@ -192,6 +226,9 @@ const DashboardShellInner: React.FC<DashboardShellBridgeProps> = ({
       onLocaleNavigate={handleLocaleNavigate}
       onLogout={() => void handleLogout()}
     >
+      <Suspense fallback={null}>
+        <DashboardSearchParamsObserver onSearchParamsChange={handleSearchParamsChange} />
+      </Suspense>
       {statusBanner === "emailVerified" && (
         <div
           data-testid="email-verified-banner"
@@ -257,25 +294,13 @@ export const DashboardShellBridge: React.FC<DashboardShellBridgeProps> = ({
 }) => {
   return (
     <SessionProvider refetchOnWindowFocus={false}>
-      <Suspense
-        fallback={
-          <ConnectedPortalWorkspaceShell
-            locale={locale}
-            userName={initialUserName}
-            userEmail={initialUserEmail}
-          >
-            {children}
-          </ConnectedPortalWorkspaceShell>
-        }
+      <DashboardShellInner
+        locale={locale}
+        initialUserName={initialUserName}
+        initialUserEmail={initialUserEmail}
       >
-        <DashboardShellInner
-          locale={locale}
-          initialUserName={initialUserName}
-          initialUserEmail={initialUserEmail}
-        >
-          {children}
-        </DashboardShellInner>
-      </Suspense>
+        {children}
+      </DashboardShellInner>
     </SessionProvider>
   );
 };
@@ -284,64 +309,57 @@ interface SyncedClientPortalWorkspaceProps {
   locale?: string;
   userName?: string;
   secureStatus?: string | null;
+  defaultTab?: ClientTab;
 }
 
-const SyncedClientPortalInner: React.FC<SyncedClientPortalWorkspaceProps> = ({
-  locale,
-  userName,
-  secureStatus,
-}) => {
+export const SyncedClientPortalWorkspace: React.FC<
+  SyncedClientPortalWorkspaceProps
+> = ({ locale, userName, secureStatus, defaultTab = "overview" }) => {
   const { update } = useSession();
   const params = useParams();
   const router = useRouter();
   const pathname = usePathname() || "/da/dashboard/personal";
-  const searchParams = useSearchParams();
+  const [activeTab, setActiveTab] = useState<ClientTab>(defaultTab);
+  const [currentQuery, setCurrentQuery] = useState<string>("");
   const activeLocale =
     (typeof params?.locale === "string" && params.locale) || locale;
-  const rawTab = searchParams?.get("tab");
-  const activeTab: ClientTab =
-    rawTab && VALID_CLIENT_TABS.has(rawTab)
-      ? (rawTab as ClientTab)
-      : "overview";
+  const routeDefaultTab: ClientTab = "overview";
 
-  return (
-    <ClientPortalWorkspace
-      locale={activeLocale}
-      userName={userName}
-      secureStatus={secureStatus}
-      activeTab={activeTab}
-      onRoleUpgraded={async () => {
-        await update();
-        router.refresh();
-      }}
-      onTabChange={(nextTab) => {
-        router.replace(buildTabHref(pathname, searchParams, nextTab, "overview"), {
-          scroll: false,
-        });
-      }}
-    />
+  const handleParamsChange = useCallback(
+    (rawTab: string | null, query: string) => {
+      setCurrentQuery(query);
+      setActiveTab(
+        rawTab && VALID_CLIENT_TABS.has(rawTab)
+          ? (rawTab as ClientTab)
+          : routeDefaultTab
+      );
+    },
+    []
   );
-};
 
-export const SyncedClientPortalWorkspace: React.FC<
-  SyncedClientPortalWorkspaceProps
-> = ({ locale, userName, secureStatus }) => {
   return (
-    <Suspense
-      fallback={
-        <ClientPortalWorkspace
-          locale={locale}
-          userName={userName}
-          secureStatus={secureStatus}
-        />
-      }
-    >
-      <SyncedClientPortalInner
-        locale={locale}
+    <>
+      <Suspense fallback={null}>
+        <TabSearchParamObserver onParamsChange={handleParamsChange} />
+      </Suspense>
+      <ClientPortalWorkspace
+        locale={activeLocale}
         userName={userName}
         secureStatus={secureStatus}
+        activeTab={activeTab}
+        onRoleUpgraded={async () => {
+          await update();
+          router.refresh();
+        }}
+        onTabChange={(nextTab) => {
+          setActiveTab(nextTab);
+          router.replace(
+            buildTabHref(pathname, currentQuery, nextTab, routeDefaultTab),
+            { scroll: false }
+          );
+        }}
       />
-    </Suspense>
+    </>
   );
 };
 
@@ -351,59 +369,57 @@ interface SyncedTherapistWorkspaceProps {
   defaultTab?: TherapistTab;
 }
 
-const SyncedTherapistWorkspaceInner: React.FC<
+export const SyncedTherapistWorkspace: React.FC<
   SyncedTherapistWorkspaceProps
 > = ({ locale, therapistName, defaultTab = "overview" }) => {
   const { update } = useSession();
   const params = useParams();
   const router = useRouter();
   const pathname = usePathname() || "/da/dashboard/therapist";
-  const searchParams = useSearchParams();
+  const [activeTab, setActiveTab] = useState<TherapistTab>(defaultTab);
+  const [currentQuery, setCurrentQuery] = useState<string>("");
   const activeLocale =
     (typeof params?.locale === "string" && params.locale) || locale;
-  const rawTab = searchParams?.get("tab");
-  const activeTab: TherapistTab =
-    rawTab && VALID_THERAPIST_TABS.has(rawTab)
-      ? (rawTab as TherapistTab)
-      : defaultTab;
+  const routeDefaultTab: TherapistTab = pathname
+    .replace(/\/+$/, "")
+    .endsWith("/clinic")
+    ? "clinic_cvr"
+    : "overview";
 
-  return (
-    <TherapistMultiWindowWorkspace
-      locale={activeLocale}
-      therapistName={therapistName}
-      initialTab={defaultTab}
-      activeTab={activeTab}
-      onRoleUpgraded={async () => {
-        await update();
-        router.refresh();
-      }}
-      onTabChange={(nextTab) => {
-        router.replace(buildTabHref(pathname, searchParams, nextTab, defaultTab), {
-          scroll: false,
-        });
-      }}
-    />
+  const handleParamsChange = useCallback(
+    (rawTab: string | null, query: string) => {
+      setCurrentQuery(query);
+      setActiveTab(
+        rawTab && VALID_THERAPIST_TABS.has(rawTab)
+          ? (rawTab as TherapistTab)
+          : routeDefaultTab
+      );
+    },
+    [routeDefaultTab]
   );
-};
 
-export const SyncedTherapistWorkspace: React.FC<
-  SyncedTherapistWorkspaceProps
-> = ({ locale, therapistName, defaultTab = "overview" }) => {
   return (
-    <Suspense
-      fallback={
-        <TherapistMultiWindowWorkspace
-          locale={locale}
-          therapistName={therapistName}
-          initialTab={defaultTab}
-        />
-      }
-    >
-      <SyncedTherapistWorkspaceInner
-        locale={locale}
+    <>
+      <Suspense fallback={null}>
+        <TabSearchParamObserver onParamsChange={handleParamsChange} />
+      </Suspense>
+      <TherapistMultiWindowWorkspace
+        locale={activeLocale}
         therapistName={therapistName}
-        defaultTab={defaultTab}
+        initialTab={defaultTab}
+        activeTab={activeTab}
+        onRoleUpgraded={async () => {
+          await update();
+          router.refresh();
+        }}
+        onTabChange={(nextTab) => {
+          setActiveTab(nextTab);
+          router.replace(
+            buildTabHref(pathname, currentQuery, nextTab, routeDefaultTab),
+            { scroll: false }
+          );
+        }}
       />
-    </Suspense>
+    </>
   );
 };

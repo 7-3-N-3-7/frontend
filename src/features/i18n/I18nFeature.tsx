@@ -436,6 +436,11 @@ export const I18nFeatureView: React.FC = () => {
             const localeCount = items.filter(
               (item) => item.locale.toLowerCase() === loc
             ).length;
+            const isCoreLocale =
+              loc === "da" || loc === "en" || loc === "de" || loc === "fr" || loc === "es";
+            if (!isCoreLocale && localeCount === 0 && localeFilter !== loc) {
+              return null;
+            }
             const chipClass =
               localeFilter === loc
                 ? "bg-teal-700 text-white"
@@ -474,7 +479,7 @@ export const I18nFeatureView: React.FC = () => {
           {copy.emptyFilterText}
         </p>
       ) : (
-        <ul className="space-y-2" data-testid="i18n-list">
+        <ul className="list-none space-y-2 pl-0" style={{ paddingLeft: 0 }} data-testid="i18n-list">
           {visibleItems.map((item) => (
             <li
               key={item.id}
@@ -793,7 +798,7 @@ export const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({
 
   return (
     <div
-      className={`relative inline-flex h-11 items-center rounded-lg border border-slate-200 bg-white px-3 shadow-xs transition-colors hover:border-slate-300 focus-within:border-teal-600 focus-within:ring-2 focus-within:ring-teal-600/20 ${className}`.trim()}
+      className={`relative inline-flex h-11 items-center rounded-lg border border-slate-200 bg-white px-3 shadow-xs transition-colors hover:border-slate-300 focus-within:border-teal-600 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-teal-700 ${className}`.trim()}
     >
       <span
         aria-hidden="true"
@@ -807,7 +812,7 @@ export const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({
         aria-label={copy.switcherAriaLabel}
         value={uiLocale}
         onChange={handleLocaleChange}
-        className="absolute inset-0 h-full w-full cursor-pointer appearance-none opacity-0 focus:outline-none"
+        className="absolute -inset-px h-11 min-h-11 w-[calc(100%+2px)] cursor-pointer appearance-none opacity-0 focus:outline-none"
         data-testid="language-switcher-select"
       >
         {LANGUAGE_OPTIONS.map((option) => (

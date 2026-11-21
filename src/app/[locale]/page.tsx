@@ -20,6 +20,7 @@ interface RegisterModalCopy {
   dobLabel: string;
   dobPlaceholder: string;
   phoneLabel: string;
+  phonePlaceholder: string;
   addressLabel: string;
   addressPlaceholder: string;
   postalLabel: string;
@@ -46,6 +47,7 @@ const REGISTER_MODAL_COPY: Record<SupportedUiLocale, RegisterModalCopy> = {
     dobLabel: "Fødselsdato",
     dobPlaceholder: "Fødselsdato",
     phoneLabel: "Telefonnummer",
+    phonePlaceholder: "+45 12 34 56 78",
     addressLabel: "Adresse",
     addressPlaceholder: "Adresse",
     postalLabel: "Postnummer",
@@ -70,6 +72,7 @@ const REGISTER_MODAL_COPY: Record<SupportedUiLocale, RegisterModalCopy> = {
     dobLabel: "Date of Birth",
     dobPlaceholder: "Date of Birth",
     phoneLabel: "Phone Number",
+    phonePlaceholder: "+44 20 7946 0958",
     addressLabel: "Home Address",
     addressPlaceholder: "Home Address",
     postalLabel: "Postal Code",
@@ -94,6 +97,7 @@ const REGISTER_MODAL_COPY: Record<SupportedUiLocale, RegisterModalCopy> = {
     dobLabel: "Date de naissance",
     dobPlaceholder: "Date de naissance",
     phoneLabel: "Numéro de téléphone",
+    phonePlaceholder: "+33 6 12 34 56 78",
     addressLabel: "Adresse postale",
     addressPlaceholder: "Adresse postale",
     postalLabel: "Code postal",
@@ -118,6 +122,7 @@ const REGISTER_MODAL_COPY: Record<SupportedUiLocale, RegisterModalCopy> = {
     dobLabel: "Fecha de nacimiento",
     dobPlaceholder: "Fecha de nacimiento",
     phoneLabel: "Número de teléfono",
+    phonePlaceholder: "+34 612 34 56 78",
     addressLabel: "Dirección",
     addressPlaceholder: "Dirección",
     postalLabel: "Código postal",
@@ -142,6 +147,7 @@ const REGISTER_MODAL_COPY: Record<SupportedUiLocale, RegisterModalCopy> = {
     dobLabel: "Geburtsdatum",
     dobPlaceholder: "Geburtsdatum",
     phoneLabel: "Telefonnummer",
+    phonePlaceholder: "+49 30 12345678",
     addressLabel: "Wohnadresse",
     addressPlaceholder: "Wohnadresse",
     postalLabel: "Postleitzahl",
@@ -189,7 +195,7 @@ export default function LandingPage() {
     }
   }, []);
 
-  const getPlatformDashboardUrl = (locale: string) => {
+  const getPlatformDashboardUrl = (locale: string, targetPath = "dashboard") => {
     const { protocol, hostname, port } = window.location;
     const isLocalHost =
       hostname === "localhost" ||
@@ -201,7 +207,7 @@ export default function LandingPage() {
         ? hostname
         : `platform.${hostname}`;
     const portSuffix = port ? `:${port}` : "";
-    return `${protocol}//${targetHost}${portSuffix}/${locale}/dashboard/personal`;
+    return `${protocol}//${targetHost}${portSuffix}/${locale}/${targetPath}`;
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -223,7 +229,7 @@ export default function LandingPage() {
         activeLocale ||
         window.location.pathname.match(/^\/(en|da|fr|es|de)(?:\/|$)/)?.[1] ||
         'da';
-      window.location.href = getPlatformDashboardUrl(locale);
+      window.location.href = getPlatformDashboardUrl(locale, "dashboard");
     }
   };
 
@@ -288,7 +294,7 @@ export default function LandingPage() {
           activeLocale ||
           window.location.pathname.match(/^\/(en|da|fr|es|de)(?:\/|$)/)?.[1] ||
           'da';
-        window.location.href = `${getPlatformDashboardUrl(locale)}?welcome=1`;
+        window.location.href = `${getPlatformDashboardUrl(locale, "dashboard/personal")}?welcome=1`;
       }
 
     } catch (err: any) {
@@ -318,17 +324,17 @@ export default function LandingPage() {
   return (
     <div className="min-vh-100 d-flex flex-column overflow-x-hidden" style={{ backgroundColor: '#f8fafc' }}>
       <nav className="navbar navbar-light bg-white border-bottom py-3">
-        <div className="container d-flex justify-content-between align-items-center gap-2 flex-wrap">
-          <div className="d-flex align-items-center text-dark text-decoration-none">
+        <div className="container flex flex-wrap sm:flex-nowrap items-center justify-between gap-2">
+          <div className="order-1 flex items-center text-dark text-decoration-none shrink-0">
             <span
-              className="d-inline-flex align-items-center justify-content-center rounded-3 me-2 text-white"
+              className="d-inline-flex align-items-center justify-center rounded-3 me-2 text-white shrink-0"
               style={{ width: '36px', height: '36px', backgroundColor: '#0f766e' }}
             >
               <i className="bi bi-heart-pulse fs-5" aria-hidden="true"></i>
             </span>
-            <span className="fs-5 fw-bold" style={{ color: '#0f172a' }}>{t("nav.title")}</span>
+            <span className="fs-5 fw-bold whitespace-nowrap" style={{ color: '#0f172a' }}>{t("nav.title")}</span>
           </div>
-          <div className="d-flex align-items-center gap-2 flex-wrap">
+          <div className="order-2 sm:ms-auto shrink-0">
             <LanguageSwitcher
               currentLocale={activeLocale}
               onLocaleNavigate={(nextLocale) => {
@@ -336,15 +342,15 @@ export default function LandingPage() {
                 router.refresh();
               }}
             />
-            <button
-              type="button"
-              className="btn fw-semibold px-4 text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
-              style={{ backgroundColor: '#0f766e', borderColor: '#0f766e', minHeight: '44px', borderRadius: '0.75rem' }}
-              onClick={openModal}
-            >
-              {t("nav.loginButton")}
-            </button>
           </div>
+          <button
+            type="button"
+            className="btn order-3 w-full sm:w-auto fw-semibold px-3 px-sm-4 text-white whitespace-nowrap shrink-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
+            style={{ backgroundColor: '#0f766e', borderColor: '#0f766e', minHeight: '44px', borderRadius: '0.75rem' }}
+            onClick={openModal}
+          >
+            {t("nav.loginButton")}
+          </button>
         </div>
       </nav>
 
@@ -353,7 +359,7 @@ export default function LandingPage() {
           <div
             data-testid="email-verified-banner"
             role="status"
-            className="mb-4 flex w-full max-w-2xl flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2.5 text-left text-sm text-emerald-950"
+            className="mb-4 flex w-full max-w-3xl flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2.5 text-left text-sm text-emerald-950"
           >
             <div className="flex items-center gap-2 font-medium">
               <i className="bi bi-check-circle-fill text-emerald-700" aria-hidden="true" />
@@ -427,7 +433,7 @@ export default function LandingPage() {
             type="button"
             data-testid="hero-cta-register"
             onClick={openRegisterModal}
-            className="btn fw-semibold px-4 text-white shadow-sm"
+            className="btn fw-semibold px-4 text-white shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
             style={{ backgroundColor: '#0f766e', borderColor: '#0f766e', minHeight: '44px', borderRadius: '0.75rem' }}
           >
             <i className="bi bi-person-plus me-2" aria-hidden="true"></i>
@@ -437,7 +443,7 @@ export default function LandingPage() {
             type="button"
             data-testid="hero-cta-login"
             onClick={openModal}
-            className="btn fw-semibold px-4 bg-white"
+            className="btn fw-semibold px-4 bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
             style={{ color: '#0f766e', borderColor: '#0f766e', minHeight: '44px', borderRadius: '0.75rem' }}
           >
             <i className="bi bi-box-arrow-in-right me-2" aria-hidden="true"></i>
@@ -496,11 +502,37 @@ export default function LandingPage() {
         show={showAuthModal}
         onHide={() => setShowAuthModal(false)}
         centered
+        animation={false}
+        backdropClassName="bg-slate-900/75"
+        aria-labelledby="auth-modal-title"
         dialogClassName="mx-auto max-w-md w-full px-3"
       >
-        <div className="card shadow-lg border-0 rounded-4 w-full">
+        <div
+          className="card shadow-lg border-0 rounded-4 w-full"
+          onKeyDown={(e) => {
+            if (e.key !== "Tab") return;
+            const focusables = Array.from(
+              e.currentTarget.querySelectorAll<HTMLElement>(
+                'button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
+              )
+            ).filter((el) => el.offsetParent !== null);
+            if (focusables.length === 0) return;
+            const first = focusables[0];
+            const last = focusables[focusables.length - 1];
+            if (!e.shiftKey && document.activeElement === last) {
+              e.preventDefault();
+              first.focus();
+            } else if (e.shiftKey && document.activeElement === first) {
+              e.preventDefault();
+              last.focus();
+            }
+          }}
+        >
           <div className="card-header bg-white pb-0 border-0 pt-3">
-            <div className="d-flex justify-content-end mb-1">
+            <div className="d-flex align-items-center justify-content-between mb-2">
+              <h2 id="auth-modal-title" className="mb-0 text-base font-bold text-slate-900">
+                {isLogin ? t("auth.signInTab") : t("auth.createAccountTab")}
+              </h2>
               <button
                 type="button"
                 data-testid="close-auth-modal"
@@ -574,6 +606,7 @@ export default function LandingPage() {
                   <input
                     type="text"
                     required
+                    aria-required="true"
                     className="form-control"
                     style={{ minHeight: '44px' }}
                     id="loginUser"
@@ -589,6 +622,7 @@ export default function LandingPage() {
                   <input
                     type="password"
                     required
+                    aria-required="true"
                     className="form-control"
                     style={{ minHeight: '44px' }}
                     id="loginPass"
@@ -632,6 +666,7 @@ export default function LandingPage() {
                         <input
                           type="text"
                           required
+                          aria-required="true"
                           className="form-control"
                           style={{ minHeight: '44px' }}
                           id="regFirst"
@@ -647,6 +682,7 @@ export default function LandingPage() {
                         <input
                           type="text"
                           required
+                          aria-required="true"
                           className="form-control"
                           style={{ minHeight: '44px' }}
                           id="regLast"
@@ -663,6 +699,7 @@ export default function LandingPage() {
                       <input
                         type="text"
                         required
+                        aria-required="true"
                         className="form-control"
                         style={{ minHeight: '44px' }}
                         id="regUser"
@@ -690,6 +727,7 @@ export default function LandingPage() {
                       <input
                         type="email"
                         required
+                        aria-required="true"
                         className="form-control"
                         style={{ minHeight: '44px' }}
                         id="regEmail"
@@ -705,6 +743,7 @@ export default function LandingPage() {
                       <input
                         type="password"
                         required
+                        aria-required="true"
                         className="form-control"
                         style={{ minHeight: '44px' }}
                         id="regPass"
@@ -742,7 +781,7 @@ export default function LandingPage() {
                           className="form-control"
                           style={{ minHeight: '44px' }}
                           id="regPhone"
-                          placeholder="+45 12 34 56 78"
+                          placeholder={registerCopy.phonePlaceholder}
                           value={phoneNumber}
                           onChange={e => setPhoneNumber(e.target.value)}
                         />

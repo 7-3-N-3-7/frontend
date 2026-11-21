@@ -21,7 +21,7 @@ COPY --from=controlplane sdlc.config.json /workspace/sdlc.config.json
 # Next.js telemetry is disabled
 ENV NEXT_TELEMETRY_DISABLED=1
 
-# 1. Run Vitest unit tests with 98% coverage gate and publish HTML report to public/frontend-coverage/
+# 1. Run Vitest unit tests with 100% coverage gate and publish HTML report to public/frontend-coverage/
 # 2. Build the Next.js app (so self-contained UI Playwright BDD runs against the compiled production build)
 # 3. Run unified self-contained Cucumber BDD suite (API + UI + Visual Regression) and publish report to public/frontend-cucumber/
 RUN npm run test:coverage && \

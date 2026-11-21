@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import {
   JournalFeatureView,
   PatientTimelineContainer,
@@ -1182,6 +1182,387 @@ describe("JournalFeature Vertical Slice", () => {
       fireEvent.change(screen.getByTestId("input-journal-branch"), { target: { value: "trauma" } });
       expect((screen.getByTestId("input-journal-branch") as HTMLSelectElement).value).toBe("trauma");
       clientRender.unmount();
+    });
+
+    it("renders Markdown notes, filters client journal by JGit branch, and auto-selects real client in timeline", async () => {
+      global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/api/backend/clinic/clients")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => [{ id: "c-real-1", userId: "c-real-1", fullName: "Freja Lind", email: "freja@dk.dk" }],
+          };
+        }
+        if (url.includes("/api/backend/journals/client/c-real-1")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              entries: [],
+              clinicalNotes: [
+                {
+                  id: "cn-assoc",
+                  title: "Klinisk note",
+                  confidentialMarkdown: "**Status** Stabil",
+                  organisationName: "Associated Clinic",
+                  createdAt: "2026-10-10T10:00:00Z",
+                },
+              ],
+            }),
+          };
+        }
+        if (url.includes("/api/backend/journals/history/")) {
+          return { ok: true, status: 200, json: async () => [] };
+        }
+        if (url.endsWith("/api/backend/journals")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => [
+              {
+                id: "jm-1",
+                clientUuid: "c-real-1",
+                title: "Markdown Notat",
+                content: "### Delmål\n\n## Del\n\n**Fokuspunkt** i hverdagen\n\n   ",
+                moodRating: 8,
+                sharedWithTherapist: true,
+                gitBranch: "trauma",
+              },
+              {
+                id: "jm-2",
+                clientUuid: "c-real-1",
+                title: "Søvnlog",
+                content: "   ",
+                moodRating: 6,
+                sharedWithTherapist: false,
+                gitBranch: "sleep",
+              },
+            ],
+          };
+        }
+        return { ok: true, status: 200, json: async () => [] };
+      });
+
+      const clientRender = render(
+        <AuthProvider user={{ id: "c-real-1", name: "Freja", email: "freja@dk.dk", roles: ["CLIENT"] }}>
+          <JournalFeatureView portalMode="client" />
+        </AuthProvider>
+      );
+
+      await waitFor(() => expect(screen.getByText("Delmål")).toBeDefined());
+      expect(screen.getByText("Fokuspunkt")).toBeDefined();
+      expect(screen.getByTestId("journal-branch-badge-jm-1")).toBeDefined();
+
+      fireEvent.click(screen.getByTestId("journal-branch-filter-trauma"));
+      expect(screen.queryByText("Søvnlog")).toBeNull();
+      expect(screen.getByText("Markdown Notat")).toBeDefined();
+      fireEvent.click(screen.getByTestId("journal-branch-filter-sleep"));
+      expect(screen.getByText("Søvnlog")).toBeDefined();
+      fireEvent.click(screen.getByTestId("journal-branch-filter-all"));
+      clientRender.unmount();
+
+      render(
+        <AuthProvider user={{ id: "th-real-1", name: "Dr. Mette", email: "m@dk.dk", roles: ["THERAPIST"] }}>
+          <PatientTimelineContainer />
+        </AuthProvider>
+      );
+      await waitFor(() => {
+        expect((screen.getByTestId("timeline-client-select") as HTMLSelectElement).value).toBe("c-real-1");
+        expect(screen.getByTestId("timeline-event-card-cn-assoc")).toBeDefined();
+      });
+    });
+
+    it("keeps unchecked confidential therapist notes out of /journals and renders H5/UL Markdown + sharedTherapistUuids", async () => {
+      const fetchCalls: Array<{ url: string; method: string; body?: string }> = [];
+      global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        fetchCalls.push({ url, method, body: typeof init?.body === "string" ? init.body : undefined });
+        if (url.includes("/api/backend/clinic/clients")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => [{ id: "cp-r4", userId: "c-r4-1", fullName: "Maja Lindholm", email: "m@dk.dk" }],
+          };
+        }
+        if (url.includes("/api/backend/journals/therapist-notes") && method === "POST") {
+          return { ok: true, status: 201, json: async () => ({ id: "tn-priv" }) };
+        }
+        if (url.endsWith("/api/backend/journals") && method === "POST") {
+          const parsed = typeof init?.body === "string" ? JSON.parse(init.body) : {};
+          return {
+            ok: true,
+            status: 201,
+            json: async () => ({
+              id: "j-shared-md",
+              clientUuid: "c-r4-1",
+              title: parsed.title,
+              content: parsed.content,
+              moodRating: parsed.moodRating ?? 7,
+              sharedWithTherapist: true,
+              sharedWithTherapists: true,
+            }),
+          };
+        }
+        if (url.endsWith("/api/backend/journals")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => [
+              {
+                id: "j-md-list",
+                clientUuid: "c-r4-1",
+                title: "Struktureret refleksion",
+                content: "### Overskrift\n\n#### Underoverskrift\n\n- **Første** punkt\n* Andet punkt",
+                moodRating: 8,
+                sharedWithTherapist: true,
+              },
+              {
+                id: "j-nobranch",
+                clientUuid: "c-r4-1",
+                title: "Standard gren",
+                content: "Kort note",
+                moodRating: 7,
+                sharedWithTherapist: false,
+                gitBranch: undefined,
+              },
+            ],
+          };
+        }
+        return { ok: true, status: 200, json: async () => [] };
+      });
+
+      render(
+        <AuthProvider user={{ id: "th-priv-1", name: "Mikkel V", email: "mv@dk.dk", roles: ["PROVIDER"] }}>
+          <JournalFeatureView portalMode="provider" />
+        </AuthProvider>
+      );
+
+      await waitFor(() => expect(screen.getByTestId("journal-client-select")).toBeDefined());
+      fireEvent.change(screen.getByTestId("journal-client-select"), { target: { value: "c-r4-1" } });
+
+      // Uncheck shared checkbox -> confidential note MUST only hit /therapist-notes, never /journals
+      fireEvent.click(screen.getByTestId("input-journal-shared"));
+      fireEvent.change(screen.getByTestId("input-journal-title"), { target: { value: "F4 FORTROLIG NOTE" } });
+      fireEvent.change(screen.getByTestId("input-journal-content"), { target: { value: "Kun intern tekst" } });
+      fireEvent.click(screen.getByTestId("submit-journal"));
+
+      await waitFor(() => expect(screen.getByTestId("internal-note-saved-banner")).toBeDefined());
+      expect(fetchCalls.some((c) => c.url.endsWith("/api/backend/journals") && c.method === "POST")).toBe(false);
+      expect(fetchCalls.some((c) => c.url.includes("/journals/therapist-notes") && c.method === "POST")).toBe(true);
+
+      // Shared note includes provider auth userId in sharedTherapistUuids and renders H5/UL Markdown
+      const journalList = screen.getByTestId("journal-list");
+      expect(journalList.querySelector("h4")?.textContent).toBe("Overskrift");
+      expect(journalList.querySelector("h5")?.textContent).toBe("Underoverskrift");
+      expect(journalList.querySelectorAll("ul.list-disc li")).toHaveLength(2);
+
+      fireEvent.click(screen.getByTestId("input-journal-shared"));
+      fireEvent.change(screen.getByTestId("input-journal-title"), { target: { value: "F4 DELT" } });
+      fireEvent.change(screen.getByTestId("input-journal-content"), { target: { value: "- Punkt A\n- Punkt B" } });
+      fireEvent.click(screen.getByTestId("submit-journal"));
+
+      await waitFor(() => {
+        const journalPost = fetchCalls.find((c) => c.url.endsWith("/api/backend/journals") && c.method === "POST");
+        expect(journalPost).toBeDefined();
+        expect(JSON.parse(journalPost!.body!).sharedTherapistUuids).toContain("th-priv-1");
+      });
+      cleanup();
+
+      // Confidential note without title + failing /therapist-notes (500 + network reject)
+      let rejectNotePost = false;
+      global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/api/backend/clinic/clients")) {
+          return { ok: true, status: 200, json: async () => [{ id: "cp-e", userId: "c-e", fullName: "Eva" }] };
+        }
+        if (url.includes("/therapist-notes") && init?.method === "POST") {
+          if (rejectNotePost) throw new Error("network down");
+          return { ok: false, status: 500, json: async () => ({}) };
+        }
+        return { ok: true, status: 200, json: async () => [] };
+      });
+      const errPriv = render(
+        <AuthProvider user={{ id: "th-e", name: "", email: "b@dk.dk", roles: ["PROVIDER"] }}>
+          <JournalFeatureView portalMode="provider" />
+        </AuthProvider>
+      );
+      await waitFor(() => expect(screen.getAllByTestId("journal-client-select").pop()).toBeDefined());
+      fireEvent.change(screen.getAllByTestId("journal-client-select").pop()!, { target: { value: "c-e" } });
+      fireEvent.click(screen.getAllByTestId("input-journal-shared").pop()!);
+      fireEvent.change(screen.getAllByTestId("input-journal-content").pop()!, { target: { value: "Ingen titel" } });
+      fireEvent.click(screen.getAllByTestId("submit-journal").pop()!);
+      await waitFor(() => expect(global.fetch).toHaveBeenCalledWith("/api/backend/journals/therapist-notes", expect.any(Object)));
+      rejectNotePost = true;
+      fireEvent.click(screen.getAllByTestId("submit-journal").pop()!);
+      await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(4));
+      errPriv.unmount();
+
+      // PatientTimelineContainer renders Markdown headings, bold & bullet lists across meso, micro & inspector
+      const mdTimelineEvent: ClinicalJournalEvent[] = [
+        {
+          id: "ev-md-1",
+          date: "2026-11-20",
+          lane: "sessions",
+          tag: "Samtale",
+          title: "Markdown Tidslinje",
+          summary: "### Klinisk Hovedpunkt\n#### Delmål\nStatus med **fed markering**\n- Første fokuspunkt\n- Andet fokuspunkt",
+          version: "v1.0",
+          soap: {
+            subjective: "### Subjektivt\n- Søvn bedret\n- **Færre** flashbacks",
+            objective: "Rolig fremtoning",
+            assessment: "#### Stabil\nFremgang",
+            plan: "Fortsæt plan",
+          },
+          auditLog: "Audit",
+        },
+      ];
+      const tlRender = render(
+        <AuthProvider user={{ id: "th-tl-md", name: "Bo", email: "bo@klinik.dk", roles: ["PROVIDER"] }}>
+          <PatientTimelineContainer events={mdTimelineEvent} initialZoomLevel={55} />
+        </AuthProvider>
+      );
+      const cardMeso = screen.getByTestId("timeline-event-card-ev-md-1");
+      expect(cardMeso.querySelector("h4")?.textContent).toBe("Klinisk Hovedpunkt");
+      expect(cardMeso.querySelector("h5")?.textContent).toBe("Delmål");
+      expect(cardMeso.querySelectorAll("ul li")).toHaveLength(2);
+
+      // Select card to open JournalDetailInspector and verify rendered Markdown there too
+      fireEvent.click(cardMeso);
+      const inspector = screen.getByTestId("journal-detail-inspector");
+      expect(inspector.querySelector("h4")?.textContent).toBe("Klinisk Hovedpunkt");
+      expect(inspector.querySelector("strong")?.textContent).toBe("fed markering");
+      expect(inspector.querySelectorAll("ul li").length).toBeGreaterThanOrEqual(4);
+      tlRender.unmount();
+
+      // 1. Deferred getClinicClients unmount in provider journal view + empty confidential note submit + shared w/ blank userName & failing noteRes (500)
+      cleanup();
+      let resolveProviderClients!: (v: unknown) => void;
+      global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+        const u = String(input);
+        if (u.includes("/api/backend/clinic/clients")) {
+          return new Promise((res) => {
+            resolveProviderClients = res;
+          });
+        }
+        return { ok: true, status: 200, json: async () => [] };
+      });
+      const unmountProv = render(
+        <AuthProvider user={{ id: "th-unm-1", name: "Dr. Unmount", email: "u@dk.dk", roles: ["PROVIDER"] }}>
+          <JournalFeatureView portalMode="provider" />
+        </AuthProvider>
+      );
+      unmountProv.unmount();
+      resolveProviderClients({ ok: true, status: 200, json: async () => [{ id: "cp-u", userId: "c-u", fullName: "U Klient" }] });
+      await Promise.resolve();
+
+      // Unshared empty confidential form -> returns early without POST; shared + internalNote + blank user.name + failing /therapist-notes (500)
+      const callsAfter: string[] = [];
+      global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const u = String(input);
+        callsAfter.push(`${init?.method || "GET"} ${u}`);
+        if (u.includes("/api/backend/clinic/clients")) {
+          return { ok: true, status: 200, json: async () => [{ id: "cp-j1", userId: "c-j1", fullName: "Klient J" }] };
+        }
+        if (u.endsWith("/api/backend/journals") && init?.method === "POST") {
+          return { ok: true, status: 201, json: async () => ({ id: "j-created-1", title: "T", content: "C", moodRating: 7 }) };
+        }
+        if (u.includes("/therapist-notes") && init?.method === "POST") {
+          return { ok: false, status: 500, json: async () => ({}) };
+        }
+        return { ok: true, status: 200, json: async () => [] };
+      });
+      const provEmptyName = render(
+        <AuthProvider user={{ id: "th-empty-name", name: "", email: "e@dk.dk", roles: ["PROVIDER"] }}>
+          <JournalFeatureView portalMode="provider" />
+        </AuthProvider>
+      );
+      await waitFor(() => expect(screen.getByTestId("journal-client-select")).toBeDefined());
+      fireEvent.change(screen.getByTestId("journal-client-select"), { target: { value: "c-j1" } });
+      // Unshare while title, content, and internalNote are all blank -> combinedConfidential is ""
+      fireEvent.click(screen.getByTestId("input-journal-shared"));
+      fireEvent.click(screen.getByTestId("submit-journal"));
+      await Promise.resolve();
+      expect(callsAfter.some((c) => c.includes("POST /api/backend/journals/therapist-notes"))).toBe(false);
+
+      // Re-enable share, fill title + content + internalNote, submit -> noteRes.ok === false (500) & auth.user.name === "" fallback
+      fireEvent.click(screen.getByTestId("input-journal-shared"));
+      fireEvent.change(screen.getByTestId("input-journal-title"), { target: { value: "Delt Indlæg" } });
+      fireEvent.change(screen.getByTestId("input-journal-content"), { target: { value: "Indhold" } });
+      fireEvent.change(screen.getByTestId("input-journal-internal-note"), { target: { value: "Intern note" } });
+      fireEvent.click(screen.getByTestId("submit-journal"));
+      await waitFor(() => expect(callsAfter.some((c) => c.includes("POST /api/backend/journals/therapist-notes"))).toBe(true));
+      provEmptyName.unmount();
+
+      // 2. Client mode: rejected handshakes fetch + branch filter when item.gitBranch is undefined (falls back to "main")
+      global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+        const u = String(input);
+        if (u.includes("/api/backend/clinic/handshakes/client/")) {
+          throw new Error("handshakes offline");
+        }
+        if (u.endsWith("/api/backend/journals")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => [
+              { id: "j-nobranch", title: "Uden Branch", content: "Tekst", moodRating: 7, clientUuid: "c-branch-1" },
+            ],
+          };
+        }
+        return { ok: true, status: 200, json: async () => [] };
+      });
+      const branchClient = render(
+        <AuthProvider user={{ id: "c-branch-1", name: "Client B", email: "b@dk.dk", roles: ["CLIENT"] }}>
+          <JournalFeatureView portalMode="client" />
+        </AuthProvider>
+      );
+      await waitFor(() => expect(screen.getByText("Uden Branch")).toBeDefined());
+      fireEvent.click(screen.getByTestId("journal-branch-filter-main"));
+      expect(screen.getByText("Uden Branch")).toBeDefined();
+      branchClient.unmount();
+
+      // 3. PatientTimelineContainer: providedEvents sort with 2+ events, deferred getClinicClients when source manually switched, & rAF firing after unmount
+      const unsortedEvents: ClinicalJournalEvent[] = [
+        { ...mdTimelineEvent[0], id: "ev-older", date: "2026-01-01" },
+        { ...mdTimelineEvent[0], id: "ev-newer", date: "2026-12-01" },
+      ];
+      const sortedTl = render(<PatientTimelineContainer events={unsortedEvents} />);
+      expect(screen.getByTestId("timeline-event-card-ev-newer")).toBeDefined();
+      sortedTl.unmount();
+
+      let resolveTlClients!: (v: unknown) => void;
+      global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+        const u = String(input);
+        if (u.includes("/api/backend/clinic/clients")) {
+          return new Promise((res) => {
+            resolveTlClients = res;
+          });
+        }
+        return { ok: true, status: 200, json: async () => ({ entries: [], commits: [], clinicalNotes: [] }) };
+      });
+      let capturedRafCb: FrameRequestCallback | null = null;
+      const rafSpy = vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
+        capturedRafCb = cb;
+        return 77;
+      });
+      const cafSpy = vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+      const raceTl = render(
+        <AuthProvider user={{ id: "th-tl-race", name: "Bo", email: "bo@dk.dk", roles: ["PROVIDER"] }}>
+          <PatientTimelineContainer skipRoleGuard />
+        </AuthProvider>
+      );
+      fireEvent.change(screen.getByTestId("timeline-client-select"), { target: { value: "manual-client-id" } });
+      resolveTlClients({
+        ok: true,
+        status: 200,
+        json: async () => [{ id: "cp-r", userId: "c-auto", fullName: "Auto Klient" }],
+      });
+      await waitFor(() => expect(screen.getByTestId("timeline-client-select").textContent).toContain("Auto Klient"));
+      raceTl.unmount();
+      capturedRafCb?.(0);
+      rafSpy.mockRestore();
+      cafSpy.mockRestore();
     });
   });
 });

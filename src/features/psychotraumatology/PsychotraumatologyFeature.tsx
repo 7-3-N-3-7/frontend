@@ -47,6 +47,7 @@ export interface PsychotraumatologyTestDto extends HasId<string> {
   readonly severity: string;
   readonly answersJson: string;
   readonly timestamp?: string;
+  readonly createdAt?: string;
 }
 
 export interface PsychotraumatologyFeatureViewProps {
@@ -596,6 +597,15 @@ const psychotraumatologyService = new PsychotraumatologyApiService();
 // 3. FEATURE VIEW (Exported React Entrypoint for this Vertical Slice)
 // ============================================================================
 
+export function normalizeUtcTimestamp(raw?: string | null): string {
+  const trimmed = (raw || '').trim();
+  if (!trimmed) return '';
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(trimmed)) {
+    return `${trimmed}Z`;
+  }
+  return trimmed;
+}
+
 export const PsychotraumatologyFeatureView: React.FC<
   PsychotraumatologyFeatureViewProps
 > = ({ portalMode }) => {
@@ -670,6 +680,22 @@ export const PsychotraumatologyFeatureView: React.FC<
         errorCode: ErrorCode.VALIDATION_FAILED,
         timestamp: new Date().toISOString(),
         fields: { answers: detail },
+      });
+      return;
+    }
+    if (!isClientSelfView && auth?.user.id && effectiveClientUuid.trim() === auth.user.id) {
+      const selfDetail =
+        locale === 'da'
+          ? 'Behandler kan ikke oprette en PCL-5 screening på sig selv som klient.'
+          : 'Therapist cannot submit a PCL-5 assessment for themselves as client.';
+      setError({
+        type: 'about:blank',
+        title: copy.incompleteTitle,
+        status: 400,
+        detail: selfDetail,
+        errorCode: ErrorCode.BAD_REQUEST,
+        timestamp: new Date().toISOString(),
+        fields: { clientUuid: selfDetail },
       });
       return;
     }
@@ -970,64 +996,99 @@ export const PsychotraumatologyFeatureView: React.FC<
         </div>
       </form>
 
-      {loading ? (
+      {loading && !error ? (
         <p data-testid="loading-indicator" className="text-sm text-slate-500">
           {copy.loadingText}
         </p>
       ) : visibleTests.length === 0 ? (
         <p className="text-sm text-slate-500">{copy.emptyText}</p>
       ) : (
-        <ul data-testid="psychotraumatology-list" className="space-y-2">
-          {visibleTests.map((test) => (
-            <li
-              key={test.id}
-              data-testid={`psychotraumatology-item-${test.id}`}
-              className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-3 text-sm"
-            >
-              <span>
-                <strong className="text-slate-900">{test.testType}</strong> —{' '}
-                {copy.scoreLabel}: {test.score}{' '}
-                <span
-                  className={`ml-1 inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                    test.score >= CLINICAL_PTSD_CUTOFF_SCORE
-                      ? 'bg-rose-50 text-rose-700'
-                      : 'bg-teal-50 text-teal-800'
-                  }`}
-                >
-                  {localizePcl5Severity(test.severity, locale)}
-                </span>
-              </span>
-              {!isClientSelfView && test.id && (
-                <button
-                  type="button"
-                  data-testid={`delete-test-${test.id}`}
-                  onClick={() => setPendingDeleteId(test.id!)}
-                  className="min-h-11 rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100"
-                >
-                  {copy.deleteBtn}
-                </button>
-              )}
-            </li>
-          ))}
+        <ul
+          data-testid="psychotraumatology-list"
+          className="list-none space-y-2 pl-0"
+          style={{ paddingLeft: 0 }}
+        >
+          {visibleTests.map((test) => {
+            const resolvedClientLabel = test.clientUuid
+              ? clientOptions.find((c) => (c.userId || c.id) === test.clientUuid)?.fullName || ''
+              : '';
+            const clientLabel =
+              resolvedClientLabel ||
+              (isClientSelfView ? auth?.user.name || '' : '');
+            let formattedTime = '';
+            const rawTimestamp = test.createdAt || test.timestamp;
+            if (rawTimestamp) {
+              const dt = new Date(normalizeUtcTimestamp(rawTimestamp));
+              if (!Number.isNaN(dt.getTime())) {
+                formattedTime = new Intl.DateTimeFormat(locale === 'en' ? 'en-GB' : locale, {
+                  dateStyle: 'medium',
+                  timeStyle: 'short',
+                }).format(dt);
+              }
+            }
+            return (
+              <li
+                key={test.id}
+                data-testid={`psychotraumatology-item-${test.id}`}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-3 text-sm"
+              >
+                <div className="min-w-0 space-y-0.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <strong className="text-slate-900">{test.testType}</strong>
+                    {clientLabel && (
+                      <span className="text-xs font-medium text-slate-600">
+                        · {clientLabel}
+                      </span>
+                    )}
+                    <span>
+                      — {copy.scoreLabel}: {test.score}{' '}
+                    </span>
+                    <span
+                      className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                        test.score >= CLINICAL_PTSD_CUTOFF_SCORE
+                          ? 'bg-rose-50 text-rose-700'
+                          : 'bg-teal-50 text-teal-800'
+                      }`}
+                    >
+                      {localizePcl5Severity(test.severity, locale)}
+                    </span>
+                  </div>
+                  {formattedTime && (
+                    <div className="text-xs text-slate-500">{formattedTime}</div>
+                  )}
+                </div>
+                {!isClientSelfView && test.id && (
+                  <button
+                    type="button"
+                    data-testid={`delete-test-${test.id}`}
+                    onClick={() => setPendingDeleteId(test.id!)}
+                    className="min-h-11 rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100"
+                  >
+                    {copy.deleteBtn}
+                  </button>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
 
-      <ConfirmActionDialog
-        open={pendingDeleteId !== null}
-        tone="danger"
-        title={copy.deleteConfirmTitle}
-        description={copy.deleteConfirmDesc}
-        confirmLabel={copy.deleteBtn}
-        cancelLabel={copy.cancelBtn}
-        onConfirm={async () => {
-          const idToDelete = pendingDeleteId;
-          setPendingDeleteId(null);
-          if (idToDelete) {
+      {pendingDeleteId && (
+        <ConfirmActionDialog
+          open
+          tone="danger"
+          title={copy.deleteConfirmTitle}
+          description={copy.deleteConfirmDesc}
+          confirmLabel={copy.deleteBtn}
+          cancelLabel={copy.cancelBtn}
+          onConfirm={async () => {
+            const idToDelete = pendingDeleteId;
+            setPendingDeleteId(null);
             await deleteItem(idToDelete);
-          }
-        }}
-        onCancel={() => setPendingDeleteId(null)}
-      />
+          }}
+          onCancel={() => setPendingDeleteId(null)}
+        />
+      )}
     </section>
   );
 };

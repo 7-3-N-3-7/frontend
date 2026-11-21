@@ -40,6 +40,7 @@ export type UserRole = 'CLIENT' | 'ADMIN' | 'THERAPIST';
 export interface UserDto extends HasId<string> {
   readonly id?: string;
   readonly username: string;
+  readonly email?: string;
   readonly password?: string;
   readonly role: UserRole | string;
 }
@@ -144,6 +145,9 @@ interface UserCopy {
   confirmDeleteBtn: string;
   cancelBtn: string;
   forbiddenNotice: string;
+  searchPlaceholder: string;
+  allRolesOption: string;
+  noFilterMatchesText: string;
 }
 
 const USER_COPY: Record<SupportedUiLocale, UserCopy> = {
@@ -163,6 +167,9 @@ const USER_COPY: Record<SupportedUiLocale, UserCopy> = {
     confirmDeleteBtn: 'Ja, slet bruger',
     cancelBtn: 'Annuller',
     forbiddenNotice: 'Adgang nægtet: Brugeradministration kræver administratorrettigheder (ADMIN).',
+    searchPlaceholder: 'Søg brugernavn eller e-mail...',
+    allRolesOption: 'Alle roller',
+    noFilterMatchesText: 'Ingen brugere matcher søgningen.',
   },
   en: {
     badge: 'User Administration',
@@ -180,6 +187,9 @@ const USER_COPY: Record<SupportedUiLocale, UserCopy> = {
     confirmDeleteBtn: 'Yes, delete user',
     cancelBtn: 'Cancel',
     forbiddenNotice: 'Access denied: User administration requires administrator privileges (ADMIN).',
+    searchPlaceholder: 'Search username or email...',
+    allRolesOption: 'All roles',
+    noFilterMatchesText: 'No users match the filter.',
   },
   fr: {
     badge: 'Administration des Utilisateurs',
@@ -197,6 +207,9 @@ const USER_COPY: Record<SupportedUiLocale, UserCopy> = {
     confirmDeleteBtn: 'Oui, supprimer',
     cancelBtn: 'Annuler',
     forbiddenNotice: "Accès refusé : l'administration des utilisateurs nécessite les droits ADMIN.",
+    searchPlaceholder: "Rechercher par nom ou e-mail...",
+    allRolesOption: 'Tous les rôles',
+    noFilterMatchesText: 'Aucun utilisateur ne correspond au filtre.',
   },
   es: {
     badge: 'Administración de Usuarios',
@@ -214,6 +227,9 @@ const USER_COPY: Record<SupportedUiLocale, UserCopy> = {
     confirmDeleteBtn: 'Sí, eliminar',
     cancelBtn: 'Cancelar',
     forbiddenNotice: 'Acceso denegado: la administración de usuarios requiere permisos de administrador (ADMIN).',
+    searchPlaceholder: 'Buscar usuario o correo...',
+    allRolesOption: 'Todos los roles',
+    noFilterMatchesText: 'Ningún usuario coincide con el filtro.',
   },
   de: {
     badge: 'Benutzerverwaltung',
@@ -231,6 +247,9 @@ const USER_COPY: Record<SupportedUiLocale, UserCopy> = {
     confirmDeleteBtn: 'Ja, löschen',
     cancelBtn: 'Abbrechen',
     forbiddenNotice: 'Zugriff verweigert: Die Benutzerverwaltung erfordert Administratorrechte (ADMIN).',
+    searchPlaceholder: 'Benutzername oder E-Mail suchen...',
+    allRolesOption: 'Alle Rollen',
+    noFilterMatchesText: 'Keine Benutzer entsprechen dem Filter.',
   },
 };
 
@@ -241,15 +260,39 @@ const UserFeatureAuthorizedContent: React.FC = () => {
     useBaseCrud(userService);
 
   const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<string>('CLIENT');
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [roleFilter, setRoleFilter] = useState<'ALL' | 'ADMIN' | 'THERAPIST' | 'CLIENT'>('ALL');
+
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const filteredUsers = users.filter((u) => {
+    const uRole = String(u.role || '').toUpperCase();
+    const matchesRole =
+      roleFilter === 'ALL' ||
+      uRole === roleFilter ||
+      (roleFilter === 'THERAPIST' && uRole === 'PROVIDER') ||
+      (roleFilter === 'ADMIN' && uRole === 'MANAGEMENT');
+    if (!matchesRole) return false;
+    if (!normalizedQuery) return true;
+    const haystack = `${u.username || ''} ${u.email || ''}`.toLowerCase();
+    return haystack.includes(normalizedQuery);
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const created = await createItem({ username, password, role });
+    const trimmedEmail = email.trim();
+    const created = await createItem({
+      username,
+      password,
+      role,
+      ...(trimmedEmail ? { email: trimmedEmail } : {}),
+    });
     if (created) {
       setUsername('');
+      setEmail('');
       setPassword('');
       setRole('CLIENT');
     }
@@ -272,25 +315,27 @@ const UserFeatureAuthorizedContent: React.FC = () => {
 
       <ProblemAlert problem={error} onDismiss={clearError} />
 
-      <ConfirmActionDialog
-        open={pendingDeleteId !== null}
-        title={copy.confirmDeleteTitle}
-        description={copy.confirmDeleteDesc}
-        confirmLabel={copy.confirmDeleteBtn}
-        cancelLabel={copy.cancelBtn}
-        tone="danger"
-        onCancel={() => setPendingDeleteId(null)}
-        onConfirm={() => {
-          const targetId = pendingDeleteId;
-          setPendingDeleteId(null);
-          if (targetId) void deleteItem(targetId);
-        }}
-      />
+      {pendingDeleteId && (
+        <ConfirmActionDialog
+          open
+          title={copy.confirmDeleteTitle}
+          description={copy.confirmDeleteDesc}
+          confirmLabel={copy.confirmDeleteBtn}
+          cancelLabel={copy.cancelBtn}
+          tone="danger"
+          onCancel={() => setPendingDeleteId(null)}
+          onConfirm={() => {
+            const targetId = pendingDeleteId;
+            setPendingDeleteId(null);
+            void deleteItem(targetId);
+          }}
+        />
+      )}
 
       <form
         onSubmit={handleSubmit}
         data-testid="user-form"
-        className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 items-end"
+        className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5 items-end"
       >
         <div className="flex flex-col gap-1">
           <label
@@ -305,6 +350,23 @@ const UserFeatureAuthorizedContent: React.FC = () => {
             placeholder={copy.usernamePlaceholder}
             value={username}
             onChange={(e) => setUsername(e.target.value)}
+            className="min-h-11 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label
+            htmlFor="user-email-input"
+            className="text-xs font-semibold text-slate-600"
+          >
+            E-mail
+          </label>
+          <input
+            id="user-email-input"
+            data-testid="input-email"
+            type="email"
+            placeholder="navn@klinik.dk"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
             className="min-h-11 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
           />
         </div>
@@ -353,20 +415,70 @@ const UserFeatureAuthorizedContent: React.FC = () => {
         </button>
       </form>
 
+      {!loading && users.length > 0 && (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <input
+            type="search"
+            data-testid="user-search-input"
+            aria-label={copy.searchPlaceholder}
+            placeholder={copy.searchPlaceholder}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="min-h-11 sm:col-span-2 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
+          />
+          <select
+            data-testid="user-role-filter"
+            aria-label={copy.roleLabel}
+            value={roleFilter}
+            onChange={(e) =>
+              setRoleFilter(e.target.value as 'ALL' | 'ADMIN' | 'THERAPIST' | 'CLIENT')
+            }
+            className="min-h-11 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
+          >
+            <option value="ALL">{copy.allRolesOption}</option>
+            <option value="CLIENT">{localizeUserRole('CLIENT', locale)}</option>
+            <option value="THERAPIST">{localizeUserRole('THERAPIST', locale)}</option>
+            <option value="ADMIN">{localizeUserRole('ADMIN', locale)}</option>
+          </select>
+        </div>
+      )}
+
       {loading ? (
         <p data-testid="loading-indicator" className="text-sm text-slate-500">
           {copy.loadingText}
         </p>
+      ) : users.length === 0 ? (
+        <p
+          data-testid="user-empty-state"
+          className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-6 text-center text-sm text-slate-600"
+        >
+          {locale === 'da' ? 'Ingen registrerede brugere endnu.' : 'No registered users yet.'}
+        </p>
+      ) : filteredUsers.length === 0 ? (
+        <p
+          data-testid="user-filter-empty-state"
+          className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-6 text-center text-sm text-slate-600"
+        >
+          {copy.noFilterMatchesText}
+        </p>
       ) : (
-        <ul data-testid="user-list" className="space-y-2">
-          {users.map((user) => (
+        <ul
+          data-testid="user-list"
+          className="list-none space-y-2 pl-0"
+          style={{ paddingLeft: 0 }}
+        >
+          {filteredUsers.map((user) => (
             <li
               key={user.id}
               data-testid={`user-item-${user.id}`}
               className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-3 text-sm"
             >
-              <span className="flex items-center gap-2">
-                <strong className="text-slate-900">{user.username}</strong> —{" "}
+              <span className="flex flex-wrap items-center gap-2">
+                <strong className="text-slate-900">{user.username}</strong>
+                {user.email && (
+                  <span className="text-xs text-slate-500">({user.email})</span>
+                )}
+                —{" "}
                 <span className="rounded-full bg-slate-200/80 px-2.5 py-0.5 text-xs font-semibold text-slate-800">
                   {localizeUserRole(user.role, locale)}
                 </span>
