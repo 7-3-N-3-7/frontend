@@ -301,7 +301,57 @@ export interface ProblemAlertProps {
   error?: ProblemDetail | null;
   problem?: ProblemDetail | null;
   onDismiss?: () => void;
+  locale?: string;
 }
+
+const PROBLEM_DISMISS_LABELS: Record<string, { label: string; ariaLabel: string }> = {
+  da: { label: "Luk", ariaLabel: "Luk fejlbesked" },
+  en: { label: "Dismiss", ariaLabel: "Dismiss error message" },
+  fr: { label: "Fermer", ariaLabel: "Fermer le message d'erreur" },
+  es: { label: "Cerrar", ariaLabel: "Cerrar mensaje de error" },
+  de: { label: "Schließen", ariaLabel: "Fehlermeldung schließen" },
+};
+
+const PROBLEM_TITLE_LABELS: Record<string, string> = {
+  "Client Domain Validation Error": "Valideringsfejl",
+  "Validation Failed": "Valideringsfejl",
+};
+
+const PROBLEM_HTTP_TITLE_LABELS_DA: Record<string, string> = {
+  "Internal Server Error": "Midlertidig serverfejl",
+  "Bad Gateway": "Forbindelsesfejl til server",
+  "Unauthorized": "Log ind påkrævet",
+  "Forbidden": "Ingen adgang",
+  "Request Error": "Netværks- eller serverfejl",
+};
+
+const PROBLEM_DETAIL_MAP_DA: Record<string, string> = {
+  "Internal Server Error": "Der opstod en midlertidig serverfejl. Prøv venligst igen.",
+  "Bad Gateway": "Tjenesten svarer ikke i øjeblikket. Prøv igen om et øjeblik.",
+  "Failed to fetch": "Kunne ikke oprette forbindelse til serveren. Tjek netværksforbindelsen og prøv igen.",
+  "NetworkError when attempting to fetch resource.": "Kunne ikke oprette forbindelse til serveren. Prøv venligst igen.",
+  "CVR number must be exactly 8 Danish digits": "CVR-nummeret skal bestå af præcis 8 danske cifre.",
+  "Valid MobilePay phone number (min 8 digits) is required": "Indtast et gyldigt MobilePay-telefonnummer (mindst 8 cifre).",
+  "An unexpected network or server error occurred.": "Der opstod en netværks- eller serverfejl — tjek forbindelsen eller log ind igen.",
+  Unauthorized: "Log ind på EduJournal for at fortsætte.",
+};
+
+function localizeProblemMessage(message: string | undefined, langKey: string): string {
+  if (!message) return "";
+  if (langKey !== "da") return message;
+  const mapped = PROBLEM_DETAIL_MAP_DA[message] ?? message;
+  return mapped.replaceAll("hjemmeadresse", "klinikadresse");
+}
+
+const PROBLEM_FIELD_LABELS: Record<string, string> = {
+  cvrNumber: "CVR-nummer",
+  startTime: "Starttidspunkt",
+  endTime: "Sluttidspunkt",
+  clientName: "Klientnavn",
+  moodRating: "Humørscore",
+  answers: "Spørgeskema",
+  amount: "Beløb",
+};
 
 /**
  * [Component: <ProblemAlert />]
@@ -313,11 +363,30 @@ export const ProblemAlert: React.FC<ProblemAlertProps> = ({
   error,
   problem,
   onDismiss,
+  locale,
 }) => {
   const activeProblem = error ?? problem ?? null;
   if (!activeProblem) return null;
 
+  const rawLocale = locale || document.documentElement.lang || "da";
+  const langKey = rawLocale.slice(0, 2).toLowerCase();
+  const dismissCopy = PROBLEM_DISMISS_LABELS[langKey] ?? PROBLEM_DISMISS_LABELS.da;
+  const displayTitle =
+    PROBLEM_TITLE_LABELS[activeProblem.title] ??
+    (langKey === "da"
+      ? (PROBLEM_HTTP_TITLE_LABELS_DA[activeProblem.title] ?? activeProblem.title)
+      : activeProblem.title);
+  const localizedDetail = localizeProblemMessage(activeProblem.detail, langKey);
   const fieldErrors = activeProblem.fieldErrors ?? activeProblem.fields;
+  const fieldEntries = fieldErrors ? Object.entries(fieldErrors) : [];
+  const isDuplicateSingleField =
+    fieldEntries.length === 1 &&
+    localizeProblemMessage(fieldEntries[0][1], langKey) === localizedDetail;
+  const displayDetail = isDuplicateSingleField
+    ? langKey === "da"
+      ? "Kontrollér det markerede felt nedenfor."
+      : "Please check the highlighted field below."
+    : localizedDetail;
 
   return (
     <div
@@ -340,13 +409,13 @@ export const ProblemAlert: React.FC<ProblemAlertProps> = ({
               data-testid="error-title"
               className="block text-sm font-semibold text-rose-950"
             >
-              {activeProblem.title} ({activeProblem.status})
+              {displayTitle} ({activeProblem.status})
             </strong>
             <p
               data-testid="error-detail"
               className="mt-1 mb-0 text-sm text-rose-800"
             >
-              {activeProblem.detail}
+              {displayDetail}
             </p>
           </div>
         </div>
@@ -354,24 +423,27 @@ export const ProblemAlert: React.FC<ProblemAlertProps> = ({
           <button
             type="button"
             onClick={onDismiss}
-            aria-label="Luk fejlbesked"
+            aria-label={dismissCopy.ariaLabel}
             data-testid="dismiss-error"
-            className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-rose-200 bg-white px-2.5 py-1 text-xs font-medium text-rose-700 transition-colors hover:bg-rose-100"
+            className="inline-flex min-h-11 shrink-0 items-center gap-1 rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-medium text-rose-700 transition-colors hover:bg-rose-100"
           >
             <i className="bi bi-x-lg" aria-hidden="true" />
-            <span>Dismiss</span>
+            <span>{dismissCopy.label}</span>
           </button>
         )}
       </div>
 
-      {fieldErrors && Object.keys(fieldErrors).length > 0 && (
+      {fieldEntries.length > 0 && (
         <ul
           data-testid="field-errors"
           className="mt-3 mb-0 list-disc space-y-1 rounded-lg bg-white/75 px-4 py-2.5 pl-7 text-xs text-rose-900"
         >
-          {Object.entries(fieldErrors).map(([field, message]) => (
+          {fieldEntries.map(([field, message]) => (
             <li key={field} data-testid={`field-error-${field}`}>
-              <strong className="font-semibold">{field}:</strong> {message}
+              <strong className="font-semibold">
+                {PROBLEM_FIELD_LABELS[field] ?? field}:
+              </strong>{" "}
+              {localizeProblemMessage(message, langKey)}
             </li>
           ))}
         </ul>
@@ -445,6 +517,10 @@ export interface PortalWorkspaceShellProps {
   portalOptions?: PortalSwitcherOption[];
   upgradeAction?: PortalUpgradeAction;
   defaultSidebarCollapsed?: boolean;
+  expandSidebarLabel?: string;
+  collapseSidebarLabel?: string;
+  mobileMenuAriaLabel?: string;
+  closeMenuAriaLabel?: string;
   onNavigate?: (href: string) => void;
   onLogout?: () => void;
   shellError?: ProblemDetail | null;
@@ -483,6 +559,10 @@ export const PortalWorkspaceShell: React.FC<PortalWorkspaceShellProps> = ({
   portalOptions,
   upgradeAction,
   defaultSidebarCollapsed = false,
+  expandSidebarLabel = "Udvid sidepanel",
+  collapseSidebarLabel = "Minimer sidepanel",
+  mobileMenuAriaLabel = "Åbn menu",
+  closeMenuAriaLabel = "Luk menu",
   onNavigate,
   onLogout,
   shellError,
@@ -568,7 +648,7 @@ export const PortalWorkspaceShell: React.FC<PortalWorkspaceShellProps> = ({
 
       {navItems && navItems.length > 0 && (
         <nav
-          aria-label="Portalnavigation"
+          aria-label={featuresHeaderLabel}
           className="flex-1 space-y-1 overflow-y-auto px-3 py-3"
         >
           {!isCollapsed && (
@@ -663,7 +743,7 @@ export const PortalWorkspaceShell: React.FC<PortalWorkspaceShellProps> = ({
     >
       {/* Desktop Sidebar */}
       <aside
-        aria-label="Hovedsidepanel"
+        aria-label={effectiveSubtitle || effectiveBrandTitle}
         data-testid="desktop-sidebar"
         className={`hidden md:flex md:shrink-0 md:flex-col border-r border-slate-200/80 bg-white transition-all duration-200 ${
           collapsed ? "md:w-20" : "md:w-64"
@@ -697,7 +777,7 @@ export const PortalWorkspaceShell: React.FC<PortalWorkspaceShellProps> = ({
             type="button"
             onClick={() => setCollapsed((prev) => !prev)}
             aria-expanded={!collapsed}
-            aria-label={collapsed ? "Udvid sidepanel" : "Minimer sidepanel"}
+            aria-label={collapsed ? expandSidebarLabel : collapseSidebarLabel}
             data-testid="sidebar-collapse-toggle"
             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900"
           >
@@ -726,23 +806,28 @@ export const PortalWorkspaceShell: React.FC<PortalWorkspaceShellProps> = ({
           />
           <aside className="relative z-10 flex w-72 max-w-[85vw] flex-col bg-white shadow-xl">
             <div className="flex h-16 items-center justify-between border-b border-slate-100 px-4">
-              <div className="flex items-center gap-2.5">
+              <div className="flex min-w-0 items-center gap-2">
                 <div
                   className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-white"
                   style={{ backgroundColor: accentColor }}
                 >
                   <i className={`bi ${iconClass} text-base`} aria-hidden="true" />
                 </div>
-                <span className="text-sm font-bold text-slate-900">
+                <span className="truncate text-sm font-bold text-slate-900">
                   {effectiveBrandTitle}
                 </span>
+                {roleLabel && (
+                  <span className="inline-flex shrink-0 items-center rounded-full border border-teal-200 bg-teal-50 px-2 py-0.5 text-[11px] font-semibold text-teal-800">
+                    {roleLabel}
+                  </span>
+                )}
               </div>
               <button
                 type="button"
                 onClick={() => setMobileOpen(false)}
-                aria-label="Luk menu"
+                aria-label={closeMenuAriaLabel}
                 data-testid="mobile-menu-close"
-                className="flex h-11 w-11 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100"
+                className="flex h-11 w-11 min-w-11 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100"
               >
                 <i className="bi bi-x-lg text-sm" aria-hidden="true" />
               </button>
@@ -759,7 +844,7 @@ export const PortalWorkspaceShell: React.FC<PortalWorkspaceShellProps> = ({
             <button
               type="button"
               onClick={() => setMobileOpen(true)}
-              aria-label="Åbn menu"
+              aria-label={mobileMenuAriaLabel}
               data-testid="mobile-menu-toggle"
               className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 md:hidden"
             >
@@ -778,7 +863,7 @@ export const PortalWorkspaceShell: React.FC<PortalWorkspaceShellProps> = ({
             {roleLabel && (
               <span
                 data-role-badge={roleBadge}
-                className="inline-flex shrink-0 items-center rounded-full border border-teal-200 bg-teal-50 px-2.5 py-0.5 text-xs font-semibold text-teal-800"
+                className="hidden sm:inline-flex shrink-0 items-center rounded-full border border-teal-200 bg-teal-50 px-2.5 py-0.5 text-xs font-semibold text-teal-800"
               >
                 {roleLabel}
               </span>

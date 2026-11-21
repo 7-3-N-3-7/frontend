@@ -1,3 +1,5 @@
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { DashboardShellBridge } from "./DashboardShellBridge";
 
 export default async function DashboardLayout({
@@ -7,8 +9,17 @@ export default async function DashboardLayout({
   children: React.ReactNode;
   params: Promise<{ locale: string }>;
 }) {
-  const { locale } = await params;
+  const [{ locale }, session] = await Promise.all([
+    params,
+    getServerSession(authOptions),
+  ]);
   return (
-    <DashboardShellBridge locale={locale}>{children}</DashboardShellBridge>
+    <DashboardShellBridge
+      locale={locale}
+      initialUserName={session?.user?.name ?? undefined}
+      initialUserEmail={session?.user?.email ?? undefined}
+    >
+      {children}
+    </DashboardShellBridge>
   );
 }

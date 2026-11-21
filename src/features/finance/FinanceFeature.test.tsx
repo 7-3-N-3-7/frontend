@@ -581,6 +581,9 @@ describe("FinanceFeature Vipps MobilePay OSGi Hub & Checkout", () => {
       expect(
         fetchMock.mock.calls.some(([u]) => String(u).includes("/agreements/agr-therapist-1/charge"))
       ).toBe(true);
+      expect(
+        (screen.getByTestId("btn-cancel-agreement-agr-therapist-1") as HTMLButtonElement).disabled
+      ).toBe(false);
     });
 
     fireEvent.click(screen.getByTestId("btn-cancel-agreement-agr-therapist-1"));
@@ -852,6 +855,13 @@ describe("FinanceFeature Vipps MobilePay OSGi Hub & Checkout", () => {
                 currency: "DKK",
                 status: "PAID",
               },
+              {
+                invoiceId: "KB-INVID-99",
+                description: "Regning via invoiceId",
+                amount: 250,
+                currency: "DKK",
+                status: "COMMITTED",
+              },
             ],
             prepaidSavings: { savingsAccountId: "s-1", balance: 0, remainingClips: 0, currency: "DKK" },
             subscriptions: [],
@@ -875,6 +885,7 @@ describe("FinanceFeature Vipps MobilePay OSGi Hub & Checkout", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("client-invoice-item-KB-NO-ID-1")).toBeDefined();
+      expect(screen.getByTestId("client-invoice-item-KB-INVID-99")).toBeDefined();
     });
 
     // Single session checkout sends amount 2 DKK
@@ -1151,5 +1162,233 @@ describe("FinanceFeature Vipps MobilePay OSGi Hub & Checkout", () => {
     expect(filterFinanceClientOptions("not-array")).toEqual([]);
     expect(filterFinanceClientOptions([{ id: "1", fullName: "Anna" }])).toHaveLength(1);
     expect(localizeGlAccountName("9999", "Fallback", "da")).toBe("Fallback");
+  });
+
+  it("covers COMMITTED status, client phone prefill, modal error dismiss, non-JSON fallback, and empty response bodies", async () => {
+    expect(localizeFinanceStatus("COMMITTED", "da")).toBe("Afventer betaling");
+    expect(localizeFinanceStatus("COMMITTED", "en")).toBe("Pending");
+
+    global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method || "GET";
+      if (url.includes("/api/backend/clinic/clients")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            { id: "c-prefill", userId: "c-prefill", fullName: "Telefon Klient", phoneNumber: "+4599887766" },
+          ],
+        };
+      }
+      if (url.includes("/vipps/checkout") && method === "POST") {
+        return {
+          ok: false,
+          status: 400,
+          json: async () => "non-object-error",
+        };
+      }
+      if (url.includes("/prepaid/topup") && method === "POST") {
+        return { ok: true, status: 200, text: async () => "   " };
+      }
+      if (url.includes("/prepaid/consume") && method === "POST") {
+        return { ok: true, status: 204 };
+      }
+      if (url.includes("/subscriptions") && method === "POST") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => {
+            throw new Error("empty");
+          },
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            clientUuid: "c-prefill",
+            prepaidSavings: { remainingClips: 2, balance: 200, currency: "DKK" },
+            subscriptions: [],
+            installmentPlans: [],
+            invoices: [],
+            vippsAgreements: [],
+          }),
+      };
+    });
+
+    render(
+      <AuthProvider user={{ id: "c-prefill", name: "Telefon Klient", email: "t@dk.dk", roles: ["CLIENT"] }}>
+        <FinanceFeatureView portalMode="client" />
+      </AuthProvider>
+    );
+
+    await waitFor(() => expect(screen.getByTestId("btn-checkout-session")).toBeDefined());
+    fireEvent.click(screen.getByTestId("btn-buy-clipcard"));
+    await waitFor(() => expect((screen.getByTestId("btn-consume-clip") as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByTestId("btn-consume-clip"));
+    await waitFor(() => expect((screen.getByTestId("btn-create-subscription") as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByTestId("btn-create-subscription"));
+    await waitFor(() => expect((screen.getByTestId("btn-checkout-session") as HTMLButtonElement).disabled).toBe(false));
+
+    fireEvent.click(screen.getByTestId("btn-checkout-session"));
+    await waitFor(() => {
+      expect((screen.getByTestId("input-vipps-phone") as HTMLInputElement).value).toBe("+4599887766");
+    });
+    fireEvent.click(screen.getByTestId("btn-confirm-vipps-checkout"));
+    await waitFor(() => expect(screen.getByTestId("error-banner")).toBeDefined());
+    fireEvent.click(screen.getByTestId("dismiss-error"));
+    await waitFor(() => expect(screen.queryByTestId("error-banner")).toBeNull());
+    fireEvent.click(screen.getByTestId("btn-close-vipps-checkout"));
+    cleanup();
+
+    // Provider delete triggers loadLedger after 204
+    global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method || "GET";
+      if (url.includes("/ledger/summary")) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () =>
+            JSON.stringify({
+              totalRevenue: 850,
+              gitHistory: [{ commitHash: "a1b2c3d", message: "Issued", authorName: "" }],
+            }),
+        };
+      }
+      if (url.includes("/api/backend/finance") && method === "DELETE") {
+        return { ok: true, status: 204 };
+      }
+      if (url.includes("/api/backend/clinic/clients")) {
+        return { ok: true, status: 200, json: async () => [] };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => [
+          { id: "inv-del-1", clientUuid: "c-1", description: "Session", amount: 850, currency: "DKK", status: "COMMITTED" },
+          { id: "inv-nopay-default", clientUuid: "c-1", description: "Default Paid", amount: 500, currency: "DKK" },
+        ],
+      };
+    });
+
+    expect(localizeFinanceStatus(undefined, "da")).toBeDefined();
+    render(
+      <AuthProvider user={{ id: "th-1", name: "Dr. Mette", email: "m@dk.dk", roles: ["PROVIDER"] }}>
+        <FinanceFeatureView portalMode="provider" />
+      </AuthProvider>
+    );
+    await waitFor(() => expect(screen.getByTestId("delete-invoice-inv-del-1")).toBeDefined());
+    expect(screen.queryByTestId("refund-invoice-inv-del-1")).toBeNull();
+    expect(screen.getByTestId("refund-invoice-inv-nopay-default")).toBeDefined();
+    expect(screen.getByTestId("technical-audit-details").textContent).toContain("Issued");
+    fireEvent.click(screen.getByTestId("delete-invoice-inv-del-1"));
+    fireEvent.click(await screen.findByTestId("confirm-action-accept"));
+    await waitFor(() => expect(screen.getByTestId("provider-finance-git-history")).toBeDefined());
+    cleanup();
+
+    // Cover client phone fetch edge branches: !res.ok, match by id + phone, unmount cancel, & catch fallback
+    for (const scenario of ["not-ok", "match-id-phone", "empty-phone", "reject"] as const) {
+      global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+        const u = String(input);
+        if (u.includes("/api/backend/clinic/clients")) {
+          if (scenario === "reject") throw new Error("clients err");
+          if (scenario === "not-ok") return { ok: false, status: 500, json: async () => [] };
+          if (scenario === "match-id-phone") {
+            return { ok: true, status: 200, json: async () => [null, { id: "c-edge", phone: "+4512341234" }] };
+          }
+          return { ok: true, status: 200, json: async () => [{ id: "c-edge", phone: "" }] };
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ clientUuid: "c-edge", prepaidSavings: { remainingClips: 0, balance: 0, currency: "DKK" }, subscriptions: [], installmentPlans: [], invoices: [], vippsAgreements: [] }),
+        };
+      });
+      const r = render(
+        <AuthProvider user={{ id: "c-edge", name: "Edge", email: "e@dk.dk", roles: ["CLIENT"] }}>
+          <FinanceFeatureView portalMode="client" />
+        </AuthProvider>
+      );
+      if (scenario === "match-id-phone") {
+        fireEvent.click(await screen.findByTestId("btn-checkout-session"));
+        await waitFor(() => expect((screen.getByTestId("input-vipps-phone") as HTMLInputElement).value).toBe("+4512341234"));
+        fireEvent.change(screen.getByTestId("input-vipps-phone"), { target: { value: "+4500001111" } });
+      } else {
+        await waitFor(() => expect(screen.getByTestId("btn-checkout-session")).toBeDefined());
+      }
+      r.unmount();
+    }
+
+    // Cover unmount before clinic/clients resolves + non-array response + existing phone kept on defaultPhone update
+    let resolveDelayedClients!: (r: Response) => void;
+    global.fetch = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      if (String(input).includes("/api/backend/clinic/clients")) {
+        return new Promise<Response>((resolve) => {
+          resolveDelayedClients = resolve;
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({ clientUuid: "c-late", prepaidSavings: { remainingClips: 0, balance: 0, currency: "DKK" }, subscriptions: [], installmentPlans: [], invoices: [], vippsAgreements: [] }),
+      } as Response);
+    }) as unknown as typeof fetch;
+
+    const lateRender = render(
+      <AuthProvider user={{ id: "c-late", name: "Late", email: "l@dk.dk", roles: ["CLIENT"] }}>
+        <FinanceFeatureView />
+      </AuthProvider>
+    );
+    fireEvent.click(await screen.findByTestId("btn-checkout-session"));
+    fireEvent.change(screen.getByTestId("input-vipps-phone"), { target: { value: "+4588776655" } });
+    lateRender.unmount();
+    resolveDelayedClients({ ok: true, status: 200, json: async () => ({ notArray: true }) } as Response);
+
+    // Cover Provider unmount cancel + FinanceFeatureView omitted props
+    let resolveProvClients!: (r: Response) => void;
+    global.fetch = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      if (String(input).includes("/api/backend/clinic/clients")) {
+        return new Promise<Response>((resolve) => {
+          resolveProvClients = resolve;
+        });
+      }
+      if (String(input).includes("/ledger/summary")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            totalRevenue: 100,
+            gitHistory: [{ commitHash: "b2", message: "M2", authorName: "Dr. Mette" }],
+          }),
+        } as Response);
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => [] } as Response);
+    }) as unknown as typeof fetch;
+
+    const provLate = render(
+      <AuthProvider user={{ id: "th-late", name: "Dr. Late", email: "late@dk.dk", roles: ["PROVIDER"] }}>
+        <FinanceFeatureView />
+      </AuthProvider>
+    );
+    await waitFor(() => expect(screen.getByTestId("technical-audit-details").textContent).toContain("Dr. Mette"));
+    provLate.unmount();
+    resolveProvClients({ ok: true, status: 200, json: async () => [] } as Response);
+
+    // Rejected /clinic/clients fetch hits silent fallback without crashing provider portal
+    global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/api/backend/clinic/clients")) {
+        throw new Error("Network error");
+      }
+      return { ok: true, status: 200, json: async () => [] };
+    });
+    const provClientsErr = render(
+      <AuthProvider user={{ id: "th-cli-err", name: "Dr. Err", email: "err@dk.dk", roles: ["PROVIDER"] }}>
+        <FinanceFeatureView />
+      </AuthProvider>
+    );
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining("/api/backend/clinic/clients")));
+    provClientsErr.unmount();
   });
 });

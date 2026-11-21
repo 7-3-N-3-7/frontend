@@ -603,10 +603,13 @@ describe("baseDomainCore & baseUiCore (2-File Core Architecture)", () => {
       fireEvent.click(screen.getByTestId("dismiss-error"));
       expect(onDismissShellError).toHaveBeenCalledTimes(1);
 
-      // Minimal shell without userName or onNavigate
+      // Minimal shell without userName or onNavigate + custom sidebar labels
       render(
         <PortalWorkspaceShell
           navItems={[{ href: "/noop", label: "NoOp", icon: "bi-dot", active: false }]}
+          expandSidebarLabel="Expand"
+          collapseSidebarLabel="Collapse"
+          roleLabel="Behandler"
         >
           <span>DefaultShellChild</span>
         </PortalWorkspaceShell>
@@ -614,6 +617,53 @@ describe("baseDomainCore & baseUiCore (2-File Core Architecture)", () => {
       expect(screen.getAllByTestId("portal-workspace-shell")).toHaveLength(2);
       const navBtns = screen.getAllByTestId("sidebar-nav-0");
       fireEvent.click(navBtns[navBtns.length - 1]);
+
+      // Shell fallbacks: whitespace userName -> "B", empty navItems -> spacer, empty brandSubtitle -> brandTitle aria-label
+      render(
+        <PortalWorkspaceShell
+          brandTitle="EduJournal"
+          brandSubtitle=""
+          userName="   "
+          navItems={[]}
+        >
+          <span>EmptyNavShell</span>
+        </PortalWorkspaceShell>
+      );
+      expect(screen.getAllByLabelText("EduJournal").length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText("EmptyNavShell")).toBeDefined();
+
+      // Localized ProblemAlert: English dismiss, fallback locale, mapped clinical title and fields
+      render(
+        <>
+          <ProblemAlert
+            locale="en"
+            error={{
+              type: "about:blank",
+              title: "Client Domain Validation Error",
+              status: 400,
+              detail: "Invalid CVR",
+              errorCode: ErrorCode.VALIDATION_FAILED,
+              timestamp: new Date().toISOString(),
+              fields: { cvrNumber: "Must be 8 digits", otherField: "Bad value" },
+            }}
+            onDismiss={vi.fn()}
+          />
+          <ProblemAlert
+            locale="zz"
+            error={{
+              type: "about:blank",
+              title: "Custom Error",
+              status: 500,
+              detail: "Server issue",
+              errorCode: ErrorCode.INTERNAL_ERROR,
+              timestamp: new Date().toISOString(),
+            }}
+            onDismiss={vi.fn()}
+          />
+        </>
+      );
+      expect(screen.getAllByTestId("error-title")[1].textContent).toContain("Valideringsfejl");
+      expect(screen.getByTestId("field-error-cvrNumber").textContent).toContain("CVR-nummer");
     });
   });
 
@@ -648,6 +698,23 @@ describe("baseDomainCore & baseUiCore (2-File Core Architecture)", () => {
         })
       );
       sessionStorage.removeItem("access_token");
+
+      // Also cover non-browser environment where sessionStorage is undefined
+      vi.stubGlobal("sessionStorage", undefined);
+      try {
+        fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => [] });
+        await service.getAll();
+        expect(fetchMock).toHaveBeenLastCalledWith(
+          "/api/backend/test-entities",
+          expect.objectContaining({
+            headers: expect.not.objectContaining({
+              Authorization: expect.anything(),
+            }),
+          })
+        );
+      } finally {
+        vi.unstubAllGlobals();
+      }
     });
 
     it("enforces AuthProvider, useAuth(), and RoleGuard allowed vs. forbidden views", () => {
@@ -826,6 +893,128 @@ describe("baseDomainCore & baseUiCore (2-File Core Architecture)", () => {
       );
       fireEvent.click(screen.getByTestId("confirm-action-accept"));
       expect(onConfirm).toHaveBeenCalledTimes(1);
+    });
+
+    it("handles empty 2xx response bodies, non-JSON fallbacks, and ProblemAlert Danish HTTP mappings", async () => {
+      class ProbeApi extends BaseApiService<{ id?: string; name: string }, string> {
+        constructor() {
+          super("/api/probe");
+        }
+        protected override validateBeforeCreate(): void {}
+      }
+      const probe = new ProbeApi();
+      global.fetch = vi
+        .fn()
+        .mockResolvedValueOnce({ ok: true, status: 200, text: async () => "   " })
+        .mockResolvedValueOnce({ ok: true, status: 200, text: async () => '{"id":"p-1","name":"OK"}' })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => {
+            throw new Error("no json");
+          },
+        });
+      expect(await probe.getAll()).toBeUndefined();
+      expect(await probe.getAll()).toEqual({ id: "p-1", name: "OK" });
+      expect(await probe.getAll()).toBeUndefined();
+
+      const { rerender } = render(
+        <ProblemAlert
+          locale="da"
+          error={{
+            type: "about:blank",
+            title: "Internal Server Error",
+            status: 500,
+            detail: "Failed to fetch",
+            errorCode: ErrorCode.INTERNAL_ERROR,
+            timestamp: "",
+          }}
+          onDismiss={vi.fn()}
+        />
+      );
+      expect(screen.getByTestId("error-title").textContent).toContain("Midlertidig serverfejl (500)");
+      expect(screen.getByTestId("error-detail").textContent).toContain("Kunne ikke oprette forbindelse til serveren");
+
+      rerender(
+        <ProblemAlert
+          locale="en"
+          error={{
+            type: "about:blank",
+            title: "Internal Server Error",
+            status: 500,
+            detail: "Failed to fetch",
+            errorCode: ErrorCode.INTERNAL_ERROR,
+            timestamp: "",
+          }}
+        />
+      );
+      expect(screen.getByTestId("error-title").textContent).toContain("Internal Server Error (500)");
+
+      // Single-field deduplication + Danish domain error mappings + hjemmeadresse -> klinikadresse
+      rerender(
+        <ProblemAlert
+          locale="da"
+          error={{
+            type: "about:blank",
+            title: "Unauthorized",
+            status: 401,
+            detail: "Valid MobilePay phone number (min 8 digits) is required",
+            errorCode: ErrorCode.VALIDATION_FAILED,
+            timestamp: "",
+            fields: { phone: "Valid MobilePay phone number (min 8 digits) is required" },
+          }}
+        />
+      );
+      expect(screen.getByTestId("error-title").textContent).toContain("Log ind påkrævet (401)");
+      expect(screen.getByTestId("error-detail").textContent).toBe("Kontrollér det markerede felt nedenfor.");
+      expect(screen.getByTestId("field-error-phone").textContent).toContain("MobilePay-telefonnummer");
+
+      rerender(
+        <ProblemAlert
+          locale="en"
+          error={{
+            type: "about:blank",
+            title: "Validation Failed",
+            status: 400,
+            detail: "Invalid input",
+            errorCode: ErrorCode.VALIDATION_FAILED,
+            timestamp: "",
+            fields: { address: "Invalid input" },
+          }}
+        />
+      );
+      expect(screen.getByTestId("error-detail").textContent).toBe("Please check the highlighted field below.");
+
+      rerender(
+        <ProblemAlert
+          locale="da"
+          error={{
+            type: "about:blank",
+            title: "Forbidden",
+            status: 403,
+            detail: "Din hjemmeadresse mangler",
+            errorCode: ErrorCode.FORBIDDEN,
+            timestamp: "",
+          }}
+        />
+      );
+      expect(screen.getByTestId("error-title").textContent).toContain("Ingen adgang (403)");
+      expect(screen.getByTestId("error-detail").textContent).toContain("klinikadresse");
+
+      rerender(
+        <ProblemAlert
+          locale="da"
+          error={{
+            type: "about:blank",
+            title: "Custom",
+            status: 400,
+            detail: "",
+            errorCode: ErrorCode.BAD_REQUEST,
+            timestamp: "",
+          }}
+        />
+      );
+      expect(screen.getByTestId("error-detail").textContent).toBe("");
     });
   });
 });

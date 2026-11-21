@@ -25,7 +25,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { BaseApiService, DomainGuard, HasId } from '../../core/baseDomainCore';
+import { BaseApiService, DomainGuard, ErrorCode, HasId } from '../../core/baseDomainCore';
 import {
   ConfirmActionDialog,
   ProblemAlert,
@@ -47,6 +47,7 @@ export interface PsychotraumatologyTestDto extends HasId<string> {
   readonly severity: string;
   readonly answersJson: string;
   readonly timestamp?: string;
+  readonly createdAt?: string;
 }
 
 export interface PsychotraumatologyFeatureViewProps {
@@ -304,32 +305,47 @@ export function calculatePcl5Severity(score: number): string {
 const SEVERITY_LABELS: Record<SupportedUiLocale, Record<string, string>> = {
   da: {
     Minimal: 'Minimal belastning',
+    'Minimal Symptoms': 'Minimal belastning',
     'Mild / Sub-threshold': 'Lettere / under klinisk grænse',
+    'Moderate Symptoms': 'Moderate symptomer',
     'Moderate (Probable PTSD)': 'Moderat (klinisk grænse nået)',
+    'High Symptoms (Above Clinical Threshold)': 'Høj belastning (over klinisk grænse)',
     Severe: 'Alvorlig belastning',
   },
   en: {
     Minimal: 'Minimal',
+    'Minimal Symptoms': 'Minimal symptoms',
     'Mild / Sub-threshold': 'Mild / Sub-threshold',
+    'Moderate Symptoms': 'Moderate symptoms',
     'Moderate (Probable PTSD)': 'Moderate (Clinical threshold)',
+    'High Symptoms (Above Clinical Threshold)': 'High symptoms (Above clinical threshold)',
     Severe: 'Severe',
   },
   fr: {
     Minimal: 'Charge minimale',
+    'Minimal Symptoms': 'Symptômes minimes',
     'Mild / Sub-threshold': 'Légère / infra-seuil',
+    'Moderate Symptoms': 'Symptômes modérés',
     'Moderate (Probable PTSD)': 'Modérée (seuil clinique)',
+    'High Symptoms (Above Clinical Threshold)': 'Symptômes élevés (au-dessus du seuil)',
     Severe: 'Sévère',
   },
   es: {
     Minimal: 'Mínima',
+    'Minimal Symptoms': 'Síntomas mínimos',
     'Mild / Sub-threshold': 'Leve / subumbral',
+    'Moderate Symptoms': 'Síntomas moderados',
     'Moderate (Probable PTSD)': 'Moderada (umbral clínico)',
+    'High Symptoms (Above Clinical Threshold)': 'Síntomas elevados (sobre umbral clínico)',
     Severe: 'Severa',
   },
   de: {
     Minimal: 'Minimal',
+    'Minimal Symptoms': 'Minimale Symptome',
     'Mild / Sub-threshold': 'Leicht / unterschwellig',
+    'Moderate Symptoms': 'Mäßige Symptome',
     'Moderate (Probable PTSD)': 'Moderat (klinische Schwelle)',
+    'High Symptoms (Above Clinical Threshold)': 'Hohe Symptombelastung (über Schwelle)',
     Severe: 'Schwer',
   },
 };
@@ -369,6 +385,8 @@ interface PsychotraumaCopy {
   deleteConfirmTitle: string;
   deleteConfirmDesc: string;
   cancelBtn: string;
+  incompleteTitle: string;
+  incompleteDetail: string;
 }
 
 const PSYCHOTRAUMA_COPY: Record<SupportedUiLocale, PsychotraumaCopy> = {
@@ -402,6 +420,9 @@ const PSYCHOTRAUMA_COPY: Record<SupportedUiLocale, PsychotraumaCopy> = {
     deleteConfirmDesc:
       'Denne handling fjerner permanent den valgte screening fra oversigten.',
     cancelBtn: 'Annuller',
+    incompleteTitle: 'Ufuldstændig besvarelse',
+    incompleteDetail:
+      'Besvar alle 20 spørgsmål før indsendelse ({answered}/20 besvaret), eller skift til manuel score.',
   },
   en: {
     badge: 'Psychotraumatology',
@@ -433,6 +454,9 @@ const PSYCHOTRAUMA_COPY: Record<SupportedUiLocale, PsychotraumaCopy> = {
     deleteConfirmDesc:
       'This action permanently removes the selected screening record.',
     cancelBtn: 'Cancel',
+    incompleteTitle: 'Incomplete questionnaire',
+    incompleteDetail:
+      'Please answer all 20 questions before submitting ({answered}/20 answered), or switch to manual score entry.',
   },
   fr: {
     badge: 'Psychotraumatologie',
@@ -464,6 +488,9 @@ const PSYCHOTRAUMA_COPY: Record<SupportedUiLocale, PsychotraumaCopy> = {
     deleteConfirmDesc:
       'Cette action supprime définitivement le dépistage sélectionné.',
     cancelBtn: 'Annuler',
+    incompleteTitle: 'Questionnaire incomplet',
+    incompleteDetail:
+      'Veuillez répondre aux 20 questions avant l’envoi ({answered}/20 répondues), ou saisir le score manuellement.',
   },
   es: {
     badge: 'Psicotraumatología',
@@ -495,6 +522,9 @@ const PSYCHOTRAUMA_COPY: Record<SupportedUiLocale, PsychotraumaCopy> = {
     deleteConfirmDesc:
       'Esta acción elimina permanentemente el registro seleccionado.',
     cancelBtn: 'Cancelar',
+    incompleteTitle: 'Cuestionario incompleto',
+    incompleteDetail:
+      'Responde las 20 preguntas antes de enviar ({answered}/20 respondidas), o cambia a entrada manual.',
   },
   de: {
     badge: 'Psychotraumatologie',
@@ -526,6 +556,9 @@ const PSYCHOTRAUMA_COPY: Record<SupportedUiLocale, PsychotraumaCopy> = {
     deleteConfirmDesc:
       'Dieser Vorgang entfernt das ausgewählte Screening dauerhaft.',
     cancelBtn: 'Abbrechen',
+    incompleteTitle: 'Unvollständiger Fragebogen',
+    incompleteDetail:
+      'Bitte beantworten Sie alle 20 Fragen ({answered}/20 beantwortet) oder wechseln Sie zur manuellen Eingabe.',
   },
 };
 
@@ -564,6 +597,15 @@ const psychotraumatologyService = new PsychotraumatologyApiService();
 // 3. FEATURE VIEW (Exported React Entrypoint for this Vertical Slice)
 // ============================================================================
 
+export function normalizeUtcTimestamp(raw?: string | null): string {
+  const trimmed = (raw || '').trim();
+  if (!trimmed) return '';
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(trimmed)) {
+    return `${trimmed}Z`;
+  }
+  return trimmed;
+}
+
 export const PsychotraumatologyFeatureView: React.FC<
   PsychotraumatologyFeatureViewProps
 > = ({ portalMode }) => {
@@ -574,7 +616,7 @@ export const PsychotraumatologyFeatureView: React.FC<
     portalMode === 'client' ||
     (portalMode !== 'provider' &&
       Boolean(auth && !auth.hasRole('PROVIDER', 'MANAGEMENT')));
-  const { items: tests, loading, error, createItem, deleteItem, clearError } =
+  const { items: tests, loading, error, createItem, deleteItem, clearError, setError } =
     useBaseCrud(psychotraumatologyService);
 
   const [clientOptions, setClientOptions] = useState<ClientPickerOption[]>([]);
@@ -628,13 +670,40 @@ export const PsychotraumatologyFeatureView: React.FC<
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!manualMode && answeredCount < 20) {
+      const detail = copy.incompleteDetail.replace('{answered}', String(answeredCount));
+      setError({
+        type: 'about:blank',
+        title: copy.incompleteTitle,
+        status: 400,
+        detail,
+        errorCode: ErrorCode.VALIDATION_FAILED,
+        timestamp: new Date().toISOString(),
+        fields: { answers: detail },
+      });
+      return;
+    }
+    if (!isClientSelfView && auth?.user.id && effectiveClientUuid.trim() === auth.user.id) {
+      const selfDetail =
+        locale === 'da'
+          ? 'Behandler kan ikke oprette en PCL-5 screening på sig selv som klient.'
+          : 'Therapist cannot submit a PCL-5 assessment for themselves as client.';
+      setError({
+        type: 'about:blank',
+        title: copy.incompleteTitle,
+        status: 400,
+        detail: selfDetail,
+        errorCode: ErrorCode.BAD_REQUEST,
+        timestamp: new Date().toISOString(),
+        fields: { clientUuid: selfDetail },
+      });
+      return;
+    }
     const numericScore = effectiveScore;
-    const severity = calculatePcl5Severity(
-      Number.isFinite(numericScore) ? numericScore : 0
-    );
+    const severity = calculatePcl5Severity(numericScore);
     const answersPayload = manualMode
       ? [numericScore]
-      : Array.from({ length: 20 }, (_, i) => answers[i] ?? 0);
+      : Array.from({ length: 20 }, (_, i) => answers[i]);
     const created = await createItem({
       clientUuid: effectiveClientUuid,
       testType,
@@ -927,64 +996,99 @@ export const PsychotraumatologyFeatureView: React.FC<
         </div>
       </form>
 
-      {loading ? (
+      {loading && !error ? (
         <p data-testid="loading-indicator" className="text-sm text-slate-500">
           {copy.loadingText}
         </p>
       ) : visibleTests.length === 0 ? (
         <p className="text-sm text-slate-500">{copy.emptyText}</p>
       ) : (
-        <ul data-testid="psychotraumatology-list" className="space-y-2">
-          {visibleTests.map((test) => (
-            <li
-              key={test.id}
-              data-testid={`psychotraumatology-item-${test.id}`}
-              className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-3 text-sm"
-            >
-              <span>
-                <strong className="text-slate-900">{test.testType}</strong> —{' '}
-                {copy.scoreLabel}: {test.score}{' '}
-                <span
-                  className={`ml-1 inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                    test.score >= CLINICAL_PTSD_CUTOFF_SCORE
-                      ? 'bg-rose-50 text-rose-700'
-                      : 'bg-teal-50 text-teal-800'
-                  }`}
-                >
-                  {localizePcl5Severity(test.severity, locale)}
-                </span>
-              </span>
-              {!isClientSelfView && test.id && (
-                <button
-                  type="button"
-                  data-testid={`delete-test-${test.id}`}
-                  onClick={() => setPendingDeleteId(test.id!)}
-                  className="min-h-11 rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100"
-                >
-                  {copy.deleteBtn}
-                </button>
-              )}
-            </li>
-          ))}
+        <ul
+          data-testid="psychotraumatology-list"
+          className="list-none space-y-2 pl-0"
+          style={{ paddingLeft: 0 }}
+        >
+          {visibleTests.map((test) => {
+            const resolvedClientLabel = test.clientUuid
+              ? clientOptions.find((c) => (c.userId || c.id) === test.clientUuid)?.fullName || ''
+              : '';
+            const clientLabel =
+              resolvedClientLabel ||
+              (isClientSelfView ? auth?.user.name || '' : '');
+            let formattedTime = '';
+            const rawTimestamp = test.createdAt || test.timestamp;
+            if (rawTimestamp) {
+              const dt = new Date(normalizeUtcTimestamp(rawTimestamp));
+              if (!Number.isNaN(dt.getTime())) {
+                formattedTime = new Intl.DateTimeFormat(locale === 'en' ? 'en-GB' : locale, {
+                  dateStyle: 'medium',
+                  timeStyle: 'short',
+                }).format(dt);
+              }
+            }
+            return (
+              <li
+                key={test.id}
+                data-testid={`psychotraumatology-item-${test.id}`}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-3 text-sm"
+              >
+                <div className="min-w-0 space-y-0.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <strong className="text-slate-900">{test.testType}</strong>
+                    {clientLabel && (
+                      <span className="text-xs font-medium text-slate-600">
+                        · {clientLabel}
+                      </span>
+                    )}
+                    <span>
+                      — {copy.scoreLabel}: {test.score}{' '}
+                    </span>
+                    <span
+                      className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                        test.score >= CLINICAL_PTSD_CUTOFF_SCORE
+                          ? 'bg-rose-50 text-rose-700'
+                          : 'bg-teal-50 text-teal-800'
+                      }`}
+                    >
+                      {localizePcl5Severity(test.severity, locale)}
+                    </span>
+                  </div>
+                  {formattedTime && (
+                    <div className="text-xs text-slate-500">{formattedTime}</div>
+                  )}
+                </div>
+                {!isClientSelfView && test.id && (
+                  <button
+                    type="button"
+                    data-testid={`delete-test-${test.id}`}
+                    onClick={() => setPendingDeleteId(test.id!)}
+                    className="min-h-11 rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100"
+                  >
+                    {copy.deleteBtn}
+                  </button>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
 
-      <ConfirmActionDialog
-        open={pendingDeleteId !== null}
-        tone="danger"
-        title={copy.deleteConfirmTitle}
-        description={copy.deleteConfirmDesc}
-        confirmLabel={copy.deleteBtn}
-        cancelLabel={copy.cancelBtn}
-        onConfirm={async () => {
-          const idToDelete = pendingDeleteId;
-          setPendingDeleteId(null);
-          if (idToDelete) {
+      {pendingDeleteId && (
+        <ConfirmActionDialog
+          open
+          tone="danger"
+          title={copy.deleteConfirmTitle}
+          description={copy.deleteConfirmDesc}
+          confirmLabel={copy.deleteBtn}
+          cancelLabel={copy.cancelBtn}
+          onConfirm={async () => {
+            const idToDelete = pendingDeleteId;
+            setPendingDeleteId(null);
             await deleteItem(idToDelete);
-          }
-        }}
-        onCancel={() => setPendingDeleteId(null)}
-      />
+          }}
+          onCancel={() => setPendingDeleteId(null)}
+        />
+      )}
     </section>
   );
 };

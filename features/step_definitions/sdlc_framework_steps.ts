@@ -56,7 +56,7 @@ After({ tags: "@sdlc" }, function () {
 });
 
 Given(
-  "SDLC configuration loaded from {string} with strict 98% thresholds on JaCoCo and Istanbul",
+  "SDLC configuration loaded from {string} with strict 100% thresholds on JaCoCo and Istanbul",
   function (configName: string) {
     const state = getState(this);
     const repoRoot = path.resolve(process.cwd(), "..");
@@ -64,10 +64,16 @@ Given(
     const config = loadSdlcConfig(repoRoot);
     assert.equal(config.branches.integration, "dev");
     assert.equal(config.branches.prefix, "feature");
-    assert.equal(config.gates.targets.backend.minLineCoverage, 0.98);
-    assert.equal(config.gates.targets.backend.minInstructionCoverage, 0.98);
-    assert.equal(config.gates.targets.frontend.minStatementCoverage, 0.98);
-    assert.equal(config.gates.targets.frontend.minBranchCoverage, 0.98);
+    assert.equal(config.gates.targets.backend.minLineCoverage, 1.0);
+    assert.equal(config.gates.targets.backend.minBranchCoverage, 1.0);
+    assert.equal(config.gates.targets.backend.minInstructionCoverage, 1.0);
+    assert.equal(config.gates.targets.backend.minComplexityCoverage, 1.0);
+    assert.equal(config.gates.targets.backend.minMethodCoverage, 1.0);
+    assert.equal(config.gates.targets.backend.minClassCoverage, 1.0);
+    assert.equal(config.gates.targets.frontend.minLineCoverage, 1.0);
+    assert.equal(config.gates.targets.frontend.minStatementCoverage, 1.0);
+    assert.equal(config.gates.targets.frontend.minFunctionCoverage, 1.0);
+    assert.equal(config.gates.targets.frontend.minBranchCoverage, 1.0);
     state.config = config;
   }
 );
@@ -150,7 +156,7 @@ Then(
 );
 
 When(
-  "SDLC evaluates Issue {int} with passing Backend and Frontend 98% gates while Sub-Issue {int} has status {string}",
+  "SDLC evaluates Issue {int} with passing Backend and Frontend 100% gates while Sub-Issue {int} has status {string}",
   function (parentIssueId: number, childIssueId: number, childStatus: ProjectStatus) {
     const state = getState(this);
     assert.ok(state.config);
@@ -174,11 +180,11 @@ When(
         subIssues: [{ issueId: childIssueId, title: "Child Sub-Issue", status: childStatus }],
         backend: {
           cucumber: fullBdd,
-          jacoco: { line: 0.99, branch: 0.985, instruction: 0.99, complexity: 0.982, method: 1, clazz: 1 },
+          jacoco: { line: 1, branch: 1, instruction: 1, complexity: 1, method: 1, clazz: 1 },
         },
         frontend: {
           cucumber: fullBdd,
-          istanbul: { line: 0.995, statement: 0.991, function: 0.989, branch: 0.982 },
+          istanbul: { line: 1, statement: 1, function: 1, branch: 1 },
         },
       },
       state.config
@@ -211,11 +217,11 @@ When(
         subIssues: [],
         backend: {
           cucumber: cucumberReport,
-          jacoco: { line: 0.99, branch: 0.99, instruction: 0.99, complexity: 0.99, method: 1, clazz: 1 },
+          jacoco: { line: 1, branch: 1, instruction: 1, complexity: 1, method: 1, clazz: 1 },
         },
         frontend: {
           cucumber: cucumberReport,
-          istanbul: { line: 0.99, statement: 0.99, function: 0.99, branch: 0.99 },
+          istanbul: { line: 1, statement: 1, function: 1, branch: 1 },
         },
       },
       state.config

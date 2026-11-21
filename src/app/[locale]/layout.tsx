@@ -18,10 +18,41 @@ const geistMono = Geist_Mono({
   subsets: ['latin'],
 });
 
-export const metadata: Metadata = {
-  title: 'EduJournal — Klinisk Praksis & Refleksionsportal',
-  description: 'Sikker og rolig sundhedsplatform til klinisk journaling, aftalebooking og patientrefleksion',
+const METADATA_BY_LOCALE: Record<string, { title: string; description: string }> = {
+  da: {
+    title: 'EduJournal — Klinisk Praksis & Refleksionsportal',
+    description: 'Sikker og rolig sundhedsplatform til klinisk journaling, aftalebooking og patientrefleksion',
+  },
+  en: {
+    title: 'EduJournal — Clinical Practice & Reflection Portal',
+    description: 'Secure, calm health platform for clinical journaling, appointment booking, and patient reflection',
+  },
+  fr: {
+    title: 'EduJournal — Pratique Clinique & Portail de Réflexion',
+    description: 'Plateforme de santé sécurisée pour le suivi clinique, la prise de rendez-vous et le journal patient',
+  },
+  es: {
+    title: 'EduJournal — Práctica Clínica y Portal de Reflexión',
+    description: 'Plataforma clínica segura para diario terapéutico, reserva de citas y seguimiento del paciente',
+  },
+  de: {
+    title: 'EduJournal — Klinische Praxis & Reflexionsportal',
+    description: 'Sichere Gesundheitsplattform für klinische Dokumentation, Terminbuchung und Patientenreflexion',
+  },
 };
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}): Promise<Metadata> {
+  const { locale } = await params;
+  const entry = METADATA_BY_LOCALE[locale] || METADATA_BY_LOCALE.en;
+  return {
+    title: entry.title,
+    description: entry.description,
+  };
+}
 
 export default async function RootLayout({
   children,

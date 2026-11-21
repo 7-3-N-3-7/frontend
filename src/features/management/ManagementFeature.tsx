@@ -96,6 +96,10 @@ interface ManagementCopy {
   confirmDeleteBtn: string;
   cancelBtn: string;
   forbiddenNotice: string;
+  kpiCountLabel: string;
+  departmentsLabel: string;
+  latestMetricLabel: string;
+  noMetricsShort: string;
 }
 
 const MANAGEMENT_COPY: Record<SupportedUiLocale, ManagementCopy> = {
@@ -117,6 +121,10 @@ const MANAGEMENT_COPY: Record<SupportedUiLocale, ManagementCopy> = {
     cancelBtn: "Annuller",
     forbiddenNotice:
       "Kun virksomhedsledelse (MANAGEMENT / ADMIN) har adgang til ledelsesoverblik og KPI-styring.",
+    kpiCountLabel: "Aktive KPI-mål",
+    departmentsLabel: "Afdelinger",
+    latestMetricLabel: "Seneste nøgletal",
+    noMetricsShort: "Ingen endnu",
   },
   en: {
     badge: "Management & KPI",
@@ -136,6 +144,10 @@ const MANAGEMENT_COPY: Record<SupportedUiLocale, ManagementCopy> = {
     cancelBtn: "Cancel",
     forbiddenNotice:
       "Only executive management (MANAGEMENT / ADMIN) has access to management overview and KPI control.",
+    kpiCountLabel: "Active KPI Targets",
+    departmentsLabel: "Departments",
+    latestMetricLabel: "Latest KPI",
+    noMetricsShort: "None yet",
   },
   fr: {
     badge: "Direction & KPI",
@@ -155,6 +167,10 @@ const MANAGEMENT_COPY: Record<SupportedUiLocale, ManagementCopy> = {
     cancelBtn: "Annuler",
     forbiddenNotice:
       "Seule la direction (MANAGEMENT / ADMIN) a accès au tableau de bord exécutif et au suivi des KPI.",
+    kpiCountLabel: "Objectifs KPI actifs",
+    departmentsLabel: "Départements",
+    latestMetricLabel: "Dernier KPI",
+    noMetricsShort: "Aucun",
   },
   es: {
     badge: "Dirección y KPI",
@@ -174,6 +190,10 @@ const MANAGEMENT_COPY: Record<SupportedUiLocale, ManagementCopy> = {
     cancelBtn: "Cancelar",
     forbiddenNotice:
       "Solo la dirección ejecutiva (MANAGEMENT / ADMIN) tiene acceso al resumen directivo y control de KPI.",
+    kpiCountLabel: "Objetivos KPI activos",
+    departmentsLabel: "Departamentos",
+    latestMetricLabel: "Último KPI",
+    noMetricsShort: "Ninguno",
   },
   de: {
     badge: "Leitung & KPI",
@@ -193,6 +213,10 @@ const MANAGEMENT_COPY: Record<SupportedUiLocale, ManagementCopy> = {
     cancelBtn: "Abbrechen",
     forbiddenNotice:
       "Nur die Klinikleitung (MANAGEMENT / ADMIN) hat Zugriff auf die Managementübersicht und KPI-Steuerung.",
+    kpiCountLabel: "Aktive KPI-Ziele",
+    departmentsLabel: "Abteilungen",
+    latestMetricLabel: "Neueste Kennzahl",
+    noMetricsShort: "Keine",
   },
 };
 
@@ -221,6 +245,9 @@ const ManagementFeatureAuthorizedContent: React.FC = () => {
     }
   };
 
+  const departmentCount = new Set(kpis.map((k) => k.department).filter(Boolean)).size;
+  const latestKpi = kpis[0];
+
   return (
     <section
       data-testid="management-feature-view"
@@ -236,22 +263,44 @@ const ManagementFeatureAuthorizedContent: React.FC = () => {
         </h2>
       </div>
 
+      <div
+        data-testid="management-summary-cards"
+        className="grid grid-cols-1 gap-3 sm:grid-cols-3"
+      >
+        <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5">
+          <div className="text-xs font-medium text-slate-500">{copy.kpiCountLabel}</div>
+          <div className="mt-1 text-lg font-bold text-slate-900">{kpis.length}</div>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5">
+          <div className="text-xs font-medium text-slate-500">{copy.departmentsLabel}</div>
+          <div className="mt-1 text-lg font-bold text-slate-900">{departmentCount}</div>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-teal-50/60 p-3.5">
+          <div className="text-xs font-medium text-teal-800">{copy.latestMetricLabel}</div>
+          <div className="mt-1 truncate text-lg font-bold text-teal-950">
+            {latestKpi ? `${latestKpi.metricValue} ${latestKpi.unit}` : copy.noMetricsShort}
+          </div>
+        </div>
+      </div>
+
       <ProblemAlert error={error} onDismiss={clearError} />
 
-      <ConfirmActionDialog
-        open={pendingDeleteId !== null}
-        title={copy.confirmDeleteTitle}
-        description={copy.confirmDeleteDesc}
-        confirmLabel={copy.confirmDeleteBtn}
-        cancelLabel={copy.cancelBtn}
-        tone="danger"
-        onCancel={() => setPendingDeleteId(null)}
-        onConfirm={() => {
-          const targetId = pendingDeleteId;
-          setPendingDeleteId(null);
-          if (targetId) void remove(targetId);
-        }}
-      />
+      {pendingDeleteId && (
+        <ConfirmActionDialog
+          open
+          title={copy.confirmDeleteTitle}
+          description={copy.confirmDeleteDesc}
+          confirmLabel={copy.confirmDeleteBtn}
+          cancelLabel={copy.cancelBtn}
+          tone="danger"
+          onCancel={() => setPendingDeleteId(null)}
+          onConfirm={() => {
+            const targetId = pendingDeleteId;
+            setPendingDeleteId(null);
+            void remove(targetId);
+          }}
+        />
+      )}
 
       <form
         onSubmit={handleSubmit}
@@ -336,12 +385,18 @@ const ManagementFeatureAuthorizedContent: React.FC = () => {
       </form>
 
       {loading && (
-        <p data-testid="loading-indicator" className="text-sm text-slate-500">
-          {copy.loadingText}
-        </p>
+        <div
+          data-testid="loading-indicator"
+          aria-busy="true"
+          className="grid grid-cols-1 gap-2 sm:grid-cols-2"
+        >
+          <div className="h-12 animate-pulse rounded-xl bg-slate-100" />
+          <div className="h-12 animate-pulse rounded-xl bg-slate-100" />
+          <span className="sr-only">{copy.loadingText}</span>
+        </div>
       )}
 
-      <ul className="space-y-2" data-testid="kpi-list">
+      <ul className="list-none space-y-2 pl-0" style={{ paddingLeft: 0 }} data-testid="kpi-list">
         {kpis.map((kpi) => (
           <li
             key={kpi.id}

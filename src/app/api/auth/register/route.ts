@@ -13,28 +13,10 @@ export async function POST(request: Request) {
       homeAddress,
       postalCode,
       phoneNumber,
+      locale,
     } = data;
 
     const backendUrl = process.env.BACKEND_INTERNAL_URL || "http://localhost:8081";
-
-    // Also persist the client personal details (Bilag 5.1.1 & Q12) in business-db
-    try {
-      await fetch(`${backendUrl}/api/v1/public/client-profile`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fullName: `${firstName || ""} ${lastName || ""}`.trim() || username,
-          dateOfBirth: dateOfBirth || null,
-          homeAddress: homeAddress || "",
-          postalCode: postalCode || "",
-          phoneNumber: phoneNumber || "",
-          email: email || "",
-        }),
-      });
-    } catch (profileErr) {
-      console.warn("Non-fatal: Could not sync initial client profile to backend:", profileErr);
-    }
-
     const issuerUrl = process.env.KEYCLOAK_ISSUER || ""; // e.g. https://login.../realms/EduJournal
     // Extract base URL from issuer
     const baseUrl = issuerUrl.split('/realms/')[0];
@@ -103,12 +85,64 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Failed to send verification email" }, { status: 500 });
     }
 
-    const verificationRes = await fetch(`${usersEndpoint}/${userId}/send-verify-email`, {
+    // 3. Persist the client personal details linked directly to Keycloak userId (sub)
+    try {
+      await fetch(`${backendUrl}/api/v1/public/client-profile`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId,
+          fullName: `${firstName || ""} ${lastName || ""}`.trim() || username,
+          dateOfBirth: dateOfBirth || null,
+          homeAddress: homeAddress || "",
+          postalCode: postalCode || "",
+          phoneNumber: phoneNumber || "",
+          email: email || "",
+        }),
+      });
+    } catch (profileErr) {
+      console.warn("Non-fatal: Could not sync initial client profile to backend:", profileErr);
+    }
+
+    // 4. Send verification email with redirect_uri back to EduJournal (fallback without query/params if rejected)
+    const safeLocale = typeof locale === "string" && /^(da|en|fr|es|de)$/.test(locale) ? locale : "da";
+    const originHeader = request.headers.get("origin") || process.env.NEXTAUTH_URL || "http://localhost";
+    const cleanOrigin = originHeader.replace(/\/+$/, "");
+    const redirectUri = `${cleanOrigin}/${safeLocale}/dashboard/personal?emailVerified=1`;
+    const keycloakClientId = process.env.KEYCLOAK_CLIENT_ID || "platform-frontend";
+    const verifyParams = new URLSearchParams({
+      client_id: keycloakClientId,
+      redirect_uri: redirectUri,
+    });
+
+    let verificationRes = await fetch(`${usersEndpoint}/${userId}/send-verify-email?${verifyParams.toString()}`, {
       method: "PUT",
       headers: {
         "Authorization": "Bearer " + adminToken,
       },
     });
+
+    if (!verificationRes.ok) {
+      const fallbackParams = new URLSearchParams({
+        client_id: keycloakClientId,
+        redirect_uri: `${cleanOrigin}/${safeLocale}`,
+      });
+      verificationRes = await fetch(`${usersEndpoint}/${userId}/send-verify-email?${fallbackParams.toString()}`, {
+        method: "PUT",
+        headers: {
+          "Authorization": "Bearer " + adminToken,
+        },
+      });
+    }
+
+    if (!verificationRes.ok) {
+      verificationRes = await fetch(`${usersEndpoint}/${userId}/send-verify-email`, {
+        method: "PUT",
+        headers: {
+          "Authorization": "Bearer " + adminToken,
+        },
+      });
+    }
 
     if (!verificationRes.ok) {
       console.error("Keycloak Verification Email Error:", await verificationRes.text());
