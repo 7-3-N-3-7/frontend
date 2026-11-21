@@ -1,14 +1,35 @@
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { getTranslations } from "next-intl/server";
+import { ClientTab } from "@/features/clinic/ClinicPlatformFeature";
 import { SyncedClientPortalWorkspace } from "../DashboardShellBridge";
+
+const VALID_CLIENT_TABS: ReadonlySet<string> = new Set([
+  "overview",
+  "appointments",
+  "journal",
+  "marketplace",
+  "consents",
+  "pcl5",
+  "finance",
+]);
 
 export default async function PersonalDashboard({
   params,
+  searchParams,
 }: {
   params: Promise<{ locale: string }>;
+  searchParams?: Promise<{ tab?: string }>;
 }) {
-  const { locale } = await params;
+  const [{ locale }, resolvedSearch] = await Promise.all([
+    params,
+    searchParams ?? Promise.resolve({} as { tab?: string }),
+  ]);
+  const rawTab = resolvedSearch?.tab;
+  const defaultTab: ClientTab =
+    rawTab && VALID_CLIENT_TABS.has(rawTab)
+      ? (rawTab as ClientTab)
+      : "overview";
   const session = await getServerSession(authOptions);
   const t = await getTranslations({ locale, namespace: "dashboard.personal" });
 
@@ -45,6 +66,7 @@ export default async function PersonalDashboard({
       locale={locale}
       userName={userName}
       secureStatus={secureStatus}
+      defaultTab={defaultTab}
     />
   );
 }

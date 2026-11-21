@@ -14,6 +14,7 @@ import {
   buildCalendarMonthCells,
   formatMonthYearHeading,
   formatIsoDateHuman,
+  formatGitCommitSummary,
   normalizeDirectoryProvider,
   normalizeDirectoryService,
   filterAppointments,
@@ -2147,6 +2148,7 @@ describe("AppointmentFeature Trin 1 UI (Timefold AI, Reschedule, JGit, Filters &
           status: 200,
           json: async () => [
             { id: "apt-nostatus", clientName: "Uden Status", therapistUuid: provLiveUuid, startTime: "2026-12-10T10:00:00", endTime: "2026-12-10T10:00:00" },
+            { id: "apt-other", clientUuid: "other-client", therapistUuid: "other-therapist", clientName: "Anden Klient", startTime: "2026-12-10T12:00:00", endTime: "2026-12-10T13:00:00" },
           ],
         };
       }
@@ -2191,7 +2193,11 @@ describe("AppointmentFeature Trin 1 UI (Timefold AI, Reschedule, JGit, Filters &
     await waitFor(() => expect(screen.queryByTestId("reschedule-panel-apt-w1")).toBeNull());
     cleanup();
 
-    // Provider submit with selectedClientUuid
+    // Cover en/de capitalized month formatting and closing booking-success-banner
+    expect(formatAppointmentDateParts("2026-05-01T10:00:00", "2026-05-01T11:00:00", "en").monthShort.length).toBeGreaterThan(0);
+    expect(formatAppointmentDateParts("2026-05-01T10:00:00", "2026-05-01T11:00:00", "de").monthShort.length).toBeGreaterThan(0);
+
+    // Provider submit with selectedClientUuid + dismiss success banner
     render(
       <AuthProvider user={{ id: provLiveUuid, name: "Dr. Sofie", email: "sofie@klinik.dk", roles: ["PROVIDER"] }}>
         <AppointmentFeatureView portalMode="provider" />
@@ -2199,11 +2205,589 @@ describe("AppointmentFeature Trin 1 UI (Timefold AI, Reschedule, JGit, Filters &
     );
     await waitFor(() => expect(screen.getByTestId("select-booking-client")).toBeDefined());
     fireEvent.change(screen.getByTestId("select-booking-client"), { target: { value: "client-uuid-99" } });
+    fireEvent.change(screen.getByTestId("select-booking-client"), { target: { value: "" } });
+    fireEvent.change(screen.getByTestId("select-booking-client"), { target: { value: "client-uuid-99" } });
     fireEvent.change(screen.getByTestId("input-startTime"), { target: { value: "2026-12-10T10:00" } });
     fireEvent.change(screen.getByTestId("input-endTime"), { target: { value: "2026-12-10T11:00" } });
     fireEvent.click(screen.getByTestId("submit-booking"));
-    await waitFor(() => expect(screen.getByText("Created")).toBeDefined());
+    await waitFor(() => expect(screen.getByTestId("booking-success-banner")).toBeDefined());
+    const closeSuccessBtn = screen.getByTestId("booking-success-banner").querySelector("button");
+    expect(closeSuccessBtn).not.toBeNull();
+    fireEvent.click(closeSuccessBtn as HTMLElement);
+    expect(screen.queryByTestId("booking-success-banner")).toBeNull();
+    fireEvent.click(screen.getByTestId("toggle-timefold-panel"));
+    await waitFor(() => expect(screen.getByTestId("fetch-timefold-slots")).toBeDefined());
+    fireEvent.click(screen.getByTestId("fetch-timefold-slots"));
+    await waitFor(() => expect((global.fetch as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0));
     cleanup();
+  });
+
+  it("pre-selects ACTIVE handshake therapist, avoids duplicate duration labels, and blocks invalid weekly schedule intervals", async () => {
+    const tFirst = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const tSecond = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const clientId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    const scheduleJson = JSON.stringify({
+      version: 1,
+      days: [{ day: "monday", enabled: true, intervals: [{ id: "m1", start: "09:00", end: "16:00" }] }],
+    });
+
+    global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/backend/clinic/directory")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            providers: [
+              { id: "p-1", userUuid: tFirst, displayName: "Dr. Første", organisationName: "A Klinik", workingHoursJson: scheduleJson },
+              { id: "p-2", userUuid: tSecond, displayName: "Dr. Handshake", organisationName: "B Klinik", workingHoursJson: scheduleJson },
+            ],
+            services: [
+              {
+                id: "srv-nodup",
+                name: "Kognitiv Terapi (60 min)",
+                durationMinutes: 60,
+                isActive: true,
+                provider: { userUuid: tSecond },
+              },
+            ],
+          }),
+        };
+      }
+      if (url.includes(`/api/backend/clinic/handshakes/client/${clientId}`)) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [{ id: "hs-1", therapistUuid: tSecond, status: "ACTIVE" }],
+        };
+      }
+      if (url.includes("/api/backend/clinic/services")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [{ id: "srv-nodup", name: "Kognitiv Terapi (60 min)", durationMinutes: 60 }],
+        };
+      }
+      if (url.includes("/api/backend/appointments/apt-hist/git-history")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            { commitHash: "12345678abcd", message: "Booket", author: "Dr. Handshake", timestamp: "not-a-date" },
+            { commitHash: "22345678abcd", message: "Bekræftet", author: "Dr. Handshake", timestamp: "2026-10-12T10:15:00Z" },
+            { commitHash: "32345678abcd", message: "Tom tid", author: "Dr. Handshake", timestamp: "" },
+          ],
+        };
+      }
+      if (url.endsWith("/api/backend/appointments")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            { id: "apt-hist", clientUuid: clientId, therapistUuid: tSecond, clientName: "Skjult Klientnavn", title: "Synlig Titel", startTime: "2026-12-10T10:00:00", endTime: "2026-12-10T11:00:00", status: "CONFIRMED" },
+          ],
+        };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    });
+
+    const clientRender = render(
+      <CachedI18nProvider initialLocale="en" initialMessages={{}}>
+        <AuthProvider user={{ id: clientId, name: "Klient", email: "k@dk.dk", roles: ["CLIENT"] }}>
+          <AppointmentFeatureView portalMode="client" />
+        </AuthProvider>
+      </CachedI18nProvider>
+    );
+
+    await waitFor(() => {
+      expect((screen.getByTestId("select-therapist") as HTMLSelectElement).value).toBe(tSecond);
+      expect(screen.getByText("Synlig Titel")).toBeDefined();
+    });
+    expect(screen.getByTestId("select-service").innerHTML).not.toContain("(60 min) (60 min)");
+    fireEvent.click(screen.getByTestId("reschedule-btn-apt-hist"));
+    expect(screen.getByTestId("reschedule-panel-apt-hist")).toBeDefined();
+    fireEvent.click(screen.getByTestId("git-history-btn-apt-hist"));
+    await waitFor(() => expect(screen.getByText(/not-a-date/)).toBeDefined());
+    clientRender.unmount();
+
+    // Therapist weekly schedule validation prevents end <= start without dropping the interval
+    render(
+      <AuthProvider user={{ id: tSecond, name: "Dr. Handshake", email: "dr@dk.dk", roles: ["PROVIDER"] }}>
+        <AppointmentFeatureView portalMode="provider" />
+      </AuthProvider>
+    );
+    await waitFor(() => expect(screen.getByTestId("toggle-weekly-schedule")).toBeDefined());
+    fireEvent.click(screen.getByTestId("toggle-weekly-schedule"));
+    const panel = await screen.findByTestId("weekly-schedule-panel");
+    const timeInputs = panel.querySelectorAll('input[type="time"]');
+    expect(timeInputs.length).toBeGreaterThanOrEqual(2);
+    fireEvent.change(timeInputs[1], { target: { value: "08:00" } });
+    await waitFor(() => expect(screen.getByTestId("weekly-schedule-error")).toBeDefined());
+    fireEvent.change(timeInputs[0], { target: { value: "17:00" } });
+    await waitFor(() => expect(screen.getByTestId("weekly-schedule-error")).toBeDefined());
+    cleanup();
+
+    // Cover handshake error/non-ok fallbacks + client fallback title without clientName
+    global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/backend/clinic/directory")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            providers: [{ id: "p-fb", userUuid: tFirst, displayName: "Dr. Fallback" }],
+            services: [],
+          }),
+        };
+      }
+      if (url.includes("/api/backend/clinic/handshakes/client/")) {
+        throw new Error("hs offline");
+      }
+      if (url.endsWith("/api/backend/appointments")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            { id: "apt-notitle", clientUuid: clientId, therapistUuid: tFirst, startTime: "2026-12-10T10:00:00", status: "CONFIRMED" },
+          ],
+        };
+      }
+      return { ok: true, status: 200, json: async () => [] };
+    });
+
+    render(
+      <AuthProvider user={{ id: clientId, name: "Klient", email: "k@dk.dk", roles: ["CLIENT"] }}>
+        <AppointmentFeatureView portalMode="client" />
+      </AuthProvider>
+    );
+    await waitFor(() => expect((screen.getByTestId("select-therapist") as HTMLSelectElement).value).toBe(tFirst));
+    expect(screen.getByText("Klinisk aftale")).toBeDefined();
+    cleanup();
+
+    // Cover handshakes !res.ok, ACTIVE handshake for unknown therapist, and non-ACTIVE status fallback to pool[0]
+    for (const hsMode of ["not-ok", "requested", "active-unknown"] as const) {
+      global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/api/backend/clinic/directory")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              providers: [
+                { id: "p-1", userUuid: tFirst, displayName: "Dr. Pool First" },
+                { id: "p-2", userUuid: tSecond, displayName: "Dr. Pool Second" },
+              ],
+              services: [],
+            }),
+          };
+        }
+        if (url.includes("/api/backend/clinic/handshakes/client/")) {
+          if (hsMode === "not-ok") return { ok: false, status: 500, json: async () => [] };
+          if (hsMode === "active-unknown") {
+            return { ok: true, status: 200, json: async () => [{ id: "hs-unk", therapistUuid: "unknown-th", status: "ACTIVE" }] };
+          }
+          return {
+            ok: true,
+            status: 200,
+            json: async () => [
+              { id: "hs-nostatus", therapistUuid: tSecond },
+              { id: "hs-req", therapistUuid: tSecond, status: "REQUESTED" },
+            ],
+          };
+        }
+        return { ok: true, status: 200, json: async () => [] };
+      });
+      render(
+        <AuthProvider user={{ id: clientId, name: "Klient", email: "k@dk.dk", roles: ["CLIENT"] }}>
+          <AppointmentFeatureView portalMode="client" />
+        </AuthProvider>
+      );
+      await waitFor(() => expect((screen.getByTestId("select-therapist") as HTMLSelectElement).value).toBe(tFirst));
+      cleanup();
+    }
+  });
+
+  it("immediately moves cancelled appointments to Cancelled tab with notice and cleans JGit commit summaries", async () => {
+    expect(formatGitCommitSummary("", "da")).toBe("");
+    expect(formatGitCommitSummary("Booked 2026-11-23T11:00 [Branch: main]", "da")).not.toContain("[Branch:");
+    expect(formatGitCommitSummary("Booked 2026-11-23T11:00 [Branch: main]", "da")).not.toContain("2026-11-23T11:00");
+    expect(formatGitCommitSummary("Booked 2026-11-23T11:00", "en")).toBeTruthy();
+
+    const closedToday = getDefaultWeeklySchedule();
+    for (const day of closedToday.days) {
+      day.enabled = day.day === "wednesday";
+    }
+    const provId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+    const clientId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+
+    global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.includes("/api/backend/clinic/directory")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            providers: [
+              { id: "p-canc", userUuid: provId, displayName: "Dr. Cancel", workingHoursJson: JSON.stringify(closedToday) },
+            ],
+            services: [],
+          }),
+        };
+      }
+      if (url.includes("/api/backend/appointments/apt-c") && method === "DELETE") {
+        return { ok: true, status: 200, json: async () => ({ deleted: true }) };
+      }
+      if (url.includes("/api/backend/appointments/client/")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            {
+              id: "apt-c2",
+              clientUuid: clientId,
+              therapistUuid: provId,
+              title: "Ekstra aflysning",
+              startTime: "2026-12-10T10:00:00",
+              endTime: "2026-12-10T11:00:00",
+              status: "CONFIRMED",
+            },
+            {
+              id: "apt-c3",
+              clientUuid: clientId,
+              therapistUuid: provId,
+              title: "Forbliver aktiv",
+              startTime: "2026-12-11T10:00:00",
+              endTime: "2026-12-11T11:00:00",
+              status: "CONFIRMED",
+            },
+          ],
+        };
+      }
+      if (url.endsWith("/api/backend/appointments")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            {
+              id: "apt-c1",
+              clientUuid: clientId,
+              therapistUuid: provId,
+              title: "Session til aflysning",
+              startTime: "2026-12-09T10:00:00",
+              endTime: "2026-12-09T11:00:00",
+              status: "SCHEDULED",
+            },
+            {
+              id: "apt-c2",
+              clientUuid: clientId,
+              therapistUuid: provId,
+              title: "Ekstra aflysning",
+              startTime: "2026-12-10T10:00:00",
+              endTime: "2026-12-10T11:00:00",
+              status: "CONFIRMED",
+            },
+          ],
+        };
+      }
+      return { ok: true, status: 200, json: async () => [] };
+    });
+
+    render(
+      <AuthProvider user={{ id: clientId, name: "Maja", email: "m@dk.dk", roles: ["CLIENT"] }}>
+        <AppointmentFeatureView portalMode="client" />
+      </AuthProvider>
+    );
+
+    await waitFor(() => expect(screen.getByTestId("delete-booking-apt-c1")).toBeDefined());
+    fireEvent.click(screen.getByTestId("delete-booking-apt-c1"));
+    fireEvent.click(await screen.findByTestId("confirm-action-accept"));
+    await waitFor(() => expect(screen.getByTestId("filter-status-cancelled").textContent).toContain("1"));
+
+    // Also test cancelling while windowItems is active
+    fireEvent.change(screen.getByTestId("filter-date-from"), { target: { value: "2026-12-01" } });
+    fireEvent.click(screen.getByTestId("apply-date-filter"));
+    await waitFor(() => expect(screen.getByTestId("delete-booking-apt-c2")).toBeDefined());
+    fireEvent.click(screen.getByTestId("delete-booking-apt-c2"));
+    fireEvent.click(await screen.findByTestId("confirm-action-accept"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("booking-success-banner").textContent).toContain("aflyst");
+      expect(screen.getByTestId("filter-status-cancelled").textContent).toContain("1");
+    });
+
+    fireEvent.click(screen.getByTestId("filter-status-cancelled"));
+    expect(screen.getByText("Ekstra aflysning")).toBeDefined();
+    expect(screen.getAllByText("Aflyst").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("covers async unmount cancellation, invalid Timefold slots, provider fallback, and failed deletion edge cases", async () => {
+    const provId = "77777777-7777-4777-8777-777777777777";
+    const clientId = "88888888-8888-4888-8888-888888888888";
+
+    // 1. Deferred getClinicClients unmount in provider portal (L1951) + empty-interval addDayInterval (L2599) + provider Timefold fallback & apply (L2417, L2447)
+    let resolveClients!: (v: unknown) => void;
+    global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/backend/clinic/clients")) {
+        return new Promise((res) => {
+          resolveClients = res;
+        });
+      }
+      return { ok: true, status: 200, json: async () => [] };
+    });
+    const provUnm = render(
+      <AuthProvider user={{ id: provId, name: "Dr. Async", email: "a@dk.dk", roles: ["PROVIDER"] }}>
+        <AppointmentFeatureView portalMode="provider" />
+      </AuthProvider>
+    );
+    provUnm.unmount();
+    resolveClients({ ok: true, status: 200, json: async () => [{ userId: clientId, fullName: "Async K" }] });
+    await Promise.resolve();
+
+    // Provider with 0 providers in directory + Saturday enabled with empty intervals [] + Timefold slot apply & failed delete (500)
+    const emptyIntvSchedule = getDefaultWeeklySchedule();
+    emptyIntvSchedule.days[5].enabled = true;
+    emptyIntvSchedule.days[5].intervals = [];
+    global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.includes("/api/backend/clinic/me")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            authenticated: true,
+            userUuid: provId,
+            providerProfile: { workingHoursJson: JSON.stringify(emptyIntvSchedule) },
+          }),
+        };
+      }
+      if (url.includes("/api/backend/clinic/directory")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            providers: [
+              { id: "p-empty", userUuid: provId, displayName: "Dr. Prov", workingHoursJson: JSON.stringify(emptyIntvSchedule) },
+            ],
+            services: [],
+          }),
+        };
+      }
+      if (url.includes("/api/backend/clinic/services")) {
+        return { ok: true, status: 200, json: async () => [{ id: "srv-zero", name: "NulMin", durationMinutes: 0 }] };
+      }
+      if (url.includes("/api/backend/appointments/timefold-slots")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            solver: "Timefold",
+            feasible: true,
+            slots: [
+              { slot: "bad", startTime: "invalid", endTime: "2026-12-10T11:00:00", available: true },
+            ],
+          }),
+        };
+      }
+      if (url.includes("/api/backend/appointments/apt-del-fail") && method === "DELETE") {
+        return { ok: false, status: 500, json: async () => ({ status: 500, title: "Err", detail: "Del err", errorCode: "INTERNAL_ERROR", timestamp: "" }) };
+      }
+      if (url.endsWith("/api/backend/appointments")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            { id: "apt-del-fail", clientUuid: clientId, therapistUuid: provId, clientName: "Fejl", startTime: "2026-12-10T10:00:00", endTime: "2026-12-10T11:00:00", status: "SCHEDULED" },
+            { id: "apt-notitle", clientUuid: clientId, therapistUuid: provId, startTime: "2026-12-11T10:00:00", endTime: "2026-12-11T11:00:00", status: "SCHEDULED" },
+          ],
+        };
+      }
+      return { ok: true, status: 200, json: async () => [] };
+    });
+    const provActive = render(
+      <AuthProvider user={{ id: provId, name: "Dr. Prov", email: "p@dk.dk", roles: ["PROVIDER"] }}>
+        <AppointmentFeatureView portalMode="provider" />
+      </AuthProvider>
+    );
+    await waitFor(() => expect(screen.getByTestId("toggle-weekly-schedule")).toBeDefined());
+    fireEvent.click(screen.getByTestId("toggle-weekly-schedule"));
+    await waitFor(() => expect(screen.getByTestId("add-interval-saturday")).toBeDefined());
+    fireEvent.click(screen.getByTestId("add-interval-saturday"));
+
+    // Clear timefoldTherapistUuid -> fallback to effectiveTherapistUuid, apply invalid slot in provider portal + delete dialog with no title/clientName + delete failing with 500
+    fireEvent.click(screen.getByTestId("toggle-timefold-panel"));
+    fireEvent.change(screen.getByTestId("timefold-therapist"), { target: { value: "" } });
+    fireEvent.click(screen.getByTestId("fetch-timefold-slots"));
+    await waitFor(() => expect(screen.getByTestId("slot-pill-0")).toBeDefined());
+    fireEvent.click(screen.getByTestId("slot-pill-0"));
+
+    fireEvent.click(screen.getByTestId("delete-booking-apt-notitle"));
+    fireEvent.click(await screen.findByTestId("confirm-action-cancel"));
+
+    fireEvent.click(screen.getByTestId("delete-booking-apt-del-fail"));
+    fireEvent.click(await screen.findByTestId("confirm-action-accept"));
+    await waitFor(() => expect(screen.getByTestId("error-banner")).toBeDefined());
+    provActive.unmount();
+
+    // 2. Client portal: getTherapistServices deferred resolve & reject unmount + getOptimalSlots deferred reject unmount
+    let resolveServices!: (v: unknown) => void;
+    let rejectServices!: (e: unknown) => void;
+    let rejectSlots!: (e: unknown) => void;
+    let rejectRescheduleSlots!: (e: unknown) => void;
+    let svcAttempt = 0;
+
+    global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/backend/clinic/directory")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            providers: [{ id: "p-u", userUuid: provId, displayName: "Dr. Wait", workingHoursJson: JSON.stringify(getDefaultWeeklySchedule()) }],
+            services: [],
+          }),
+        };
+      }
+      if (url.includes("/api/backend/clinic/services")) {
+        svcAttempt += 1;
+        if (svcAttempt === 1) return new Promise((res) => { resolveServices = res; });
+        return new Promise((_res, rej) => { rejectServices = rej; });
+      }
+      if (url.includes("/api/backend/appointments/timefold-slots")) {
+        if (url.includes("excludeAppointmentId")) {
+          return new Promise((_res, rej) => { rejectRescheduleSlots = rej; });
+        }
+        return new Promise((_res, rej) => { rejectSlots = rej; });
+      }
+      if (url.endsWith("/api/backend/appointments")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [{ id: "apt-resch-rej", clientUuid: clientId, therapistUuid: provId, startTime: "2026-12-10T10:00:00", endTime: "2026-12-10T11:00:00", status: "CONFIRMED" }],
+        };
+      }
+      return { ok: true, status: 200, json: async () => [] };
+    });
+
+    const unm1 = render(
+      <AuthProvider user={{ id: clientId, name: "K", email: "k@dk.dk", roles: ["CLIENT"] }}>
+        <AppointmentFeatureView portalMode="client" />
+      </AuthProvider>
+    );
+    await waitFor(() => expect(resolveServices).toBeTypeOf("function"));
+    unm1.unmount();
+    resolveServices({ ok: true, status: 200, json: async () => [] });
+    rejectSlots?.(new Error("slots cancelled"));
+    await Promise.resolve();
+
+    const unm2 = render(
+      <AuthProvider user={{ id: clientId, name: "K", email: "k@dk.dk", roles: ["CLIENT"] }}>
+        <AppointmentFeatureView portalMode="client" />
+      </AuthProvider>
+    );
+    await waitFor(() => expect(rejectServices).toBeTypeOf("function"));
+    fireEvent.click(await screen.findByTestId("reschedule-btn-apt-resch-rej"));
+    await waitFor(() => expect(rejectRescheduleSlots).toBeTypeOf("function"));
+    unm2.unmount();
+    rejectServices(new Error("svc cancelled"));
+    rejectRescheduleSlots(new Error("resch slots cancelled"));
+    await new Promise((r) => setTimeout(r, 0));
+
+    // 3. Invalid startTime with 60m service switch (L2325, L2439) + 0-services fallback (L2445) + 2026-99-99 booking submit (L1416, L2164)
+    global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.includes("/api/backend/clinic/directory")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            providers: [{ id: "p-s", userUuid: provId, displayName: "Dr. S", workingHoursJson: JSON.stringify(getDefaultWeeklySchedule()) }],
+            services: [],
+          }),
+        };
+      }
+      if (url.includes("/api/backend/clinic/services")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            { id: "srv-60", name: "Standard 60", durationMinutes: 60 },
+            { id: "srv-45", name: "Standard 45", durationMinutes: 45 },
+          ],
+        };
+      }
+      if (url.includes("/api/backend/appointments/timefold-slots")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            solver: "Timefold",
+            feasible: true,
+            slots: [
+              { slot: "bad", startTime: "invalid", endTime: "2026-12-10T11:00:00", available: true },
+              { slot: "weird", startTime: "2026-99-99T10:00:00", endTime: "2026-99-99T11:00:00", available: true },
+            ],
+          }),
+        };
+      }
+      if (url.endsWith("/api/backend/appointments") && method === "POST") {
+        return { ok: true, status: 201, json: async () => ({ id: "apt-created-weird", clientName: "K", startTime: "2026-99-99T10:00", endTime: "2026-99-99T11:00", status: "SCHEDULED" }) };
+      }
+      return { ok: true, status: 200, json: async () => [] };
+    });
+
+    const cliEdge = render(
+      <AuthProvider user={{ id: clientId, name: "K", email: "k@dk.dk", roles: ["CLIENT"] }}>
+        <AppointmentFeatureView portalMode="client" />
+      </AuthProvider>
+    );
+    await waitFor(() => expect(screen.getByTestId("select-service").textContent).toContain("Standard 60"));
+    fireEvent.click(screen.getByTestId("toggle-timefold-panel"));
+    fireEvent.click(screen.getByTestId("fetch-timefold-slots"));
+    await waitFor(() => expect(screen.getByTestId("slot-pill-0")).toBeDefined());
+    // Apply "invalid" startTime -> switch service to srv-45 -> addMinutesToIsoLocal("invalid", 45) === ""
+    fireEvent.click(screen.getByTestId("slot-pill-0"));
+    fireEvent.change(screen.getByTestId("select-service"), { target: { value: "srv-45" } });
+    // Apply "2026-99-99T10:00" and submit -> Date.parse gives NaN (L1416), setStartTime("") runs useEffect hitting NaN baseMs (L2164)
+    fireEvent.click(screen.getByTestId("slot-pill-1"));
+    fireEvent.click(screen.getByTestId("submit-booking"));
+    await waitFor(() => expect(screen.getByTestId("booking-success-banner")).toBeDefined());
+    cliEdge.unmount();
+
+    // Also apply slot when services = [] to hit toDateTimeLocalInput(slotEnd) (L2445)
+    global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/backend/clinic/directory")) {
+        return { ok: true, status: 200, json: async () => ({ providers: [{ id: "p-e", userUuid: provId, displayName: "Dr. E" }], services: [] }) };
+      }
+      if (url.includes("/api/backend/appointments/timefold-slots")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            solver: "Timefold",
+            feasible: true,
+            slots: [{ slot: "10-11", startTime: "2026-12-10T10:00:00", endTime: "2026-12-10T11:00:00", available: true }],
+          }),
+        };
+      }
+      return { ok: true, status: 200, json: async () => [] };
+    });
+    const noSrvCli = render(
+      <AuthProvider user={{ id: clientId, name: "K", email: "k@dk.dk", roles: ["CLIENT"] }}>
+        <AppointmentFeatureView portalMode="client" />
+      </AuthProvider>
+    );
+    await waitFor(() => expect(screen.getByTestId("toggle-timefold-panel")).toBeDefined());
+    fireEvent.click(screen.getByTestId("toggle-timefold-panel"));
+    fireEvent.click(screen.getByTestId("fetch-timefold-slots"));
+    await waitFor(() => expect(screen.getByTestId("slot-pill-0")).toBeDefined());
+    fireEvent.click(screen.getByTestId("slot-pill-0"));
+    expect((screen.getByTestId("input-endTime") as HTMLInputElement).value).toBe("2026-12-10T11:00");
+    noSrvCli.unmount();
   });
 });
 

@@ -15,6 +15,9 @@ export default function ClinicPage() {
         <TherapistClinicOnboardingView
           onOnboardingSuccess={async () => {
             await update();
+            if (typeof window !== "undefined") {
+              window.dispatchEvent(new CustomEvent("edujournal:me-refresh"));
+            }
             router.refresh();
           }}
         />

@@ -47,6 +47,7 @@ import { SupportedUiLocale, useUiLocale } from '../i18n/I18nFeature';
 
 export interface InvoiceDto extends HasId<string> {
   readonly id?: string;
+  readonly invoiceId?: string;
   readonly clientUuid: string;
   readonly therapistUuid?: string;
   readonly appointmentId?: string;
@@ -59,6 +60,7 @@ export interface InvoiceDto extends HasId<string> {
   readonly amountGrossDkk?: number;
   readonly currency: string;
   readonly status?: string;
+  readonly payImmediately?: boolean;
   readonly gitCommitHash?: string;
   readonly createdAt?: string;
 }
@@ -237,9 +239,8 @@ class FinanceApiService extends BaseApiService<InvoiceDto, string> {
       'BAD_REQUEST',
       'Missing required UUID field: clientUuid'
     );
-    const effectiveAmount = dto.amount ?? dto.amountGrossDkk ?? 0;
     DomainGuard.require(
-      effectiveAmount > 0,
+      Number(dto.amount) > 0,
       'BAD_REQUEST',
       'Amount must be positive: amount'
     );
@@ -264,10 +265,39 @@ async function requestFinanceJson<T>(url: string, init?: RequestInit): Promise<T
     },
   });
   if (!res.ok) {
-    const problem = (await res.json()) as ProblemDetail;
+    let problem: ProblemDetail = {
+      type: 'about:blank',
+      title: 'Request Error',
+      status: res.status,
+      detail: res.statusText || `HTTP ${res.status}`,
+      errorCode: ErrorCode.INTERNAL_ERROR,
+      timestamp: new Date().toISOString(),
+    };
+    try {
+      const parsed = (await res.json()) as ProblemDetail;
+      if (parsed && typeof parsed === 'object') {
+        problem = parsed;
+      }
+    } catch {
+      // Fallback to synthetic ProblemDetail on non-JSON error body
+    }
     throw problem;
   }
-  return (await res.json()) as T;
+  if (res.status === 204) {
+    return undefined as T;
+  }
+  if (typeof res.text === 'function') {
+    const raw = await res.text();
+    if (!raw || !raw.trim()) {
+      return undefined as T;
+    }
+    return JSON.parse(raw) as T;
+  }
+  try {
+    return (await res.json()) as T;
+  } catch {
+    return undefined as T;
+  }
 }
 
 // ============================================================================
@@ -277,6 +307,7 @@ async function requestFinanceJson<T>(url: string, init?: RequestInit): Promise<T
 const FINANCE_STATUS_LABELS: Record<SupportedUiLocale, Record<string, string>> = {
   da: {
     PAID: 'Betalt',
+    COMMITTED: 'Afventer betaling',
     ACTIVE: 'Aktiv',
     STOPPED: 'Opsagt',
     CANCELLED: 'Annulleret',
@@ -287,6 +318,7 @@ const FINANCE_STATUS_LABELS: Record<SupportedUiLocale, Record<string, string>> =
   },
   en: {
     PAID: 'Paid',
+    COMMITTED: 'Pending',
     ACTIVE: 'Active',
     STOPPED: 'Cancelled',
     CANCELLED: 'Cancelled',
@@ -297,6 +329,7 @@ const FINANCE_STATUS_LABELS: Record<SupportedUiLocale, Record<string, string>> =
   },
   fr: {
     PAID: 'Payée',
+    COMMITTED: 'En attente',
     ACTIVE: 'Actif',
     STOPPED: 'Résilié',
     CANCELLED: 'Annulée',
@@ -307,6 +340,7 @@ const FINANCE_STATUS_LABELS: Record<SupportedUiLocale, Record<string, string>> =
   },
   es: {
     PAID: 'Pagada',
+    COMMITTED: 'Pendiente',
     ACTIVE: 'Activo',
     STOPPED: 'Cancelado',
     CANCELLED: 'Cancelada',
@@ -317,6 +351,7 @@ const FINANCE_STATUS_LABELS: Record<SupportedUiLocale, Record<string, string>> =
   },
   de: {
     PAID: 'Bezahlt',
+    COMMITTED: 'Ausstehend',
     ACTIVE: 'Aktiv',
     STOPPED: 'Gekündigt',
     CANCELLED: 'Storniert',
@@ -331,8 +366,8 @@ export function localizeFinanceStatus(
   status: string | undefined,
   locale: SupportedUiLocale
 ): string {
-  const key = (status || 'PAID').toUpperCase();
-  return FINANCE_STATUS_LABELS[locale][key] ?? status ?? 'PAID';
+  const normalized = status || 'PAID';
+  return FINANCE_STATUS_LABELS[locale][normalized.toUpperCase()] ?? normalized;
 }
 
 const GL_ACCOUNT_NAMES: Record<SupportedUiLocale, Record<string, string>> = {
@@ -644,7 +679,7 @@ const FINANCE_COPY: Record<SupportedUiLocale, FinanceCopy> = {
     singleSessionDesc: "One-time payment for a single therapy session via Vipps MobilePay or card.",
     subscriptionTitle: "Monthly Subscription",
     subscriptionDesc: "Automatic monthly care plan via Vipps MobilePay.",
-    clipcardTitle: "5-Session Clip Card",
+    clipcardTitle: "5-Session Pass",
     clipcardDesc: "Prepaid session pass covering 5 therapy sessions.",
     openCheckoutBtn: "Pay via Checkout",
     openVippsRedirectBtn: "Open Vipps MobilePay payment page",
@@ -1013,6 +1048,7 @@ interface VippsPaymentHubProps {
   readonly locale: SupportedUiLocale;
   readonly targetClientUuid: string;
   readonly defaultCardHolder?: string;
+  readonly defaultPhone?: string;
   readonly showTechnicalAudit: boolean;
   readonly separateProfessionalLicenses?: boolean;
   readonly vippsConfig?: VippsConfigDto;
@@ -1028,8 +1064,9 @@ const VippsPaymentHub: React.FC<VippsPaymentHubProps> = ({
   locale,
   targetClientUuid,
   defaultCardHolder,
+  defaultPhone,
   showTechnicalAudit,
-  separateProfessionalLicenses = false,
+  separateProfessionalLicenses,
   vippsConfig,
   agreements,
   gitHistory,
@@ -1108,30 +1145,37 @@ const VippsPaymentHub: React.FC<VippsPaymentHubProps> = ({
 
   const [selectedPlan, setSelectedPlan] = useState<CheckoutPlanOption | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<"MOBILEPAY" | "CREDIT_CARD">("MOBILEPAY");
-  const [phoneNumber, setPhoneNumber] = useState("+4520123456");
+  const [phoneNumber, setPhoneNumber] = useState(defaultPhone || "");
   const [cardHolder, setCardHolder] = useState(defaultCardHolder || "");
   const [cardNumber, setCardNumber] = useState("");
   const [cardExpiry, setCardExpiry] = useState("12/28");
   const [cardCvc, setCardCvc] = useState("321");
   const [submitting, setSubmitting] = useState(false);
+  const [modalError, setModalError] = useState<ProblemDetail | null>(null);
   const [receipt, setReceipt] = useState<VippsCheckoutReceipt | null>(null);
   const [pendingCancelAgreementId, setPendingCancelAgreementId] = useState<string | null>(null);
 
-  const handleCheckoutSubmit = async (e: React.FormEvent) => {
+  useEffect(() => {
+    if (defaultPhone) {
+      setPhoneNumber((prev) => prev || defaultPhone);
+    }
+  }, [defaultPhone]);
+
+  const handleCheckoutSubmit = async (e: React.FormEvent, plan: CheckoutPlanOption) => {
     e.preventDefault();
-    if (!selectedPlan) return;
     setSubmitting(true);
+    setModalError(null);
     try {
       const payload: Record<string, unknown> = {
         clientUuid: targetClientUuid,
-        productType: selectedPlan.productType,
-        planName: selectedPlan.title,
-        amount: selectedPlan.amountDkk,
+        productType: plan.productType,
+        planName: plan.title,
+        amount: plan.amountDkk,
         currency: "DKK",
         paymentMethod,
       };
-      if (selectedPlan.clips) {
-        payload.clips = selectedPlan.clips;
+      if (plan.clips) {
+        payload.clips = plan.clips;
       }
       if (paymentMethod === "MOBILEPAY") {
         payload.phoneNumber = phoneNumber.trim();
@@ -1147,6 +1191,7 @@ const VippsPaymentHub: React.FC<VippsPaymentHubProps> = ({
         }
       );
       setReceipt(result);
+      setModalError(null);
       setSelectedPlan(null);
       await onRefresh();
       if (result.grantedRole) {
@@ -1154,7 +1199,7 @@ const VippsPaymentHub: React.FC<VippsPaymentHubProps> = ({
       }
     } catch (err) {
       const domainErr = err as { problem?: ProblemDetail };
-      onError(domainErr.problem || (err as ProblemDetail));
+      setModalError(domainErr.problem || (err as ProblemDetail));
     } finally {
       setSubmitting(false);
     }
@@ -1193,7 +1238,10 @@ const VippsPaymentHub: React.FC<VippsPaymentHubProps> = ({
         type="button"
         disabled={submitting}
         data-testid={option.testId}
-        onClick={() => setSelectedPlan(option)}
+        onClick={() => {
+          setModalError(null);
+          setSelectedPlan(option);
+        }}
         className="mt-3 min-h-11 w-full rounded-xl bg-teal-700 px-3 py-2 text-xs font-semibold text-white hover:bg-teal-800 disabled:opacity-50"
       >
         {copy.openCheckoutBtn}
@@ -1213,7 +1261,7 @@ const VippsPaymentHub: React.FC<VippsPaymentHubProps> = ({
           </h3>
           <span
             data-testid="vipps-sandbox-badge"
-            className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-[11px] font-semibold text-amber-800"
+            className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-500"
           >
             {copy.sandboxBadge}
           </span>
@@ -1262,7 +1310,7 @@ const VippsPaymentHub: React.FC<VippsPaymentHubProps> = ({
 
       {separateProfessionalLicenses ? (
         <>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
             {clientPlanOptions.map(renderPlanCard)}
           </div>
           <details
@@ -1282,7 +1330,7 @@ const VippsPaymentHub: React.FC<VippsPaymentHubProps> = ({
           </details>
         </>
       ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {allPlanOptions.map(renderPlanCard)}
         </div>
       )}
@@ -1292,7 +1340,11 @@ const VippsPaymentHub: React.FC<VippsPaymentHubProps> = ({
           <h4 className="text-xs font-bold uppercase tracking-wide text-slate-600">
             {copy.agreementsHeading}
           </h4>
-          <ul data-testid="vipps-agreements-list" className="space-y-2">
+          <ul
+            data-testid="vipps-agreements-list"
+            className="list-none space-y-2 pl-0"
+            style={{ paddingLeft: 0 }}
+          >
             {activeAgreements.map((agr) => (
               <li
                 key={agr.agreementId}
@@ -1352,11 +1404,14 @@ const VippsPaymentHub: React.FC<VippsPaymentHubProps> = ({
             className="flex min-h-11 cursor-pointer items-center justify-between font-semibold text-slate-800"
           >
             <span>
-              {copy.technicalAuditSummary} · {copy.vippsHubBadge} ({cfg.bundleSymbolicName})
+              {copy.technicalAuditSummary} · {copy.vippsHubBadge}
             </span>
             <i className="bi bi-chevron-down" aria-hidden="true" />
           </summary>
           <div className="mt-2.5 space-y-2 border-t border-slate-200 pt-2.5">
+            <div className="font-mono text-[11px] text-slate-500">
+              {cfg.bundleSymbolicName}
+            </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {allPlanOptions.map((option) => (
                 <div
@@ -1372,7 +1427,11 @@ const VippsPaymentHub: React.FC<VippsPaymentHubProps> = ({
             {Array.isArray(gitHistory) && gitHistory.length > 0 && (
               <div className="space-y-1.5 pt-1">
                 <div className="font-semibold text-slate-800">{copy.gitHistoryHeading}</div>
-                <ul className="space-y-1" data-testid="provider-finance-git-history">
+                <ul
+                  className="list-none space-y-1 pl-0"
+                  style={{ paddingLeft: 0 }}
+                  data-testid="provider-finance-git-history"
+                >
                   {gitHistory.map((entry) => (
                     <li
                       key={entry.commitHash}
@@ -1381,7 +1440,8 @@ const VippsPaymentHub: React.FC<VippsPaymentHubProps> = ({
                       <span className="font-mono text-teal-800">
                         {entry.shortHash || entry.commitHash}
                       </span>{' '}
-                      — {entry.message} ({entry.authorName})
+                      — {entry.message}
+                      {entry.authorName?.trim() ? ` (${entry.authorName.trim()})` : ''}
                     </li>
                   ))}
                 </ul>
@@ -1399,17 +1459,27 @@ const VippsPaymentHub: React.FC<VippsPaymentHubProps> = ({
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4"
         >
           <form
-            onSubmit={handleCheckoutSubmit}
+            onSubmit={(e) => handleCheckoutSubmit(e, selectedPlan)}
             className="w-full max-w-md space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-xl"
           >
             <div className="flex items-center justify-between gap-2">
-              <h4 className="min-w-0 text-base font-bold text-slate-900">
-                {copy.checkoutModalTitle}: {selectedPlan.title}
-              </h4>
+              <div className="min-w-0 space-y-1">
+                <h4 className="min-w-0 text-base font-bold text-slate-900">
+                  {copy.checkoutModalTitle}: {selectedPlan.title}
+                </h4>
+                <span
+                  data-testid="vipps-modal-sandbox-badge"
+                  className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-[11px] font-semibold text-amber-800"
+                >
+                  {copy.sandboxBadge}
+                </span>
+              </div>
               <span className="shrink-0 whitespace-nowrap rounded-full bg-teal-50 px-2.5 py-0.5 text-xs font-bold text-teal-900">
                 {selectedPlan.priceLabel}
               </span>
             </div>
+
+            <ProblemAlert problem={modalError} onDismiss={() => setModalError(null)} />
 
             {showTechnicalAudit && (
               <details
@@ -1461,6 +1531,7 @@ const VippsPaymentHub: React.FC<VippsPaymentHubProps> = ({
                 <span className="font-semibold text-slate-700">{copy.mobilePayPhoneLabel}</span>
                 <input
                   data-testid="input-vipps-phone"
+                  placeholder="+4520123456"
                   value={phoneNumber}
                   onChange={(e) => setPhoneNumber(e.target.value)}
                   className="min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
@@ -1516,7 +1587,10 @@ const VippsPaymentHub: React.FC<VippsPaymentHubProps> = ({
               <button
                 type="button"
                 data-testid="btn-close-vipps-checkout"
-                onClick={() => setSelectedPlan(null)}
+                onClick={() => {
+                  setModalError(null);
+                  setSelectedPlan(null);
+                }}
                 className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
               >
                 {copy.cancelModalBtn}
@@ -1534,22 +1608,22 @@ const VippsPaymentHub: React.FC<VippsPaymentHubProps> = ({
         </div>
       )}
 
-      <ConfirmActionDialog
-        open={pendingCancelAgreementId !== null}
-        tone="danger"
-        title={copy.cancelAgreementConfirmTitle}
-        description={copy.cancelAgreementConfirmDesc}
-        confirmLabel={copy.cancelAgreementBtn}
-        cancelLabel={copy.cancelModalBtn}
-        onConfirm={async () => {
-          const targetId = pendingCancelAgreementId;
-          setPendingCancelAgreementId(null);
-          if (targetId) {
+      {pendingCancelAgreementId && (
+        <ConfirmActionDialog
+          open
+          tone="danger"
+          title={copy.cancelAgreementConfirmTitle}
+          description={copy.cancelAgreementConfirmDesc}
+          confirmLabel={copy.cancelAgreementBtn}
+          cancelLabel={copy.cancelModalBtn}
+          onConfirm={async () => {
+            const targetId = pendingCancelAgreementId;
+            setPendingCancelAgreementId(null);
             await handleAgreementAction(targetId, "cancel");
-          }
-        }}
-        onCancel={() => setPendingCancelAgreementId(null)}
-      />
+          }}
+          onCancel={() => setPendingCancelAgreementId(null)}
+        />
+      )}
     </div>
   );
 };
@@ -1666,6 +1740,7 @@ const ClientFinanceOverviewView: React.FC<{
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<ProblemDetail | null>(null);
   const [invoicePage, setInvoicePage] = useState<number>(1);
+  const [profilePhone, setProfilePhone] = useState<string | undefined>(undefined);
 
   const loadOverview = useCallback(async () => {
     if (!userId) {
@@ -1689,6 +1764,32 @@ const ClientFinanceOverviewView: React.FC<{
   useEffect(() => {
     void loadOverview();
   }, [loadOverview]);
+
+  useEffect(() => {
+    if (!userId) return;
+    let active = true;
+    fetch('/api/backend/clinic/clients')
+      .then((res) => (res?.ok ? res.json() : []))
+      .then((rows) => {
+        if (!active || !Array.isArray(rows)) return;
+        const match = rows.find(
+          (r: any) =>
+            r &&
+            typeof r === 'object' &&
+            (r.userId === userId || r.id === userId)
+        ) as { phone?: string; phoneNumber?: string } | undefined;
+        const foundPhone = (match?.phone || match?.phoneNumber || '').trim();
+        if (foundPhone) {
+          setProfilePhone(foundPhone);
+        }
+      })
+      .catch(() => {
+        // Optional phone prefill from client profile
+      });
+    return () => {
+      active = false;
+    };
+  }, [userId]);
 
   const runClientFinanceAction = async (url: string, payload: Record<string, unknown>) => {
     setSubmitting(true);
@@ -1833,6 +1934,7 @@ const ClientFinanceOverviewView: React.FC<{
         locale={locale}
         targetClientUuid={userId}
         defaultCardHolder={userName}
+        defaultPhone={profilePhone}
         showTechnicalAudit={false}
         separateProfessionalLicenses={true}
         vippsConfig={overview?.vippsConfig}
@@ -1847,7 +1949,11 @@ const ClientFinanceOverviewView: React.FC<{
       {Array.isArray(overview?.installmentPlans) && overview.installmentPlans.length > 0 && (
         <div className="space-y-2">
           <h3 className="text-sm font-semibold text-slate-900">{copy.installmentPlansHeading}</h3>
-          <ul className="space-y-2" data-testid="client-loans-list">
+          <ul
+            className="list-none space-y-2 pl-0"
+            style={{ paddingLeft: 0 }}
+            data-testid="client-loans-list"
+          >
             {overview.installmentPlans.map((loan) => (
               <li
                 key={loan.loanId}
@@ -1888,9 +1994,13 @@ const ClientFinanceOverviewView: React.FC<{
           </p>
         ) : (
           <>
-            <ul data-testid="client-invoice-list" className="space-y-2">
+            <ul
+              data-testid="client-invoice-list"
+              className="list-none space-y-2 pl-0"
+              style={{ paddingLeft: 0 }}
+            >
               {pagedClientInvoices.map((inv) => {
-                const invoiceId = inv.id || inv.invoiceNumber;
+                const invoiceId = inv.id || inv.invoiceId || inv.invoiceNumber;
                 return (
                   <li
                     key={invoiceId}
@@ -1943,7 +2053,7 @@ const ProviderFinanceLedgerView: React.FC<{
   const [useManualClientId, setUseManualClientId] = useState(false);
   const [clientUuid, setClientUuid] = useState('');
   const [description, setDescription] = useState('');
-  const [amount, setAmount] = useState<string>('2');
+  const [amount, setAmount] = useState<string>('850');
   const [currency, setCurrency] = useState('DKK');
   const [ledger, setLedger] = useState<GeneralLedgerSummaryDto | null>(null);
   const [invoicePage, setInvoicePage] = useState<number>(1);
@@ -2003,16 +2113,18 @@ const ProviderFinanceLedgerView: React.FC<{
     const numericAmount = Number(amount);
     const created = await createItem({
       clientUuid,
+      therapistUuid: providerUserId || undefined,
       description,
       amount: numericAmount,
       amountGrossDkk: numericAmount,
       currency,
-      status: 'PAID',
+      status: 'COMMITTED',
+      payImmediately: false,
     });
     if (created) {
       setClientUuid('');
       setDescription('');
-      setAmount('2');
+      setAmount('850');
       await loadLedger();
     }
   };
@@ -2257,7 +2369,11 @@ const ProviderFinanceLedgerView: React.FC<{
         <p data-testid="loading-indicator" className="text-sm text-slate-500">{copy.loadingText}</p>
       ) : (
         <>
-          <ul data-testid="invoice-list" className="space-y-2">
+          <ul
+            data-testid="invoice-list"
+            className="list-none space-y-2 pl-0"
+            style={{ paddingLeft: 0 }}
+          >
             {pagedInvoices.map((inv) => (
               <li
                 key={inv.id}
@@ -2274,7 +2390,9 @@ const ProviderFinanceLedgerView: React.FC<{
                   </span>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  {isAuthenticated && inv.id && inv.status !== 'REFUNDED' && (
+                  {isAuthenticated &&
+                    inv.id &&
+                    String(inv.status || 'PAID').toUpperCase() === 'PAID' && (
                     <button
                       type="button"
                       data-testid={`refund-invoice-${inv.id}`}
@@ -2312,35 +2430,37 @@ const ProviderFinanceLedgerView: React.FC<{
         </>
       )}
 
-      <ConfirmActionDialog
-        open={pendingAction !== null}
-        tone={pendingAction?.type === 'refund' ? 'warning' : 'danger'}
-        title={
-          pendingAction?.type === 'refund'
-            ? copy.refundConfirmTitle
-            : copy.deleteConfirmTitle
-        }
-        description={
-          pendingAction?.type === 'refund'
-            ? copy.refundConfirmDesc
-            : copy.deleteConfirmDesc
-        }
-        confirmLabel={
-          pendingAction?.type === 'refund' ? copy.refundBtn : copy.deleteBtn
-        }
-        cancelLabel={copy.cancelModalBtn}
-        onConfirm={async () => {
-          const action = pendingAction;
-          setPendingAction(null);
-          if (!action) return;
-          if (action.type === 'refund') {
-            await handleRefund(action.invoiceId);
-          } else {
-            await deleteItem(action.invoiceId);
+      {pendingAction && (
+        <ConfirmActionDialog
+          open
+          tone={pendingAction.type === 'refund' ? 'warning' : 'danger'}
+          title={
+            pendingAction.type === 'refund'
+              ? copy.refundConfirmTitle
+              : copy.deleteConfirmTitle
           }
-        }}
-        onCancel={() => setPendingAction(null)}
-      />
+          description={
+            pendingAction.type === 'refund'
+              ? copy.refundConfirmDesc
+              : copy.deleteConfirmDesc
+          }
+          confirmLabel={
+            pendingAction.type === 'refund' ? copy.refundBtn : copy.deleteBtn
+          }
+          cancelLabel={copy.cancelModalBtn}
+          onConfirm={async () => {
+            const action = pendingAction;
+            setPendingAction(null);
+            if (action.type === 'refund') {
+              await handleRefund(action.invoiceId);
+            } else {
+              await deleteItem(action.invoiceId);
+              await loadLedger();
+            }
+          }}
+          onCancel={() => setPendingAction(null)}
+        />
+      )}
     </section>
   );
 };
@@ -2348,7 +2468,7 @@ const ProviderFinanceLedgerView: React.FC<{
 export const FinanceFeatureView: React.FC<{
   portalMode?: 'client' | 'provider';
   onRoleUpgraded?: () => Promise<void> | void;
-}> = ({ portalMode, onRoleUpgraded } = {}) => {
+}> = ({ portalMode, onRoleUpgraded }) => {
   const auth = useOptionalAuth();
   const userId = auth?.user.id || '';
   const userName = auth?.user.name || '';

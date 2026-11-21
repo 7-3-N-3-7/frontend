@@ -202,14 +202,13 @@ class JournalApiService extends BaseApiService<JournalEntryDto, string> {
   protected override validateBeforeCreate(dto: Partial<JournalEntryDto>): void {
     DomainGuard.requireNotBlank(dto.title, "Journal title", "title");
     DomainGuard.requireNotBlank(dto.content, "Journal content", "content");
-    if (dto.moodRating !== undefined) {
-      DomainGuard.check(
-        dto.moodRating >= 1 && dto.moodRating <= 10,
-        "Mood rating must be between 1 and 10",
-        ErrorCode.VALIDATION_FAILED,
-        "moodRating"
-      );
-    }
+    const mood = Number(dto.moodRating);
+    DomainGuard.check(
+      mood >= 1 && mood <= 10,
+      "Mood rating must be between 1 and 10",
+      ErrorCode.VALIDATION_FAILED,
+      "moodRating"
+    );
   }
 
   private async fetchJsonOrDefault<T>(url: string, fallback: T): Promise<T> {
@@ -360,6 +359,15 @@ interface JournalCopy {
   timelineInspectorTitle: string;
   timelineInspectorClose: string;
   timelineSignedBadge: string;
+  clientSelectLabel: string;
+  clientSelectPlaceholder: string;
+  internalNoteLabel: string;
+  internalNotePlaceholder: string;
+  internalNoteSavedNotice: string;
+  branchLabel: string;
+  branchMain: string;
+  branchTrauma: string;
+  branchSleep: string;
 }
 
 const JOURNAL_COPY: Record<SupportedUiLocale, JournalCopy> = {
@@ -424,6 +432,15 @@ const JOURNAL_COPY: Record<SupportedUiLocale, JournalCopy> = {
     timelineInspectorTitle: "Detalje-inspektør — Klinisk SOAP & Audit",
     timelineInspectorClose: "Luk detaljevisning",
     timelineSignedBadge: "Signeret",
+    clientSelectLabel: "Tilknyttet klient",
+    clientSelectPlaceholder: "Vælg klient (valgfrit)...",
+    internalNoteLabel: "Fortrolig klinisk behandlernote (vises aldrig for klient)",
+    internalNotePlaceholder: "Valgfri intern SOAP/klinisk observation gemt i JGit...",
+    internalNoteSavedNotice: "Fortrolig behandlernote gemt i JGit og knyttet til klientens tidslinje.",
+    branchLabel: "JGit gren (emne)",
+    branchMain: "Generelt (main)",
+    branchTrauma: "Traumebehandling (trauma)",
+    branchSleep: "Søvn & restitution (sleep)",
   },
   en: {
     badge: "Clinical Journal",
@@ -486,6 +503,15 @@ const JOURNAL_COPY: Record<SupportedUiLocale, JournalCopy> = {
     timelineInspectorTitle: "Detail Inspector — Clinical SOAP & Audit",
     timelineInspectorClose: "Close detail inspector",
     timelineSignedBadge: "Signed",
+    clientSelectLabel: "Associated client",
+    clientSelectPlaceholder: "Select client (optional)...",
+    internalNoteLabel: "Confidential clinical therapist note (never shown to client)",
+    internalNotePlaceholder: "Optional internal SOAP observation stored in JGit...",
+    internalNoteSavedNotice: "Confidential clinical note saved to JGit and linked to patient timeline.",
+    branchLabel: "JGit branch (topic)",
+    branchMain: "General (main)",
+    branchTrauma: "Trauma therapy (trauma)",
+    branchSleep: "Sleep & recovery (sleep)",
   },
   fr: {
     badge: "Dossier Clinique",
@@ -548,6 +574,15 @@ const JOURNAL_COPY: Record<SupportedUiLocale, JournalCopy> = {
     timelineInspectorTitle: "Inspecteur — SOAP Clinique & Audit",
     timelineInspectorClose: "Fermer l'inspecteur",
     timelineSignedBadge: "Signé",
+    clientSelectLabel: "Client associé",
+    clientSelectPlaceholder: "Choisir un client (optionnel)...",
+    internalNoteLabel: "Note clinique confidentielle (jamais visible par le client)",
+    internalNotePlaceholder: "Observation clinique interne optionnelle...",
+    internalNoteSavedNotice: "Note clinique confidentielle enregistrée dans JGit.",
+    branchLabel: "Branche JGit (thème)",
+    branchMain: "Général (main)",
+    branchTrauma: "Trauma (trauma)",
+    branchSleep: "Sommeil (sleep)",
   },
   es: {
     badge: "Diario Clínico",
@@ -610,6 +645,15 @@ const JOURNAL_COPY: Record<SupportedUiLocale, JournalCopy> = {
     timelineInspectorTitle: "Inspector de Detalle — SOAP Clínico y Auditoría",
     timelineInspectorClose: "Cerrar inspector",
     timelineSignedBadge: "Firmado",
+    clientSelectLabel: "Cliente asociado",
+    clientSelectPlaceholder: "Seleccionar cliente (opcional)...",
+    internalNoteLabel: "Nota clínica confidencial (nunca visible para el cliente)",
+    internalNotePlaceholder: "Observación clínica interna opcional...",
+    internalNoteSavedNotice: "Nota clínica confidencial guardada en JGit.",
+    branchLabel: "Rama JGit (tema)",
+    branchMain: "General (main)",
+    branchTrauma: "Trauma (trauma)",
+    branchSleep: "Sueño (sleep)",
   },
   de: {
     badge: "Klinisches Journal",
@@ -672,11 +716,100 @@ const JOURNAL_COPY: Record<SupportedUiLocale, JournalCopy> = {
     timelineInspectorTitle: "Detailinspektor — Klinisches SOAP & Audit",
     timelineInspectorClose: "Detailansicht schließen",
     timelineSignedBadge: "Signiert",
+    clientSelectLabel: "Zugeordneter Klient",
+    clientSelectPlaceholder: "Klient auswählen (optional)...",
+    internalNoteLabel: "Vertrauliche klinische Notiz (für Klient unsichtbar)",
+    internalNotePlaceholder: "Optionale interne klinische Beobachtung...",
+    internalNoteSavedNotice: "Vertrauliche Notiz in JGit gespeichert.",
+    branchLabel: "JGit-Zweig (Thema)",
+    branchMain: "Allgemein (main)",
+    branchTrauma: "Traumatherapie (trauma)",
+    branchSleep: "Schlaf (sleep)",
   },
 };
 
 export interface JournalFeatureViewProps {
   portalMode?: "client" | "provider";
+}
+
+function renderFormattedInline(text: string): React.ReactNode[] {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return parts.map((part, idx) => {
+    if (part.startsWith("**") && part.endsWith("**") && part.length > 4) {
+      return (
+        <strong key={idx} className="font-semibold text-slate-900">
+          {part.slice(2, -2)}
+        </strong>
+      );
+    }
+    return <React.Fragment key={idx}>{part}</React.Fragment>;
+  });
+}
+
+function renderFormattedJournalContent(rawText: string): React.ReactNode {
+  const lines = rawText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length === 0) {
+    return null;
+  }
+
+  const blocks: React.ReactNode[] = [];
+  let listItems: string[] = [];
+
+  const flushList = (keyPrefix: string) => {
+    if (listItems.length === 0) return;
+    const currentItems = listItems;
+    listItems = [];
+    blocks.push(
+      <ul
+        key={`${keyPrefix}-list`}
+        className="m-0 list-disc space-y-0.5 pl-5 text-sm text-slate-700"
+      >
+        {currentItems.map((itemText, itemIdx) => (
+          <li key={itemIdx}>{renderFormattedInline(itemText)}</li>
+        ))}
+      </ul>
+    );
+  };
+
+  lines.forEach((line, idx) => {
+    if (/^[-*]\s+/.test(line)) {
+      listItems.push(line.replace(/^[-*]\s+/, ""));
+      return;
+    }
+    flushList(`b-${idx}`);
+    if (/^#{4,6}\s+/.test(line)) {
+      const text = line.replace(/^#{4,6}\s+/, "");
+      blocks.push(
+        <h5
+          key={idx}
+          className="m-0 pt-0.5 text-xs font-bold uppercase tracking-wide text-slate-800"
+        >
+          {renderFormattedInline(text)}
+        </h5>
+      );
+      return;
+    }
+    if (/^#{1,3}\s+/.test(line)) {
+      const text = line.replace(/^#{1,3}\s+/, "");
+      blocks.push(
+        <h4 key={idx} className="m-0 pt-0.5 text-sm font-bold text-slate-900">
+          {renderFormattedInline(text)}
+        </h4>
+      );
+      return;
+    }
+    blocks.push(
+      <p key={idx} className="m-0 leading-relaxed text-slate-700">
+        {renderFormattedInline(line)}
+      </p>
+    );
+  });
+
+  flushList("end");
+  return <div className="space-y-1 text-sm text-slate-700">{blocks}</div>;
 }
 
 const JournalFeatureAuthorizedContent: React.FC<{
@@ -700,6 +833,31 @@ const JournalFeatureAuthorizedContent: React.FC<{
   );
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [showTimeline, setShowTimeline] = useState(false);
+  const [providerClients, setProviderClients] = useState<TimelineClientOption[]>([]);
+  const [selectedClientUuid, setSelectedClientUuid] = useState("");
+  const [internalNote, setInternalNote] = useState("");
+  const [internalNoteNotice, setInternalNoteNotice] = useState<string | null>(null);
+  const [gitBranch, setGitBranch] = useState("main");
+  const [activeBranchFilter, setActiveBranchFilter] = useState<
+    "all" | "main" | "trauma" | "sleep"
+  >("all");
+
+  useEffect(() => {
+    if (isClientMode || !auth?.user.id) {
+      return;
+    }
+    let cancelled = false;
+    journalApi
+      .getClinicClients(auth.user.id, auth.user.email)
+      .then((clients) => {
+        if (!cancelled) {
+          setProviderClients(clients);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isClientMode, auth?.user.id, auth?.user.email]);
 
   useEffect(() => {
     if (!isClientMode || !auth?.user.id) {
@@ -736,30 +894,108 @@ const JournalFeatureAuthorizedContent: React.FC<{
   };
 
   const visibleItems = useMemo(() => {
-    if (!isClientMode || !auth?.user.id) return items;
-    return items.filter(
-      (item) =>
-        (!item.clientUuid && !item.userId) ||
-        item.clientUuid === auth.user.id ||
-        item.userId === auth.user.id
+    const clientScoped =
+      !isClientMode || !auth?.user.id
+        ? items
+        : items.filter(
+            (item) =>
+              (!item.clientUuid && !item.userId) ||
+              item.clientUuid === auth.user.id ||
+              item.userId === auth.user.id
+          );
+    if (!isClientMode || activeBranchFilter === "all") {
+      return clientScoped;
+    }
+    return clientScoped.filter(
+      (item) => (item.gitBranch || "main") === activeBranchFilter
     );
-  }, [items, isClientMode, auth?.user.id]);
+  }, [items, isClientMode, auth?.user.id, activeBranchFilter]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setInternalNoteNotice(null);
     const shouldShare = isClientMode
       ? sharedWithTherapist && selectedTherapistUuids.length > 0
       : sharedWithTherapist;
+    const targetClientUuid =
+      !isClientMode && selectedClientUuid
+        ? selectedClientUuid
+        : auth?.user.id || undefined;
+    const authUserId = auth?.user.id?.trim();
+
+    // R4-01 Privacy guard: if a therapist unchecks sharing for a selected client,
+    // persist only to /journals/therapist-notes so confidential entries never leak into client journals.
+    if (!isClientMode && selectedClientUuid && !shouldShare) {
+      const combinedConfidential = [
+        title.trim() ? `### ${title.trim()}` : "",
+        content.trim(),
+        internalNote.trim(),
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+      if (combinedConfidential) {
+        try {
+          const noteRes = await fetch("/api/backend/journals/therapist-notes", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              clientUuid: selectedClientUuid,
+              therapistNote: combinedConfidential,
+              therapistName: auth?.user.name || copy.badge,
+            }),
+          });
+          if (noteRes.ok) {
+            setTitle("");
+            setContent("");
+            setInternalNote("");
+            setMoodRating("7");
+            setInternalNoteNotice(copy.internalNoteSavedNotice);
+          }
+        } catch {
+          // Non-fatal confidential note persistence failure
+        }
+        return;
+      }
+    }
+
+    const effectiveSharedTherapistUuids = shouldShare
+      ? !isClientMode && authUserId
+        ? Array.from(new Set([...selectedTherapistUuids, authUserId]))
+        : selectedTherapistUuids
+      : undefined;
+
     const created = await create({
       title,
       content,
       moodRating: Number(moodRating),
       sharedWithTherapist: shouldShare,
       sharedWithTherapists: shouldShare,
-      sharedTherapistUuids: shouldShare ? selectedTherapistUuids : undefined,
-      clientUuid: auth?.user.id || undefined,
+      sharedTherapistUuids: effectiveSharedTherapistUuids,
+      clientUuid: targetClientUuid,
+      gitBranch: isClientMode ? gitBranch : undefined,
     });
     if (created) {
+      if (!isClientMode && internalNote.trim() && targetClientUuid) {
+        try {
+          const noteRes = await fetch("/api/backend/journals/therapist-notes", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              clientUuid: targetClientUuid,
+              therapistNote: internalNote.trim(),
+              therapistName: auth?.user.name || copy.badge,
+            }),
+          });
+          if (noteRes.ok) {
+            setInternalNote("");
+            setInternalNoteNotice(copy.internalNoteSavedNotice);
+          }
+        } catch {
+          // Non-fatal confidential note persistence failure
+        }
+      }
       setTitle("");
       setContent("");
       setMoodRating("7");
@@ -808,24 +1044,26 @@ const JournalFeatureAuthorizedContent: React.FC<{
 
       <ProblemAlert error={error} onDismiss={clearError} />
 
-      <ConfirmActionDialog
-        open={pendingDeleteId !== null}
-        title={copy.confirmDeleteTitle}
-        description={copy.confirmDeleteDesc}
-        confirmLabel={copy.confirmDeleteBtn}
-        cancelLabel={copy.cancelBtn}
-        tone="danger"
-        onCancel={() => setPendingDeleteId(null)}
-        onConfirm={() => {
-          const targetId = pendingDeleteId;
-          setPendingDeleteId(null);
-          if (targetId) void remove(targetId);
-        }}
-      />
+      {pendingDeleteId && (
+        <ConfirmActionDialog
+          open
+          title={copy.confirmDeleteTitle}
+          description={copy.confirmDeleteDesc}
+          confirmLabel={copy.confirmDeleteBtn}
+          cancelLabel={copy.cancelBtn}
+          tone="danger"
+          onCancel={() => setPendingDeleteId(null)}
+          onConfirm={() => {
+            const targetId = pendingDeleteId;
+            setPendingDeleteId(null);
+            void remove(targetId);
+          }}
+        />
+      )}
 
       <form noValidate onSubmit={handleSubmit} className="space-y-3">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-12 items-end">
-          <div className="flex flex-col gap-1 sm:col-span-4">
+          <div className="flex flex-col gap-1 sm:col-span-8">
             <label
               htmlFor="journal-title-input"
               className="text-xs font-semibold text-slate-600"
@@ -842,27 +1080,10 @@ const JournalFeatureAuthorizedContent: React.FC<{
               data-testid="input-journal-title"
             />
           </div>
-          <div className="flex flex-col gap-1 sm:col-span-6">
-            <label
-              htmlFor="journal-content-input"
-              className="text-xs font-semibold text-slate-600"
-            >
-              {copy.contentLabel}
-            </label>
-            <input
-              id="journal-content-input"
-              type="text"
-              placeholder={copy.contentPlaceholder}
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              className="min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
-              data-testid="input-journal-content"
-            />
-          </div>
-          <div className="flex flex-col gap-1 sm:col-span-2">
+          <div className="flex flex-col gap-1 sm:col-span-4">
             <label
               htmlFor="journal-mood-input"
-              className="text-xs font-semibold text-slate-600"
+              className="whitespace-nowrap text-xs font-semibold text-slate-600"
             >
               {copy.moodInputLabel}
             </label>
@@ -878,19 +1099,94 @@ const JournalFeatureAuthorizedContent: React.FC<{
               data-testid="input-journal-mood"
             />
           </div>
+          <div className="flex flex-col gap-1 sm:col-span-12">
+            <label
+              htmlFor="journal-content-input"
+              className="text-xs font-semibold text-slate-600"
+            >
+              {copy.contentLabel}
+            </label>
+            <textarea
+              id="journal-content-input"
+              rows={3}
+              placeholder={copy.contentPlaceholder}
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              className="min-h-[84px] w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
+              data-testid="input-journal-content"
+            />
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <label className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-medium text-slate-700 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={sharedWithTherapist}
-              onChange={(e) => setSharedWithTherapist(e.target.checked)}
-              data-testid="input-journal-shared"
-              className="h-4 w-4 accent-teal-700"
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-medium text-slate-700 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={sharedWithTherapist}
+                onChange={(e) => setSharedWithTherapist(e.target.checked)}
+                data-testid="input-journal-shared"
+                className="h-4 w-4 accent-teal-700"
+              />
+              {copy.shareWithTherapist}
+            </label>
+            {isClientMode && (
+              <label className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700">
+                <span>{copy.branchLabel}:</span>
+                <select
+                  value={gitBranch}
+                  onChange={(e) => setGitBranch(e.target.value)}
+                  data-testid="input-journal-branch"
+                  className="bg-transparent text-xs font-semibold text-slate-900 focus:outline-none"
+                >
+                  <option value="main">{copy.branchMain}</option>
+                  <option value="trauma">{copy.branchTrauma}</option>
+                  <option value="sleep">{copy.branchSleep}</option>
+                </select>
+              </label>
+            )}
+            {!isClientMode && providerClients.length > 0 && (
+              <label className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700">
+                <span>{copy.clientSelectLabel}:</span>
+                <select
+                  value={selectedClientUuid}
+                  onChange={(e) => setSelectedClientUuid(e.target.value)}
+                  data-testid="journal-client-select"
+                  className="max-w-xs truncate bg-transparent text-xs font-semibold text-slate-900 focus:outline-none"
+                >
+                  <option value="">{copy.clientSelectPlaceholder}</option>
+                  {providerClients.map((clientOpt) => (
+                    <option key={clientOpt.id} value={clientOpt.id}>
+                      {clientOpt.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </div>
+        </div>
+
+        {!isClientMode && (
+          <div className="flex flex-col gap-1">
+            <label
+              htmlFor="journal-internal-note-input"
+              className="text-xs font-semibold text-slate-600"
+            >
+              {copy.internalNoteLabel}
+            </label>
+            <textarea
+              id="journal-internal-note-input"
+              rows={2}
+              placeholder={copy.internalNotePlaceholder}
+              value={internalNote}
+              onChange={(e) => setInternalNote(e.target.value)}
+              data-testid="input-journal-internal-note"
+              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none"
             />
-            {copy.shareWithTherapist}
-          </label>
+          </div>
+        )}
+
+        <div className="flex justify-end">
           <button
             type="submit"
             disabled={loading}
@@ -900,6 +1196,15 @@ const JournalFeatureAuthorizedContent: React.FC<{
             {copy.saveBtn}
           </button>
         </div>
+
+        {internalNoteNotice && (
+          <div
+            data-testid="internal-note-saved-banner"
+            className="rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-xs font-medium text-emerald-900"
+          >
+            {internalNoteNotice}
+          </div>
+        )}
 
         {isClientMode && sharedWithTherapist && (
           <div
@@ -946,16 +1251,53 @@ const JournalFeatureAuthorizedContent: React.FC<{
         </p>
       )}
 
-      <ul className="space-y-2" data-testid="journal-list">
+      {isClientMode && (
+        <div
+          data-testid="journal-branch-filters"
+          className="flex flex-wrap items-center gap-2"
+        >
+          {(
+            [
+              ["all", copy.timelineFilterAll],
+              ["main", copy.branchMain],
+              ["trauma", copy.branchTrauma],
+              ["sleep", copy.branchSleep],
+            ] as const
+          ).map(([branchKey, branchLabel]) => (
+            <button
+              key={branchKey}
+              type="button"
+              data-testid={`journal-branch-filter-${branchKey}`}
+              onClick={() => setActiveBranchFilter(branchKey)}
+              className={`min-h-11 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                activeBranchFilter === branchKey
+                  ? "border-teal-700 bg-teal-700 text-white"
+                  : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              {branchLabel}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <ul className="list-none space-y-2 pl-0" style={{ paddingLeft: 0 }} data-testid="journal-list">
         {visibleItems.map((item) => {
           const isShared =
             item.sharedWithTherapists ?? item.sharedWithTherapist ?? false;
+          const itemBranch = item.gitBranch || "main";
+          const branchLabel =
+            itemBranch === "trauma"
+              ? copy.branchTrauma
+              : itemBranch === "sleep"
+                ? copy.branchSleep
+                : copy.branchMain;
           return (
             <li
               key={item.id}
               className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-3 text-sm"
             >
-              <div className="min-w-0 space-y-1">
+              <div className="min-w-0 space-y-1.5">
                 <div className="flex flex-wrap items-center gap-2">
                   <strong className="text-slate-900">{item.title}</strong>
                   <span
@@ -967,15 +1309,21 @@ const JournalFeatureAuthorizedContent: React.FC<{
                   >
                     {isShared ? copy.sharedBadge : copy.privateBadge}
                   </span>
+                  {isClientMode && (
+                    <span
+                      data-testid={`journal-branch-badge-${item.id}`}
+                      className="rounded-full border border-slate-200 bg-white px-2.5 py-0.5 text-[11px] font-medium text-slate-600"
+                    >
+                      {branchLabel}
+                    </span>
+                  )}
                   {item.moodRating !== undefined && (
                     <span className="rounded-full bg-indigo-50 px-2.5 py-0.5 text-[11px] font-semibold text-indigo-800">
                       {copy.moodLabel}: {item.moodRating}/10
                     </span>
                   )}
                 </div>
-                <p className="m-0 text-slate-700">
-                  {filterInternalNotes(item.content, false)}
-                </p>
+                {renderFormattedJournalContent(filterInternalNotes(item.content, false))}
               </div>
               {item.id && (
                 <button
@@ -1106,6 +1454,7 @@ export function classifyCommit(
 ): JGitCommitCategory {
   const msgLower = (message || "").toLowerCase();
   const deltaUpper = delta || "";
+  const authorLower = (author || "").toLowerCase();
 
   if (
     msgLower.startsWith("aftale") ||
@@ -1131,10 +1480,10 @@ export function classifyCommit(
     msgLower.includes("terapeut") ||
     msgLower.includes("opfølgning") ||
     deltaUpper.includes("Terapeutisk opfølgning") ||
-    author.toLowerCase().includes("dr.") ||
-    author.toLowerCase().includes("psykolog") ||
-    author.toLowerCase().includes("bjens") ||
-    author.toLowerCase().includes("bo jensen")
+    authorLower.includes("dr.") ||
+    authorLower.includes("psykolog") ||
+    authorLower.includes("bjens") ||
+    authorLower.includes("bo jensen")
   ) {
     return "THERAPIST";
   }
@@ -1513,7 +1862,7 @@ export function mapBundleToClinicalTimelineEvents(
             ? copy.timelineFilterInterventions
             : `${copy.timelineFilterSessions} #${idx + 1}`,
       title: entry.title,
-      summary: cleanedSummary.slice(0, 220),
+      summary: cleanedSummary.slice(0, 400),
       version: `v${1 + Math.floor(idx / 3)}.${(idx % 3) + 1}`,
       who5Score,
       soap: parseSoapSections(entry.content, cleanedSummary, uiLocale),
@@ -1524,8 +1873,12 @@ export function mapBundleToClinicalTimelineEvents(
   (input.clinicalNotes || []).forEach((note, idx) => {
     const markdown = note.confidentialMarkdown || note.content || "";
     const { date, timestamp } = normalizeIsoDateAndTime(note.createdAt);
+    const resolvedOrg =
+      note.organisationName && note.organisationName !== "Associated Clinic"
+        ? note.organisationName
+        : undefined;
     const author =
-      note.authorTherapistName || note.organisationName || copy.timelineBadge;
+      note.authorTherapistName || resolvedOrg || copy.timelineBadge;
     const lane = inferCategoryFromText(`${note.title || ""} ${markdown}`);
     const sha = note.gitCommitHash ? ` · #${note.gitCommitHash.slice(0, 7)}` : "";
     events.push({
@@ -1533,9 +1886,9 @@ export function mapBundleToClinicalTimelineEvents(
       date,
       timestamp,
       lane,
-      tag: note.organisationName || copy.badge,
+      tag: resolvedOrg || copy.badge,
       title: note.title || `${copy.badge} · ${author}`,
-      summary: markdown.replace(/\s+/g, " ").trim().slice(0, 220),
+      summary: markdown.trim().slice(0, 400),
       version: `v2.${idx}`,
       soap: parseSoapSections(markdown, markdown, uiLocale),
       auditLog: `${author} · ${copy.timelineSignedBadge}${sha}`,
@@ -2065,13 +2418,13 @@ const ClinicalSoapGrid: React.FC<{
           >
             {cell.label}
           </div>
-          <p
-            className={`mt-1 mb-0 text-xs leading-relaxed ${
+          <div
+            className={`mt-1 text-xs leading-relaxed ${
               cell.highlight ? "font-medium text-teal-950" : "text-slate-800"
             }`}
           >
-            {cell.text}
-          </p>
+            {renderFormattedJournalContent(cell.text)}
+          </div>
         </div>
       ))}
     </div>
@@ -2226,9 +2579,9 @@ export const SemanticTimelineStream: React.FC<SemanticTimelineStreamProps> = ({
                           <h3 className="m-0 text-sm font-bold leading-snug text-slate-900">
                             {event.title}
                           </h3>
-                          <p className="m-0 line-clamp-3 text-sm leading-relaxed text-slate-600">
-                            {event.summary}
-                          </p>
+                          <div className="line-clamp-4 text-sm leading-relaxed text-slate-600">
+                            {renderFormattedJournalContent(event.summary)}
+                          </div>
                         </div>
                       )}
 
@@ -2320,7 +2673,7 @@ export const VerticalZoomScrollbar: React.FC<VerticalZoomScrollbarProps> = ({
     cleanupDragRef.current?.();
     const startZoom = zoomLevel;
     const startRatio = scrollRatio;
-    const trackHeight = trackRef.current?.getBoundingClientRect().height ?? 0;
+    const trackHeight = trackRef.current!.getBoundingClientRect().height;
 
     setIsDragging(true);
     document.body.classList.add("select-none");
@@ -2567,9 +2920,9 @@ export const JournalDetailInspector: React.FC<JournalDetailInspectorProps> = ({
         </button>
       </div>
 
-      <p className="mt-3 mb-4 text-sm leading-relaxed text-slate-600">
-        {event.summary}
-      </p>
+      <div className="mt-3 mb-4 text-sm leading-relaxed text-slate-600">
+        {renderFormattedJournalContent(event.summary)}
+      </div>
 
       <ClinicalSoapGrid soap={event.soap} copy={copy} />
 
@@ -2620,6 +2973,7 @@ const PatientTimelineContent: React.FC<PatientTimelineContainerProps> = ({
   const streamRef = useRef<HTMLDivElement | null>(null);
   const scrollRatioRef = useRef<number>(0);
   scrollRatioRef.current = scrollRatio;
+  const hasAutoSelectedRef = useRef<boolean>(false);
 
   useEffect(() => {
     if (providedEvents) return;
@@ -2627,12 +2981,23 @@ const PatientTimelineContent: React.FC<PatientTimelineContainerProps> = ({
     journalApi
       .getClinicClients(auth?.user.id, auth?.user.email)
       .then((clients) => {
-        if (!cancelled) setClientOptions(clients);
+        if (cancelled) return;
+        setClientOptions(clients);
+        if (
+          !hasAutoSelectedRef.current &&
+          initialClientId === DEMO_SOURCE_ID &&
+          clients.length > 0
+        ) {
+          hasAutoSelectedRef.current = true;
+          setSelectedSourceId((prev) =>
+            prev === DEMO_SOURCE_ID ? clients[0].id : prev
+          );
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [providedEvents, auth?.user.id, auth?.user.email]);
+  }, [providedEvents, auth?.user.id, auth?.user.email, initialClientId]);
 
   useEffect(() => {
     if (providedEvents || selectedSourceId === DEMO_SOURCE_ID) {
@@ -2688,11 +3053,9 @@ const PatientTimelineContent: React.FC<PatientTimelineContainerProps> = ({
   const handleScrollbarRatioChange = useCallback((nextRatio: number) => {
     const clamped = clampNumber(nextRatio, 0, 1);
     setScrollRatio(clamped);
-    const el = streamRef.current;
-    if (el) {
-      const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
-      el.scrollTop = clamped * maxScroll;
-    }
+    const el = streamRef.current!;
+    const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
+    el.scrollTop = clamped * maxScroll;
   }, []);
 
   const tier = resolveSemanticZoomTier(zoomLevel);

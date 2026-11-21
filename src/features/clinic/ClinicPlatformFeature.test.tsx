@@ -15,6 +15,8 @@ import {
   localizeMissingField,
   deduplicateClinicProviders,
   deduplicateClinicServices,
+  formatServiceNameWithDuration,
+  hasServiceDurationSuffix,
   filterAndDeduplicateClinicClients,
   mapMeToAuthenticatedUser,
   resolvePortalShellConfig,
@@ -955,7 +957,10 @@ describe("ClinicPlatformFeature Vertical Slice", () => {
     });
     fireEvent.submit(screen.getByTestId("therapist-onboarding-form"));
     await waitFor(() => {
-      expect(screen.getByTestId("error-detail").textContent).toContain("8 Danish digits");
+      expect(screen.getByTestId("error-detail").textContent).toContain(
+        "Kontrollér det markerede felt nedenfor."
+      );
+      expect(screen.getByTestId("field-error-cvrNumber").textContent).toContain("8 danske cifre");
     });
 
     // Valid onboarding submit
@@ -1566,5 +1571,446 @@ describe("ClinicPlatformFeature Vertical Slice", () => {
     );
     await waitFor(() => expect(screen.getByText("UdenIdTerapeut")).toBeDefined());
     cleanup();
+
+    // Cover pending handshake badge in shell, edujournal:me-refresh, therapist alert CTA, and marketplace search
+    global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+      const u = String(input);
+      if (u.includes("/api/backend/clinic/me")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            authenticated: true,
+            userUuid: "th-pend-1",
+            username: "drpend",
+            roles: ["THERAPIST", "CLIENT"],
+            isTherapist: true,
+          }),
+        };
+      }
+      if (u.includes("/api/backend/clinic/handshakes/therapist/th-pend-1")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            { id: "hs-req-1", clientUuid: "c-1", therapistUuid: "th-pend-1", status: "REQUESTED" },
+            { id: "hs-act-1", clientUuid: "c-2", therapistUuid: "th-pend-1", status: "ACTIVE" },
+          ],
+        };
+      }
+      if (u.includes("/api/backend/clinic/directory")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            providers: [
+              { id: "pr-1", userUuid: "th-a", displayName: "Sofie Lind", organisation: { name: "Ro Klink", cvrNumber: "11223344" } },
+              { id: "pr-2", userUuid: "th-b", displayName: "Lars Holm", organisation: { name: "Nord Klink", cvrNumber: "87654321" } },
+              { id: "pr-empty", userUuid: "th-e" },
+            ],
+            services: [
+              { id: "sv-1", name: "EMDR Session", provider: { id: "pr-1", userUuid: "th-a" } },
+              { id: "sv-noname", provider: { id: "pr-empty", userUuid: "th-e" } },
+            ],
+          }),
+        };
+      }
+      return { ok: true, status: 200, json: async () => [] };
+    });
+
+    const onTabChange = vi.fn();
+    render(
+      <AuthProvider user={{ id: "th-pend-1", name: "Dr. Pend", email: "pend@dk.dk", roles: ["THERAPIST", "PROVIDER"] }}>
+        <ConnectedPortalWorkspaceShell locale="da" pathname="/da/dashboard/therapist" activeTab="overview">
+          <TherapistMultiWindowWorkspace activeTab="overview" onTabChange={onTabChange} />
+        </ConnectedPortalWorkspaceShell>
+      </AuthProvider>
+    );
+    await waitFor(() => expect(screen.getByTestId("therapist-pending-handshakes-alert")).toBeDefined());
+    window.dispatchEvent(new CustomEvent("edujournal:me-refresh"));
+    fireEvent.click(screen.getByTestId("therapist-review-handshakes-btn"));
+    expect(onTabChange).toHaveBeenCalledWith("clinic_cvr");
+    cleanup();
+
+    render(
+      <AuthProvider user={{ id: "c-search", name: "Search Klient", email: "s@dk.dk", roles: ["CLIENT"] }}>
+        <ClientMarketplaceView />
+      </AuthProvider>
+    );
+    await waitFor(() => expect(screen.getByTestId("marketplace-search-input")).toBeDefined());
+    fireEvent.change(screen.getByTestId("marketplace-search-input"), { target: { value: "EMDR" } });
+    expect(screen.getByText(/Sofie Lind/)).toBeDefined();
+    expect(screen.queryByText(/Lars Holm/)).toBeNull();
+    fireEvent.change(screen.getByTestId("marketplace-search-input"), { target: { value: "Ro Klink" } });
+    expect(screen.getByText(/Sofie Lind/)).toBeDefined();
+    fireEvent.change(screen.getByTestId("marketplace-search-input"), { target: { value: "87654321" } });
+    expect(screen.getByText(/Lars Holm/)).toBeDefined();
+    fireEvent.change(screen.getByTestId("marketplace-search-input"), { target: { value: "nonexistent-xyz" } });
+    expect(screen.queryByTestId("marketplace-provider-list")).toBeNull();
+    cleanup();
+
+    // Cover non-therapist client shell (hasTherapistAccess = false) + rejected handshake catch in therapist workspace
+    global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+      const u = String(input);
+      if (u.includes("/api/backend/clinic/me")) {
+        return { ok: true, status: 200, json: async () => ({ authenticated: true, userUuid: "c-only", roles: ["CLIENT"], isTherapist: false }) };
+      }
+      if (u.includes("/api/backend/clinic/handshakes/therapist/")) {
+        throw new Error("offline");
+      }
+      return { ok: true, status: 200, json: async () => [] };
+    });
+    render(
+      <ConnectedPortalWorkspaceShell locale="da" pathname="/da/dashboard/personal">
+        <div>client-shell</div>
+      </ConnectedPortalWorkspaceShell>
+    );
+    await waitFor(() => expect(screen.getByText("client-shell")).toBeDefined());
+    cleanup();
+
+    render(
+      <AuthProvider user={{ id: "th-err-hs", name: "Dr. Err", email: "err@dk.dk", roles: ["PROVIDER"] }}>
+        <TherapistMultiWindowWorkspace activeTab="overview" />
+      </AuthProvider>
+    );
+    await waitFor(() => expect(screen.getByTestId("therapist-multi-window-workspace")).toBeDefined());
+    cleanup();
+
+    // Cover ConnectedPortalWorkspaceShell when role comes from roles=['PROVIDER'] & handshakes returns !res.ok
+    global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+      const u = String(input);
+      if (u.includes("/api/backend/clinic/me")) {
+        return { ok: true, status: 200, json: async () => ({ authenticated: true, userUuid: "p-hs-fail", roles: ["PROVIDER"], isTherapist: false }) };
+      }
+      if (u.includes("/api/backend/clinic/handshakes/therapist/")) {
+        return { ok: false, status: 500, json: async () => ({}) };
+      }
+      return { ok: true, status: 200, json: async () => [] };
+    });
+    render(
+      <ConnectedPortalWorkspaceShell locale="da" pathname="/da/dashboard/therapist">
+        <div>provider-hs-fail</div>
+      </ConnectedPortalWorkspaceShell>
+    );
+    await waitFor(() => expect(screen.getByText("provider-hs-fail")).toBeDefined());
+    cleanup();
+  });
+
+  it("formats structured workingHoursJson previews cleanly and handles empty/non-JSON clinic responses", async () => {
+    const fetchMock = vi.fn().mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method || "GET";
+      if (url.includes("/api/backend/clinic/me")) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () =>
+            JSON.stringify({
+              authenticated: true,
+              userUuid: "th-json-1",
+              isTherapist: true,
+              roles: ["THERAPIST"],
+              providerProfile: {
+                workingHoursJson: JSON.stringify({
+                  overallWindow: "08:00-16:00",
+                  days: [{ day: "monday", enabled: true, intervals: [{ start: "08:00", end: "16:00" }] }],
+                }),
+              },
+            }),
+        };
+      }
+      if (url.includes("/api/backend/clinic/services") && method === "GET") {
+        return { ok: true, status: 200, json: async () => { throw new Error("empty"); } };
+      }
+      if (url.includes("/api/backend/clinic/services") && method === "POST") {
+        return { ok: false, status: 500, json: async () => { throw new Error("not-json"); } };
+      }
+      return { ok: true, status: 200, text: async () => "   " };
+    });
+    global.fetch = fetchMock;
+
+    render(
+      <AuthProvider user={{ id: "th-json-1", name: "Dr. Json", email: "json@dk.dk", roles: ["THERAPIST"] }}>
+        <TherapistClinicOnboardingView />
+      </AuthProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("onboard-hours-schedule-hint")).toBeDefined();
+    });
+    const hoursInput = screen.getByTestId("input-onboard-hours") as HTMLInputElement;
+    expect(hoursInput.readOnly).toBe(true);
+    expect(hoursInput.value).toContain("Man 08:00-16:00");
+    // readOnly prevents mutating structured JSON when change event fires
+    fireEvent.change(hoursInput, { target: { value: "09:00-15:00" } });
+
+    // Trigger non-JSON 500 error in requestClinicJson
+    fireEvent.change(screen.getByTestId("input-service-name"), { target: { value: "Test Ydelse" } });
+    fireEvent.submit(screen.getByTestId("therapist-service-form"));
+    await waitFor(() => expect(screen.getByTestId("error-banner")).toBeDefined());
+    cleanup();
+
+    // Cover remaining formatWorkingHoursPreview branches: days=[] with summary, overallWindow only, empty {}, malformed JSON, and delete 204
+    const variants = [
+      JSON.stringify({ days: [], summaryText: "Ugeskema aktiv" }),
+      JSON.stringify({ days: [], overallWindow: "11:00-15:00" }),
+      JSON.stringify({ days: [] }),
+      JSON.stringify({ days: [{ day: "customday", enabled: true, intervals: [{}] }] }),
+      JSON.stringify({ overallWindow: "10:00-14:00" }),
+      JSON.stringify({ overallWindow: "   " }),
+      JSON.stringify({ unknownKey: 1 }),
+      "{broken",
+    ];
+    for (const wh of variants) {
+      global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+        const u = String(input);
+        if (u.includes("/clinic/me")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              authenticated: true,
+              userUuid: "th-var",
+              isTherapist: true,
+              roles: ["THERAPIST"],
+              providerProfile: { workingHoursJson: wh },
+            }),
+          };
+        }
+        return { ok: true, status: 204 };
+      });
+      render(
+        <AuthProvider user={{ id: "th-var", name: "Dr. Var", email: "var@dk.dk", roles: ["THERAPIST"] }}>
+          <TherapistClinicOnboardingView />
+        </AuthProvider>
+      );
+      await waitFor(() => expect(screen.getByTestId("input-onboard-hours")).toBeDefined());
+      cleanup();
+    }
+  });
+
+  it("deduplicates service durations, translates shell aria labels across 5 locales, avoids empty parens, and renders inline serviceError", async () => {
+    expect(localizeMissingField("homeAddress", "da")).toBe("Klinikadresse");
+    expect(hasServiceDurationSuffix("Traumeterapi (60 min)", 60)).toBe(true);
+    expect(hasServiceDurationSuffix("Traumeterapi", 0)).toBe(false);
+    expect(formatServiceNameWithDuration("Traumeterapi (60 min)", 60)).toBe("Traumeterapi (60 min)");
+    expect(formatServiceNameWithDuration("Traumeterapi", 60)).toBe("Traumeterapi (60 min)");
+    expect(formatServiceNameWithDuration("", 45)).toBe("45 min");
+    expect(formatServiceNameWithDuration("Konsultation", undefined)).toBe("Konsultation");
+
+    let shellHsResolved = false;
+    global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+      const u = String(input);
+      if (u.includes("/api/backend/clinic/me")) {
+        return { ok: true, status: 200, json: async () => ({ userUuid: "th-e-hs", roles: undefined, isTherapist: true }) };
+      }
+      if (u.includes("/api/backend/clinic/handshakes/therapist/")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => {
+            shellHsResolved = true;
+            return [null, { id: "hs-nostatus" }, { id: "hs-req", status: "REQUESTED" }];
+          },
+        };
+      }
+      return { ok: true, status: 200, json: async () => [] };
+    });
+    const shellEn = render(
+      <ConnectedPortalWorkspaceShell locale="en" pathname="/en/dashboard/admin">
+        <div>en-shell</div>
+      </ConnectedPortalWorkspaceShell>
+    );
+    await waitFor(() => expect(shellHsResolved).toBe(true));
+    await waitFor(() => expect(screen.getByLabelText("Collapse sidebar")).toBeDefined());
+    expect(screen.getByLabelText("Open menu")).toBeDefined();
+    shellEn.unmount();
+
+    const shellDe = render(
+      <ConnectedPortalWorkspaceShell locale="de" pathname="/de/dashboard/admin">
+        <div>de-shell</div>
+      </ConnectedPortalWorkspaceShell>
+    );
+    await waitFor(() => expect(screen.getByLabelText("Seitenleiste einklappen")).toBeDefined());
+    expect(screen.getByLabelText("Menü öffnen")).toBeDefined();
+    shellDe.unmount();
+
+    // Client without email renders without "()"
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => [{ id: "cl-no-mail", fullName: "Uden Mail" }],
+    });
+    const cliView = render(<ClinicPlatformFeatureView />);
+    await waitFor(() => expect(screen.getByText("Uden Mail")).toBeDefined());
+    expect(screen.getByTestId("clinic-client-list").textContent).not.toContain("()");
+    cliView.unmount();
+
+    // Service error displays inline inside therapist-services-card without touching top form
+    global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const u = String(input);
+      if (u.includes("/api/backend/clinic/me")) {
+        return { ok: true, status: 200, json: async () => ({ userUuid: "th-srv", roles: ["THERAPIST"], isTherapist: true }) };
+      }
+      if (u.includes("/api/backend/clinic/services") && !init?.method) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            { id: "srv-dedup", name: "Traumeterapi (60 min)", durationMinutes: 60, price: 850, isActive: true },
+            { id: "srv-blank", name: "", priceDkk: 300, durationMinutes: 0, isActive: false },
+          ],
+        };
+      }
+      if (u.includes("/api/backend/clinic/services") && init?.method === "POST") {
+        return {
+          ok: false,
+          status: 400,
+          json: async () => ({
+            status: 400,
+            title: "Bad Request",
+            detail: "Invalid service",
+            errorCode: ErrorCode.VALIDATION_FAILED,
+            timestamp: "",
+          }),
+        };
+      }
+      return { ok: true, status: 200, json: async () => [] };
+    });
+    render(
+      <AuthProvider user={{ id: "th-srv", name: "Dr. Srv", email: "srv@dk.dk", roles: ["THERAPIST"] }}>
+        <TherapistClinicOnboardingView />
+      </AuthProvider>
+    );
+    await waitFor(() => expect(screen.getByTestId("therapist-services-list").textContent).not.toContain("(60 min) (60 min)"));
+    fireEvent.change(screen.getByTestId("input-service-name"), { target: { value: "Traume" } });
+    fireEvent.submit(screen.getByTestId("therapist-service-form"));
+    await waitFor(() => {
+      const card = screen.getByTestId("therapist-services-card");
+      expect(card.querySelector('[data-testid="error-banner"]')).not.toBeNull();
+    });
+    fireEvent.click(screen.getByTestId("dismiss-error"));
+  });
+
+  it("covers remaining provider deduplication, JSON null errors, admin roles, client Book CTA, and onboard displayName input", async () => {
+    expect(deduplicateClinicProviders([{ id: "p-dup", displayName: "Ens" }, { displayName: "Ens" }])).toHaveLength(1);
+
+    expect(mapMeToAuthenticatedUser({ userUuid: "adm-1", isAdmin: true, roles: ["ADMIN", "MANAGEMENT"] }).roles).toEqual(
+      expect.arrayContaining(["ADMIN", "MANAGEMENT"])
+    );
+    const adminClinicShell = resolvePortalShellConfig({
+      locale: "da",
+      pathname: "/da/dashboard/admin/dashboard/clinic",
+    });
+    expect(adminClinicShell.navItems.some((item) => item.href.endsWith("/clinic") && item.active)).toBe(true);
+
+    // Non-ok response returning JSON null + ConnectedPortalWorkspaceShell handshake reject + TherapistMultiWindowWorkspace !res.ok
+    global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const u = String(input);
+      if (u.includes("/api/backend/clinic/me")) {
+        return { ok: true, status: 200, json: async () => ({ authenticated: true, userUuid: "th-null", isTherapist: true, roles: ["THERAPIST"] }) };
+      }
+      if (u.includes("/api/backend/clinic/handshakes/therapist/")) {
+        return { ok: false, status: 500, json: async () => [] };
+      }
+      if (u.includes("/api/backend/clinic/services") && init?.method === "POST") {
+        return { ok: false, status: 400, statusText: "Bad JSON", json: async () => null };
+      }
+      if (u.includes("/api/backend/clinic/services")) {
+        return { ok: true, status: 200, json: async () => [] };
+      }
+      return { ok: true, status: 200, json: async () => [] };
+    });
+
+    const thWsFail = render(
+      <AuthProvider user={{ id: "th-null", name: "Dr. Null", email: "n@dk.dk", roles: ["THERAPIST"] }}>
+        <TherapistMultiWindowWorkspace activeTab="overview" />
+      </AuthProvider>
+    );
+    await waitFor(() => expect(screen.getByTestId("therapist-multi-window-workspace")).toBeDefined());
+    thWsFail.unmount();
+
+    // Missing status field in TherapistMultiWindowWorkspace handshakes + ConnectedPortalWorkspaceShell rejected handshake fetch
+    global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const u = String(input);
+      if (u.includes("/api/backend/clinic/me")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            authenticated: true,
+            userUuid: "th-hs-nostat",
+            isTherapist: true,
+            roles: ["THERAPIST"],
+            providerProfile: {
+              workingHoursJson: JSON.stringify({
+                days: [
+                  { enabled: true, intervals: [{ start: "09:00", end: "12:00" }] },
+                  { day: "holiday", enabled: true, intervals: [{ start: "10:00", end: "11:00" }] },
+                ],
+              }),
+            },
+          }),
+        };
+      }
+      if (u.includes("/api/backend/clinic/handshakes/therapist/")) {
+        return { ok: true, status: 200, json: async () => [{ id: "hs-1" }] };
+      }
+      if (u.includes("/api/backend/clinic/services") && init?.method === "POST") {
+        return { ok: false, status: 400, statusText: "Null Body", json: async () => null };
+      }
+      return { ok: true, status: 200, json: async () => [] };
+    });
+
+    const thNoStat = render(
+      <AuthProvider user={{ id: "th-hs-nostat", name: "Dr. NoStat", email: "ns@dk.dk", roles: ["THERAPIST"] }}>
+        <TherapistMultiWindowWorkspace activeTab="overview" />
+      </AuthProvider>
+    );
+    await waitFor(() => expect(screen.getByTestId("therapist-multi-window-workspace")).toBeDefined());
+    thNoStat.unmount();
+
+    // Onboard form: input-onboard-displayName onChange + JSON null service POST error
+    const onb = render(
+      <AuthProvider user={{ id: "th-onb", name: "Dr. Onb", email: "o@dk.dk", roles: ["THERAPIST"] }}>
+        <TherapistClinicOnboardingView />
+      </AuthProvider>
+    );
+    await waitFor(() => expect(screen.getByTestId("input-onboard-displayName")).toBeDefined());
+    fireEvent.change(screen.getByTestId("input-onboard-displayName"), { target: { value: "Dr. Mette Lind" } });
+    expect((screen.getByTestId("input-onboard-displayName") as HTMLInputElement).value).toBe("Dr. Mette Lind");
+    fireEvent.change(screen.getByTestId("input-service-name"), { target: { value: "NullErrSvc" } });
+    fireEvent.submit(screen.getByTestId("therapist-service-form"));
+    await waitFor(() => expect(screen.getByTestId("error-banner")).toBeDefined());
+    onb.unmount();
+
+    // ConnectedPortalWorkspaceShell handshake reject + ClientPortalWorkspace Book new session CTA button
+    global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+      const u = String(input);
+      if (u.includes("/api/backend/clinic/me")) {
+        return { ok: true, status: 200, json: async () => ({ authenticated: true, userUuid: "c-cta", isTherapist: true, roles: ["THERAPIST", "CLIENT"] }) };
+      }
+      if (u.includes("/api/backend/clinic/handshakes/therapist/")) {
+        throw new Error("shell handshake error");
+      }
+      return { ok: true, status: 200, json: async () => [] };
+    });
+    const shellErr = render(
+      <ConnectedPortalWorkspaceShell locale="da" pathname="/da/dashboard/therapist">
+        <div>shell-ok</div>
+      </ConnectedPortalWorkspaceShell>
+    );
+    await waitFor(() => expect(screen.getByText("shell-ok")).toBeDefined());
+    shellErr.unmount();
+
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => [] });
+    const cliCta = render(
+      <AuthProvider user={{ id: "c-cta", name: "Klient", email: "c@dk.dk", roles: ["CLIENT"] }}>
+        <ClientPortalWorkspace />
+      </AuthProvider>
+    );
+    fireEvent.click(screen.getByText("Book ny session"));
+    await waitFor(() => expect(cliCta.container.textContent).toBeTruthy());
+    cliCta.unmount();
   });
 });

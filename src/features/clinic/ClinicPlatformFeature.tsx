@@ -251,7 +251,7 @@ const MISSING_FIELD_LABELS: Record<
     organisationname: "Kliniknavn",
     displayname: "Behandlernavn",
     address: "Adresse",
-    homeaddress: "Hjemmeadresse",
+    homeaddress: "Klinikadresse",
     postalcode: "Postnummer",
     phone: "Telefonnummer",
     phonenumber: "Telefonnummer",
@@ -410,6 +410,28 @@ export function deduplicateClinicServices(
   return result;
 }
 
+export function hasServiceDurationSuffix(
+  name: string,
+  durationMinutes?: number | null
+): boolean {
+  const trimmed = (name || "").trim();
+  if (!durationMinutes || durationMinutes <= 0) {
+    return false;
+  }
+  return new RegExp(`\\(\\s*${durationMinutes}\\s*min\\.?\\s*\\)`, "i").test(trimmed);
+}
+
+export function formatServiceNameWithDuration(
+  name: string,
+  durationMinutes?: number | null
+): string {
+  const trimmed = (name || "").trim();
+  if (!durationMinutes || durationMinutes <= 0 || hasServiceDurationSuffix(trimmed, durationMinutes)) {
+    return trimmed;
+  }
+  return trimmed ? `${trimmed} (${durationMinutes} min)` : `${durationMinutes} min`;
+}
+
 /**
  * Filtrerer lækkede behandler-/BDD-testprofiler og brugeren selv fra klientlister
  * samt deduplikerer på både id og normaliseret fulde navn.
@@ -491,13 +513,39 @@ async function requestClinicJson<T>(url: string, init?: RequestInit): Promise<T>
     },
   });
   if (!res.ok) {
-    const problem = (await res.json()) as ProblemDetail;
+    let problem: ProblemDetail = {
+      type: "about:blank",
+      title: "Request Error",
+      status: res.status,
+      detail: res.statusText || `HTTP ${res.status}`,
+      errorCode: ErrorCode.INTERNAL_ERROR,
+      timestamp: new Date().toISOString(),
+    };
+    try {
+      const parsed = (await res.json()) as ProblemDetail;
+      if (parsed && typeof parsed === "object") {
+        problem = parsed;
+      }
+    } catch {
+      // Preserve synthetic ProblemDetail with HTTP status
+    }
     throw problem;
   }
   if (res.status === 204) {
     return undefined as T;
   }
-  return (await res.json()) as T;
+  if (typeof res.text === "function") {
+    const raw = await res.text();
+    if (!raw || !raw.trim()) {
+      return undefined as T;
+    }
+    return JSON.parse(raw) as T;
+  }
+  try {
+    return (await res.json()) as T;
+  } catch {
+    return undefined as T;
+  }
 }
 
 function toProblemDetail(err: unknown): ProblemDetail {
@@ -602,6 +650,10 @@ interface ClinicInnerCopy {
   ofLabel: string;
   settingsClinicShortcutDesc: string;
   settingsOpenClinicBtn: string;
+  marketplaceSearchPlaceholder: string;
+  pendingHandshakeAlertTitle: string;
+  pendingHandshakeAlertDesc: string;
+  openClinicCvrBtn: string;
 }
 
 const CLINIC_INNER_COPY: Record<SupportedUiLocale, ClinicInnerCopy> = {
@@ -610,7 +662,7 @@ const CLINIC_INNER_COPY: Record<SupportedUiLocale, ClinicInnerCopy> = {
     clientsHeading: "Klinikplatform — Klientprofiler & Samarbejdsaftaler",
     profilesCountSuffix: "profiler",
     nameLabel: "Navn",
-    namePlaceholder: "Klientens fulde navn",
+    namePlaceholder: "Fulde navn",
     emailLabel: "E-mail",
     emailPlaceholder: "Klientens e-mail",
     phoneLabel: "Telefon",
@@ -690,6 +742,10 @@ const CLINIC_INNER_COPY: Record<SupportedUiLocale, ClinicInnerCopy> = {
     settingsClinicShortcutDesc:
       "Administrer CVR-nummer, IBAN, åbningstider, ydelser og klient-samarbejdsaftaler i det dedikerede praksis-arbejdsområde.",
     settingsOpenClinicBtn: "Åbn CVR & Praksis",
+    marketplaceSearchPlaceholder: "Søg på behandler, klinik, CVR eller ydelse...",
+    pendingHandshakeAlertTitle: "Afventende samtykkeanmodninger",
+    pendingHandshakeAlertDesc: "nye klientanmodninger afventer din godkendelse.",
+    openClinicCvrBtn: "Gå til godkendelse",
   },
   en: {
     clientsBadge: "Client Registry",
@@ -775,6 +831,10 @@ const CLINIC_INNER_COPY: Record<SupportedUiLocale, ClinicInnerCopy> = {
     settingsClinicShortcutDesc:
       "Manage company registration ID, IBAN, opening hours, services, and client agreements in the dedicated practice workspace.",
     settingsOpenClinicBtn: "Open Practice & Registry",
+    marketplaceSearchPlaceholder: "Search therapist, clinic, ID, or service...",
+    pendingHandshakeAlertTitle: "Pending consent requests",
+    pendingHandshakeAlertDesc: "new client requests awaiting your approval.",
+    openClinicCvrBtn: "Review requests",
   },
   fr: {
     clientsBadge: "Registre des Clients",
@@ -860,6 +920,10 @@ const CLINIC_INNER_COPY: Record<SupportedUiLocale, ClinicInnerCopy> = {
     settingsClinicShortcutDesc:
       "Gérez le numéro d'entreprise, l'IBAN, les horaires, les prestations et les accords clients dans l'espace dédié au cabinet.",
     settingsOpenClinicBtn: "Ouvrir Cabinet & Registre",
+    marketplaceSearchPlaceholder: "Rechercher praticien, clinique ou soin...",
+    pendingHandshakeAlertTitle: "Demandes de consentement en attente",
+    pendingHandshakeAlertDesc: "nouvelles demandes clients à approuver.",
+    openClinicCvrBtn: "Examiner les demandes",
   },
   es: {
     clientsBadge: "Registro de Clientes",
@@ -945,6 +1009,10 @@ const CLINIC_INNER_COPY: Record<SupportedUiLocale, ClinicInnerCopy> = {
     settingsClinicShortcutDesc:
       "Administra el NIF/registro, IBAN, horarios, servicios y acuerdos con clientes en el espacio dedicado de la clínica.",
     settingsOpenClinicBtn: "Abrir Clínica y Registro",
+    marketplaceSearchPlaceholder: "Buscar terapeuta, clínica o servicio...",
+    pendingHandshakeAlertTitle: "Solicitudes de consentimiento pendientes",
+    pendingHandshakeAlertDesc: "nuevas solicitudes de clientes pendientes de aprobación.",
+    openClinicCvrBtn: "Revisar solicitudes",
   },
   de: {
     clientsBadge: "Klientenregister",
@@ -1031,6 +1099,10 @@ const CLINIC_INNER_COPY: Record<SupportedUiLocale, ClinicInnerCopy> = {
     settingsClinicShortcutDesc:
       "Verwalten Sie Registernummer, IBAN, Öffnungszeiten, Leistungen und Klientenfreigaben im eigenen Praxisbereich.",
     settingsOpenClinicBtn: "Praxis & Register öffnen",
+    marketplaceSearchPlaceholder: "Therapeut, Praxis oder Leistung suchen...",
+    pendingHandshakeAlertTitle: "Offene Einwilligungsanfragen",
+    pendingHandshakeAlertDesc: "neue Klientenanfragen warten auf Ihre Freigabe.",
+    openClinicCvrBtn: "Anfragen prüfen",
   },
 };
 
@@ -1175,7 +1247,7 @@ export const ClinicPlatformFeatureView: React.FC = () => {
         </p>
       )}
 
-      <ul className="space-y-2.5" data-testid="clinic-client-list">
+      <ul className="list-none space-y-2.5 pl-0" style={{ paddingLeft: 0 }} data-testid="clinic-client-list">
         {visibleItems.map((item) => (
           <li
             key={item.id}
@@ -1187,8 +1259,13 @@ export const ClinicPlatformFeatureView: React.FC = () => {
               </div>
               <div className="min-w-0">
                 <div className="text-sm font-semibold text-slate-900 truncate">
-                  <strong>{item.fullName}</strong>{" "}
-                  <span className="font-normal text-slate-500">({item.email})</span>
+                  <strong>{item.fullName}</strong>
+                  {item.email ? (
+                    <>
+                      {" "}
+                      <span className="font-normal text-slate-500">({item.email})</span>
+                    </>
+                  ) : null}
                 </div>
                 {item.phone && (
                   <span className="inline-flex items-center gap-1 text-xs text-slate-500 mt-0.5">
@@ -1240,22 +1317,22 @@ export const ClinicPlatformFeatureView: React.FC = () => {
         </div>
       )}
 
-      <ConfirmActionDialog
-        open={Boolean(pendingDeleteId)}
-        title={copy.confirmRemoveClientTitle}
-        description={copy.confirmRemoveClientDesc}
-        confirmLabel={copy.removeBtn}
-        cancelLabel={copy.cancelBtn}
-        tone="danger"
-        onCancel={() => setPendingDeleteId(null)}
-        onConfirm={() => {
-          const id = pendingDeleteId;
-          setPendingDeleteId(null);
-          if (id) {
+      {pendingDeleteId && (
+        <ConfirmActionDialog
+          open
+          title={copy.confirmRemoveClientTitle}
+          description={copy.confirmRemoveClientDesc}
+          confirmLabel={copy.removeBtn}
+          cancelLabel={copy.cancelBtn}
+          tone="danger"
+          onCancel={() => setPendingDeleteId(null)}
+          onConfirm={() => {
+            const id = pendingDeleteId;
+            setPendingDeleteId(null);
             void remove(id);
-          }
-        }}
-      />
+          }}
+        />
+      )}
     </div>
   );
 };
@@ -1297,6 +1374,10 @@ interface PortalLocaleCopy {
   accountHeaderLabel: string;
   settingsLabel: string;
   logoutLabel: string;
+  expandSidebarLabel: string;
+  collapseSidebarLabel: string;
+  mobileMenuAriaLabel: string;
+  closeMenuAriaLabel: string;
   defaultUser: string;
   defaultTherapist: string;
   defaultClient: string;
@@ -1356,13 +1437,17 @@ const PORTAL_COPY_BY_LOCALE: Record<SupportedUiLocale, PortalLocaleCopy> = {
     portalTherapist: "Behandlerportal",
     portalAdmin: "Admin",
     adminBrandSubtitle: "Admin & Ledelsesportal",
-    therapistBrandSubtitle: "Klinisk Behandler-Workspace",
+    therapistBrandSubtitle: "Behandlerportal",
     clientBrandSubtitle: "Personlig Klientportal",
     workspaceSwitcherLabel: "Skift arbejdsområde",
     featuresHeaderLabel: "Funktioner",
     accountHeaderLabel: "Konto",
     settingsLabel: "Indstillinger",
     logoutLabel: "Log ud",
+    expandSidebarLabel: "Udvid sidepanel",
+    collapseSidebarLabel: "Skjul sidepanel",
+    mobileMenuAriaLabel: "Åbn menu",
+    closeMenuAriaLabel: "Luk menu",
     defaultUser: "Bruger",
     defaultTherapist: "Behandler",
     defaultClient: "Klient",
@@ -1428,6 +1513,10 @@ const PORTAL_COPY_BY_LOCALE: Record<SupportedUiLocale, PortalLocaleCopy> = {
     accountHeaderLabel: "Account",
     settingsLabel: "Settings",
     logoutLabel: "Sign Out",
+    expandSidebarLabel: "Expand sidebar",
+    collapseSidebarLabel: "Collapse sidebar",
+    mobileMenuAriaLabel: "Open menu",
+    closeMenuAriaLabel: "Close menu",
     defaultUser: "User",
     defaultTherapist: "Therapist",
     defaultClient: "Client",
@@ -1493,6 +1582,10 @@ const PORTAL_COPY_BY_LOCALE: Record<SupportedUiLocale, PortalLocaleCopy> = {
     accountHeaderLabel: "Compte",
     settingsLabel: "Paramètres",
     logoutLabel: "Déconnexion",
+    expandSidebarLabel: "Développer le panneau latéral",
+    collapseSidebarLabel: "Réduire le panneau latéral",
+    mobileMenuAriaLabel: "Ouvrir le menu",
+    closeMenuAriaLabel: "Fermer le menu",
     defaultUser: "Utilisateur",
     defaultTherapist: "Praticien",
     defaultClient: "Client",
@@ -1558,6 +1651,10 @@ const PORTAL_COPY_BY_LOCALE: Record<SupportedUiLocale, PortalLocaleCopy> = {
     accountHeaderLabel: "Cuenta",
     settingsLabel: "Configuración",
     logoutLabel: "Cerrar sesión",
+    expandSidebarLabel: "Expandir barra lateral",
+    collapseSidebarLabel: "Contraer barra lateral",
+    mobileMenuAriaLabel: "Abrir menú",
+    closeMenuAriaLabel: "Cerrar menú",
     defaultUser: "Usuario",
     defaultTherapist: "Terapeuta",
     defaultClient: "Cliente",
@@ -1623,6 +1720,10 @@ const PORTAL_COPY_BY_LOCALE: Record<SupportedUiLocale, PortalLocaleCopy> = {
     accountHeaderLabel: "Konto",
     settingsLabel: "Einstellungen",
     logoutLabel: "Abmelden",
+    expandSidebarLabel: "Seitenleiste erweitern",
+    collapseSidebarLabel: "Seitenleiste einklappen",
+    mobileMenuAriaLabel: "Menü öffnen",
+    closeMenuAriaLabel: "Menü schließen",
     defaultUser: "Benutzer",
     defaultTherapist: "Therapeut",
     defaultClient: "Klient",
@@ -1746,7 +1847,8 @@ export function resolvePortalShellConfig({
   pathname,
   tab,
   me,
-}: ResolvePortalShellInput): ResolvedPortalShellConfig {
+  pendingHandshakeCount = 0,
+}: ResolvePortalShellInput & { pendingHandshakeCount?: number }): ResolvedPortalShellConfig {
   const resolvedLocale = resolveUiLocale(locale);
   const copy = getPortalCopy(resolvedLocale);
   const base = `/${locale}/dashboard`;
@@ -1880,6 +1982,7 @@ export function resolvePortalShellConfig({
         label: copy.therapistNavClinicCvr,
         icon: "bi-building",
         active: !isSettings && (isClinic || currentTab === "clinic_cvr"),
+        badge: pendingHandshakeCount > 0 ? String(pendingHandshakeCount) : undefined,
       },
       {
         href: `${base}/therapist?tab=pcl5`,
@@ -2032,15 +2135,16 @@ export const ConnectedPortalWorkspaceShell: React.FC<
   const effectivePathname = pathname ?? `/${effectiveLocale}/dashboard/personal`;
   const copy = useMemo(() => getPortalCopy(effectiveLocale), [effectiveLocale]);
   const [me, setMe] = useState<MeUserContext | null>(initialMe ?? null);
+  const [pendingHandshakeCount, setPendingHandshakeCount] = useState(0);
 
-  useEffect(() => {
+  const loadMeContext = useCallback(() => {
     if (initialMe !== undefined) {
       setMe(initialMe);
-      return;
+      return () => {};
     }
 
     let cancelled = false;
-    fetch("/api/backend/clinic/me", { credentials: "same-origin" })
+    fetch("/api/backend/clinic/me", { credentials: "same-origin", cache: "no-store" })
       .then(async (res) => {
         if (!res.ok) return null;
         return res.json();
@@ -2065,6 +2169,51 @@ export const ConnectedPortalWorkspaceShell: React.FC<
     };
   }, [initialMe]);
 
+  useEffect(() => {
+    const cancel = loadMeContext();
+    if (initialMe !== undefined) {
+      return cancel;
+    }
+    const handleRefresh = () => {
+      loadMeContext();
+    };
+    window.addEventListener("edujournal:me-refresh", handleRefresh);
+    return () => {
+      cancel();
+      window.removeEventListener("edujournal:me-refresh", handleRefresh);
+    };
+  }, [initialMe, loadMeContext]);
+
+  useEffect(() => {
+    if (initialMe !== undefined || !me?.userUuid) {
+      setPendingHandshakeCount(0);
+      return;
+    }
+    const roles = (me.roles || []).map((r) => r.toUpperCase());
+    const hasTherapistAccess = Boolean(me.isTherapist) || roles.includes("THERAPIST") || roles.includes("PROVIDER");
+    if (!hasTherapistAccess) {
+      setPendingHandshakeCount(0);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/backend/clinic/handshakes/therapist/${encodeURIComponent(me.userUuid)}`, {
+      credentials: "same-origin",
+      cache: "no-store",
+    })
+      .then(async (res) => (res.ok ? res.json() : []))
+      .then((rows) => {
+        if (!cancelled && Array.isArray(rows)) {
+          setPendingHandshakeCount(
+            rows.filter((hs: any) => String(hs?.status || "").toUpperCase() === "REQUESTED").length
+          );
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [initialMe, me]);
+
   const shellConfig = useMemo(
     () =>
       resolvePortalShellConfig({
@@ -2072,8 +2221,9 @@ export const ConnectedPortalWorkspaceShell: React.FC<
         pathname: effectivePathname,
         tab: activeTab,
         me,
+        pendingHandshakeCount,
       }),
-    [effectiveLocale, effectivePathname, activeTab, me]
+    [effectiveLocale, effectivePathname, activeTab, me, pendingHandshakeCount]
   );
 
   const authenticatedUser = useMemo(
@@ -2098,6 +2248,10 @@ export const ConnectedPortalWorkspaceShell: React.FC<
       settingsHref={rest.settingsHref ?? shellConfig.settingsHref}
       settingsLabel={rest.settingsLabel ?? copy.settingsLabel}
       logoutLabel={rest.logoutLabel ?? copy.logoutLabel}
+      expandSidebarLabel={rest.expandSidebarLabel ?? copy.expandSidebarLabel}
+      collapseSidebarLabel={rest.collapseSidebarLabel ?? copy.collapseSidebarLabel}
+      mobileMenuAriaLabel={rest.mobileMenuAriaLabel ?? copy.mobileMenuAriaLabel}
+      closeMenuAriaLabel={rest.closeMenuAriaLabel ?? copy.closeMenuAriaLabel}
       accountSettingsHeader={rest.accountSettingsHeader ?? copy.accountHeaderLabel}
       workspaceSwitcherLabel={
         rest.workspaceSwitcherLabel ?? copy.workspaceSwitcherLabel
@@ -2161,12 +2315,13 @@ export const TherapistMultiWindowWorkspace: React.FC<
   onRoleUpgraded,
 }) => {
   const i18nCache = useI18nCache();
-  const copy = useMemo(
-    () => getPortalCopy(locale ?? i18nCache?.locale ?? "da"),
-    [locale, i18nCache?.locale]
-  );
+  const activeLocale = resolveUiLocale(locale ?? i18nCache?.locale ?? "da");
+  const copy = useMemo(() => getPortalCopy(activeLocale), [activeLocale]);
+  const innerCopy = CLINIC_INNER_COPY[activeLocale];
+  const auth = useOptionalAuth();
   const displayTherapistName = therapistName ?? copy.defaultTherapist;
   const [internalTab, setInternalTab] = useState<TherapistTab>(initialTab);
+  const [pendingHandshakes, setPendingHandshakes] = useState<ClientTherapistHandshakeDto[]>([]);
 
   useEffect(() => {
     setInternalTab(initialTab);
@@ -2177,6 +2332,33 @@ export const TherapistMultiWindowWorkspace: React.FC<
   }, [onTabChange]);
 
   const activeTab = controlledActiveTab ?? internalTab;
+
+  useEffect(() => {
+    if (activeTab !== "overview" || !auth?.user.id) {
+      return;
+    }
+    let cancelled = false;
+    const loadPendingHandshakes = () => {
+      fetch(`/api/backend/clinic/handshakes/therapist/${encodeURIComponent(auth.user.id)}`, {
+        credentials: "same-origin",
+      })
+        .then(async (res) => (res.ok ? res.json() : []))
+        .then((rows) => {
+          if (!cancelled && Array.isArray(rows)) {
+            setPendingHandshakes(
+              rows.filter((hs: ClientTherapistHandshakeDto) => String(hs.status || "").toUpperCase() === "REQUESTED")
+            );
+          }
+        })
+        .catch(() => {});
+    };
+    loadPendingHandshakes();
+    window.addEventListener("edujournal:me-refresh", loadPendingHandshakes);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("edujournal:me-refresh", loadPendingHandshakes);
+    };
+  }, [activeTab, auth?.user.id]);
 
   return (
     <div
@@ -2208,7 +2390,7 @@ export const TherapistMultiWindowWorkspace: React.FC<
               setInternalTab("timeline");
               onTabChange?.("timeline");
             }}
-            className="min-h-11 inline-flex shrink-0 items-center gap-2 rounded-xl bg-teal-700 px-4 py-2 text-xs font-semibold text-white hover:bg-teal-800"
+            className="min-h-11 w-fit self-start lg:self-auto inline-flex shrink-0 items-center gap-2 rounded-xl bg-teal-700 px-4 py-2 text-xs font-semibold text-white hover:bg-teal-800"
           >
             <i className="bi bi-clock-history" aria-hidden="true" />
             {copy.therapistOpenTimelineCta}
@@ -2216,15 +2398,42 @@ export const TherapistMultiWindowWorkspace: React.FC<
         )}
       </header>
 
+      {activeTab === "overview" && pendingHandshakes.length > 0 && (
+        <div
+          data-testid="therapist-pending-handshakes-alert"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50/90 px-5 py-3.5 text-xs text-amber-950 shadow-xs"
+        >
+          <div className="space-y-0.5">
+            <strong className="text-sm font-bold text-amber-950">
+              {innerCopy.pendingHandshakeAlertTitle} ({pendingHandshakes.length})
+            </strong>
+            <p className="m-0 text-amber-900">
+              {pendingHandshakes.length} {innerCopy.pendingHandshakeAlertDesc}
+            </p>
+          </div>
+          <button
+            type="button"
+            data-testid="therapist-review-handshakes-btn"
+            onClick={() => {
+              setInternalTab("clinic_cvr");
+              onTabChange?.("clinic_cvr");
+            }}
+            className="min-h-11 rounded-xl bg-amber-700 px-4 py-2 text-xs font-semibold text-white hover:bg-amber-800"
+          >
+            {innerCopy.openClinicCvrBtn}
+          </button>
+        </div>
+      )}
+
       {activeTab === "overview" && (
         <div className="grid grid-cols-1 gap-5 xl:grid-cols-12">
           <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs xl:col-span-12">
             <ClinicPlatformFeatureView />
           </div>
-          <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs xl:col-span-6">
+          <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs xl:col-span-12">
             <JournalFeatureView portalMode="provider" />
           </div>
-          <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs xl:col-span-6">
+          <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs xl:col-span-12">
             <AppointmentFeatureView portalMode="provider" />
           </div>
         </div>
@@ -2537,6 +2746,7 @@ export const ClientMarketplaceView: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<ProblemDetail | null>(null);
   const [page, setPage] = useState(1);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const clientUuid = auth?.user.id || "";
   const clientName = auth?.user.name || "";
@@ -2588,9 +2798,22 @@ export const ClientMarketplaceView: React.FC = () => {
     }
   };
 
+  const normalizedQuery = searchQuery.trim().toLowerCase();
   const visibleProviders = deduplicateClinicProviders(
     providers.filter((p) => !clientUuid || p.userUuid !== clientUuid)
-  );
+  ).filter((provider) => {
+    if (!normalizedQuery) return true;
+    const providerServices = services.filter((s) => s.provider?.id === provider.id);
+    const matchesService = providerServices.some((s) =>
+      (s.name || "").toLowerCase().includes(normalizedQuery)
+    );
+    return (
+      (provider.displayName || "").toLowerCase().includes(normalizedQuery) ||
+      (provider.organisation?.name || "").toLowerCase().includes(normalizedQuery) ||
+      (provider.organisation?.cvrNumber || "").toLowerCase().includes(normalizedQuery) ||
+      matchesService
+    );
+  });
   const totalPages = Math.max(1, Math.ceil(visibleProviders.length / CLINIC_PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const pagedProviders = visibleProviders.slice(
@@ -2600,14 +2823,28 @@ export const ClientMarketplaceView: React.FC = () => {
 
   return (
     <div className="space-y-5" data-testid="client-marketplace-view">
-      <div>
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-teal-200 bg-teal-50 px-3 py-1 text-xs font-semibold text-teal-800">
-          <i className="bi bi-shop" aria-hidden="true" />
-          {copy.marketplaceBadge}
-        </span>
-        <h2 className="mt-1.5 text-xl font-bold tracking-tight text-slate-900">
-          {copy.marketplaceHeading}
-        </h2>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-teal-200 bg-teal-50 px-3 py-1 text-xs font-semibold text-teal-800">
+            <i className="bi bi-shop" aria-hidden="true" />
+            {copy.marketplaceBadge}
+          </span>
+          <h2 className="mt-1.5 text-xl font-bold tracking-tight text-slate-900">
+            {copy.marketplaceHeading}
+          </h2>
+        </div>
+        <input
+          type="search"
+          aria-label={copy.marketplaceSearchPlaceholder}
+          data-testid="marketplace-search-input"
+          placeholder={copy.marketplaceSearchPlaceholder}
+          value={searchQuery}
+          onChange={(e) => {
+            setSearchQuery(e.target.value);
+            setPage(1);
+          }}
+          className="min-h-11 w-full sm:w-72 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900"
+        />
       </div>
 
       <ProblemAlert error={error} onDismiss={() => setError(null)} />
@@ -2657,14 +2894,17 @@ export const ClientMarketplaceView: React.FC = () => {
                       )}
                     </div>
                     {providerServices.length > 0 && (
-                      <ul className="space-y-1 pt-1 text-xs text-slate-700">
+                      <ul
+                        className="list-none space-y-1 pl-0 pt-1 text-xs text-slate-700"
+                        style={{ paddingLeft: 0 }}
+                      >
                         {providerServices.map((srv) => (
                           <li
                             key={srv.id}
                             className="flex items-center justify-between rounded-lg bg-slate-50 px-2.5 py-1.5"
                           >
                             <span>
-                              {srv.name} ({srv.durationMinutes} min)
+                              {formatServiceNameWithDuration(srv.name, srv.durationMinutes)}
                             </span>
                             <strong>
                               {srv.price ?? srv.priceDkk} {srv.currency || "DKK"}
@@ -2796,16 +3036,13 @@ export const ClientConsentAndProfileView: React.FC = () => {
     }
   };
 
-  const handleToggleSettings = (hs: ClientTherapistHandshakeDto) => {
-    if (!hs.id) {
-      return;
-    }
-    if (expandedHandshakeId === hs.id) {
+  const handleToggleSettings = (handshakeId: string, hs: ClientTherapistHandshakeDto) => {
+    if (expandedHandshakeId === handshakeId) {
       setExpandedHandshakeId(null);
       return;
     }
     setSharingSavedId(null);
-    setExpandedHandshakeId(hs.id);
+    setExpandedHandshakeId(handshakeId);
     setHistoryStartDate(hs.historyStartDate || "");
     setHistoryEndDate(hs.historyEndDate || "");
     setNoMoodScores((hs.customRestrictions || "").includes("NO_MOOD_SCORES"));
@@ -3006,7 +3243,11 @@ export const ClientConsentAndProfileView: React.FC = () => {
             {copy.emptyConsents}
           </p>
         ) : (
-          <ul className="space-y-2.5" data-testid="client-handshakes-consent-list">
+          <ul
+            className="list-none space-y-2.5 pl-0"
+            style={{ paddingLeft: 0 }}
+            data-testid="client-handshakes-consent-list"
+          >
             {handshakes.map((hs) => {
               const isInactive = hs.status === "REVOKED" || hs.status === "TERMINATED";
               const isExpanded = Boolean(hs.id && expandedHandshakeId === hs.id);
@@ -3027,7 +3268,7 @@ export const ClientConsentAndProfileView: React.FC = () => {
                         <button
                           type="button"
                           data-testid={`toggle-handshake-settings-${hs.id}`}
-                          onClick={() => handleToggleSettings(hs)}
+                          onClick={() => handleToggleSettings(hs.id!, hs)}
                           className="min-h-11 inline-flex items-center gap-1.5 rounded-lg border border-teal-200 bg-teal-50 px-3 py-1.5 text-xs font-semibold text-teal-800 hover:bg-teal-100"
                         >
                           <i className="bi bi-sliders2" aria-hidden="true" />
@@ -3113,28 +3354,87 @@ export const ClientConsentAndProfileView: React.FC = () => {
         )}
       </div>
 
-      <ConfirmActionDialog
-        open={Boolean(pendingRevokeId)}
-        title={copy.confirmRevokeTitle}
-        description={copy.confirmRevokeDesc}
-        confirmLabel={copy.revokeConsentBtn}
-        cancelLabel={copy.cancelBtn}
-        tone="danger"
-        onCancel={() => setPendingRevokeId(null)}
-        onConfirm={() => {
-          const id = pendingRevokeId;
-          setPendingRevokeId(null);
-          if (id) {
+      {pendingRevokeId && (
+        <ConfirmActionDialog
+          open
+          title={copy.confirmRevokeTitle}
+          description={copy.confirmRevokeDesc}
+          confirmLabel={copy.revokeConsentBtn}
+          cancelLabel={copy.cancelBtn}
+          tone="danger"
+          onCancel={() => setPendingRevokeId(null)}
+          onConfirm={() => {
+            const id = pendingRevokeId;
+            setPendingRevokeId(null);
             void handleRevokeHandshake(id);
-          }
-        }}
-      />
+          }}
+        />
+      )}
     </div>
   );
 };
 
 export interface TherapistClinicOnboardingViewProps {
   onOnboardingSuccess?: () => void | Promise<void>;
+}
+
+const SCHEDULE_ONBOARD_HINT: Record<SupportedUiLocale, string> = {
+  da: "Struktureret ugeskema — redigeres under Kalender",
+  en: "Structured weekly schedule — edit in Calendar",
+  fr: "Horaire hebdomadaire structuré — modifier dans Calendrier",
+  es: "Horario semanal estructurado — editar en Calendario",
+  de: "Strukturierter Wochenplan — im Kalender bearbeiten",
+};
+
+const WEEKDAY_PREVIEW_SHORT: Record<SupportedUiLocale, Record<string, string>> = {
+  da: { monday: "Man", mon: "Man", tuesday: "Tir", tue: "Tir", wednesday: "Ons", wed: "Ons", thursday: "Tor", thu: "Tor", friday: "Fre", fri: "Fre", saturday: "Lør", sat: "Lør", sunday: "Søn", sun: "Søn" },
+  en: { monday: "Mon", mon: "Mon", tuesday: "Tue", tue: "Tue", wednesday: "Wed", wed: "Wed", thursday: "Thu", thu: "Thu", friday: "Fri", fri: "Fri", saturday: "Sat", sat: "Sat", sunday: "Sun", sun: "Sun" },
+  fr: { monday: "Lun", mon: "Lun", tuesday: "Mar", tue: "Mar", wednesday: "Mer", wed: "Mer", thursday: "Jeu", thu: "Jeu", friday: "Ven", fri: "Ven", saturday: "Sam", sat: "Sam", sunday: "Dim", sun: "Dim" },
+  es: { monday: "Lun", mon: "Lun", tuesday: "Mar", tue: "Mar", wednesday: "Mié", wed: "Mié", thursday: "Jue", thu: "Jue", friday: "Vie", fri: "Vie", saturday: "Sáb", sat: "Sáb", sunday: "Dom", sun: "Dom" },
+  de: { monday: "Mo", mon: "Mo", tuesday: "Di", tue: "Di", wednesday: "Mi", wed: "Mi", thursday: "Do", thu: "Do", friday: "Fr", fri: "Fr", saturday: "Sa", sat: "Sa", sunday: "So", sun: "So" },
+};
+
+function formatWorkingHoursPreview(
+  raw: string,
+  locale: SupportedUiLocale
+): { isStructured: boolean; displayText: string; hint: string } {
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith("{")) {
+    return { isStructured: false, displayText: raw, hint: "" };
+  }
+  try {
+    const parsed = JSON.parse(trimmed) as {
+      overallWindow?: string;
+      summaryText?: string;
+      days?: Array<{ day?: string; enabled?: boolean; intervals?: Array<{ start?: string; end?: string }> }>;
+      [key: string]: unknown;
+    };
+    const dayMap = WEEKDAY_PREVIEW_SHORT[locale];
+    if (Array.isArray(parsed?.days)) {
+      const activeDays = parsed.days
+        .filter((d) => d?.enabled && Array.isArray(d.intervals) && d.intervals.length > 0)
+        .map((d) => {
+          const label = dayMap[String(d.day || "").toLowerCase()] || String(d.day || "");
+          const spans = d.intervals!.map((i) => `${i.start || ""}-${i.end || ""}`).join("/");
+          return `${label} ${spans}`;
+        });
+      const text =
+        activeDays.length > 0
+          ? activeDays.join(", ")
+          : parsed.summaryText || parsed.overallWindow || "09:00-17:00";
+      return { isStructured: true, displayText: text, hint: SCHEDULE_ONBOARD_HINT[locale] };
+    }
+    if (typeof parsed?.overallWindow === "string" && parsed.overallWindow.trim()) {
+      return {
+        isStructured: true,
+        displayText: parsed.overallWindow.trim(),
+        hint: SCHEDULE_ONBOARD_HINT[locale],
+      };
+    }
+    return { isStructured: true, displayText: "09:00-17:00", hint: SCHEDULE_ONBOARD_HINT[locale] };
+  } catch {
+    return { isStructured: false, displayText: raw, hint: "" };
+  }
 }
 
 export const TherapistClinicOnboardingView: React.FC<
@@ -3153,7 +3453,7 @@ export const TherapistClinicOnboardingView: React.FC<
   const [phoneNumber, setPhoneNumber] = useState("");
   const [workingHoursJson, setWorkingHoursJson] = useState("09:00-17:00");
   const [serviceName, setServiceName] = useState("");
-  const [servicePrice, setServicePrice] = useState("2");
+  const [servicePrice, setServicePrice] = useState("850");
   const [serviceDuration, setServiceDuration] = useState("60");
   const [serviceLocation, setServiceLocation] = useState("Klinik");
   const [services, setServices] = useState<ServiceDto[]>([]);
@@ -3165,6 +3465,7 @@ export const TherapistClinicOnboardingView: React.FC<
     | null
   >(null);
   const [error, setError] = useState<ProblemDetail | null>(null);
+  const [serviceError, setServiceError] = useState<ProblemDetail | null>(null);
 
   const loadClinicData = useCallback(async () => {
     try {
@@ -3182,7 +3483,12 @@ export const TherapistClinicOnboardingView: React.FC<
       setPhoneNumber(org?.phoneNumber || meData.clientProfile?.phoneNumber || "");
       setWorkingHoursJson(prov?.workingHoursJson || "09:00-17:00");
 
-      const allServices = await requestClinicJson<ServiceDto[]>("/api/backend/clinic/services");
+      const serviceQuery = meData.userUuid
+        ? `?therapistUuid=${encodeURIComponent(meData.userUuid)}`
+        : "";
+      const allServices = await requestClinicJson<ServiceDto[]>(
+        `/api/backend/clinic/services${serviceQuery}`
+      );
       setServices(Array.isArray(allServices) ? allServices : []);
 
       if (meData.userUuid) {
@@ -3192,6 +3498,7 @@ export const TherapistClinicOnboardingView: React.FC<
         setHandshakes(Array.isArray(hs) ? hs : []);
       }
       setError(null);
+      setServiceError(null);
     } catch (err) {
       setError(toProblemDetail(err));
     }
@@ -3230,6 +3537,7 @@ export const TherapistClinicOnboardingView: React.FC<
       await loadClinicData();
       setSavedNotice(true);
       await onOnboardingSuccess?.();
+      window.dispatchEvent(new CustomEvent("edujournal:me-refresh"));
     } catch (err) {
       setError(toProblemDetail(err));
     }
@@ -3237,6 +3545,7 @@ export const TherapistClinicOnboardingView: React.FC<
 
   const handleCreateService = async (e: React.FormEvent) => {
     e.preventDefault();
+    setServiceError(null);
     try {
       DomainGuard.requireNotBlank(serviceName, "Service name", "name");
       await requestClinicJson("/api/backend/clinic/services", {
@@ -3250,9 +3559,12 @@ export const TherapistClinicOnboardingView: React.FC<
         }),
       });
       setServiceName("");
+      setServicePrice("850");
+      setServiceDuration("60");
       await loadClinicData();
+      window.dispatchEvent(new CustomEvent("edujournal:me-refresh"));
     } catch (err) {
-      setError(toProblemDetail(err));
+      setServiceError(toProblemDetail(err));
     }
   };
 
@@ -3263,6 +3575,7 @@ export const TherapistClinicOnboardingView: React.FC<
         { method: "PATCH" }
       );
       await loadClinicData();
+      window.dispatchEvent(new CustomEvent("edujournal:me-refresh"));
     } catch (err) {
       setError(toProblemDetail(err));
     }
@@ -3275,6 +3588,7 @@ export const TherapistClinicOnboardingView: React.FC<
         { method: "DELETE" }
       );
       await loadClinicData();
+      window.dispatchEvent(new CustomEvent("edujournal:me-refresh"));
     } catch (err) {
       setError(toProblemDetail(err));
     }
@@ -3290,6 +3604,7 @@ export const TherapistClinicOnboardingView: React.FC<
         }
       );
       await loadClinicData();
+      window.dispatchEvent(new CustomEvent("edujournal:me-refresh"));
     } catch (err) {
       setError(toProblemDetail(err));
     }
@@ -3426,21 +3741,45 @@ export const TherapistClinicOnboardingView: React.FC<
             <option value="EUR">EUR</option>
           </select>
         </div>
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-1 sm:col-span-2">
           <label
             htmlFor="onboard-hours"
             className="text-xs font-semibold uppercase tracking-wide text-slate-600"
           >
             {copy.onboardHoursPlaceholder}
           </label>
-          <input
-            id="onboard-hours"
-            data-testid="input-onboard-hours"
-            placeholder={copy.onboardHoursPlaceholder}
-            value={workingHoursJson}
-            onChange={(e) => setWorkingHoursJson(e.target.value)}
-            className="min-h-11 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
-          />
+          {(() => {
+            const preview = formatWorkingHoursPreview(workingHoursJson, locale);
+            return (
+              <>
+                <input
+                  id="onboard-hours"
+                  data-testid="input-onboard-hours"
+                  placeholder={copy.onboardHoursPlaceholder}
+                  value={preview.isStructured ? preview.displayText : workingHoursJson}
+                  readOnly={preview.isStructured}
+                  onChange={(e) => {
+                    if (!preview.isStructured) {
+                      setWorkingHoursJson(e.target.value);
+                    }
+                  }}
+                  className={`min-h-11 rounded-xl border border-slate-300 px-3 py-2 text-sm ${
+                    preview.isStructured
+                      ? "bg-slate-50 text-slate-600 cursor-default"
+                      : "text-slate-900"
+                  }`}
+                />
+                {preview.isStructured && preview.hint && (
+                  <span
+                    data-testid="onboard-hours-schedule-hint"
+                    className="text-[11px] font-medium text-teal-700"
+                  >
+                    {preview.hint}
+                  </span>
+                )}
+              </>
+            );
+          })()}
         </div>
         <div className="flex flex-col gap-1">
           <label
@@ -3503,6 +3842,7 @@ export const TherapistClinicOnboardingView: React.FC<
 
       <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4" data-testid="therapist-services-card">
         <h3 className="text-sm font-semibold text-slate-900">{copy.servicesHeading}</h3>
+        <ProblemAlert error={serviceError} onDismiss={() => setServiceError(null)} />
         <form
           noValidate
           onSubmit={handleCreateService}
@@ -3584,14 +3924,22 @@ export const TherapistClinicOnboardingView: React.FC<
           </button>
         </form>
 
-        <ul className="space-y-2" data-testid="therapist-services-list">
+        <ul
+          className="list-none space-y-2 pl-0"
+          style={{ paddingLeft: 0 }}
+          data-testid="therapist-services-list"
+        >
           {pagedServices.map((srv) => (
             <li
               key={srv.id}
               className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm"
             >
               <span>
-                <strong>{srv.name}</strong> — {srv.price ?? srv.priceDkk} {srv.currency || "DKK"} ({srv.durationMinutes} min){" "}
+                <strong>{(srv.name || "").trim()}</strong> — {srv.price ?? srv.priceDkk}{" "}
+                {srv.currency || "DKK"}
+                {srv.durationMinutes && !hasServiceDurationSuffix(srv.name, srv.durationMinutes)
+                  ? ` (${srv.durationMinutes} min)`
+                  : ""}{" "}
                 <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs">
                   {srv.isActive ? copy.serviceActiveLabel : copy.serviceInactiveLabel}
                 </span>
@@ -3652,7 +4000,11 @@ export const TherapistClinicOnboardingView: React.FC<
 
       <div className="space-y-2 rounded-2xl border border-slate-200 bg-white p-4" data-testid="therapist-handshakes-card">
         <h3 className="text-sm font-semibold text-slate-900">{copy.therapistHandshakesHeading}</h3>
-        <ul className="space-y-2" data-testid="therapist-handshakes-list">
+        <ul
+          className="list-none space-y-2 pl-0"
+          style={{ paddingLeft: 0 }}
+          data-testid="therapist-handshakes-list"
+        >
           {handshakes.map((hs) => (
             <li
               key={hs.id}
@@ -3693,39 +4045,38 @@ export const TherapistClinicOnboardingView: React.FC<
         </ul>
       </div>
 
-      <ConfirmActionDialog
-        open={Boolean(pendingAction)}
-        title={
-          pendingAction?.kind === "delete-service"
-            ? copy.confirmDeleteServiceTitle
-            : copy.confirmTerminateTitle
-        }
-        description={
-          pendingAction?.kind === "delete-service"
-            ? copy.confirmDeleteServiceDesc
-            : copy.confirmTerminateDesc
-        }
-        confirmLabel={
-          pendingAction?.kind === "delete-service"
-            ? copy.deleteBtn
-            : copy.terminateBtn
-        }
-        cancelLabel={copy.cancelBtn}
-        tone="danger"
-        onCancel={() => setPendingAction(null)}
-        onConfirm={() => {
-          const action = pendingAction;
-          setPendingAction(null);
-          if (!action) {
-            return;
+      {pendingAction && (
+        <ConfirmActionDialog
+          open
+          title={
+            pendingAction.kind === "delete-service"
+              ? copy.confirmDeleteServiceTitle
+              : copy.confirmTerminateTitle
           }
-          if (action.kind === "delete-service") {
-            void handleDeleteService(action.id);
-          } else {
-            void handleUpdateHandshake(action.id, "TERMINATED");
+          description={
+            pendingAction.kind === "delete-service"
+              ? copy.confirmDeleteServiceDesc
+              : copy.confirmTerminateDesc
           }
-        }}
-      />
+          confirmLabel={
+            pendingAction.kind === "delete-service"
+              ? copy.deleteBtn
+              : copy.terminateBtn
+          }
+          cancelLabel={copy.cancelBtn}
+          tone="danger"
+          onCancel={() => setPendingAction(null)}
+          onConfirm={() => {
+            const action = pendingAction;
+            setPendingAction(null);
+            if (action.kind === "delete-service") {
+              void handleDeleteService(action.id);
+            } else {
+              void handleUpdateHandshake(action.id, "TERMINATED");
+            }
+          }}
+        />
+      )}
     </div>
   );
 };

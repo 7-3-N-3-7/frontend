@@ -364,12 +364,24 @@ export abstract class BaseApiService<DTO extends HasId<ID>, ID = string> {
       throw new FrontendDomainException(problem);
     }
 
-    // Trin 3: Returner `undefined` ved HTTP 204 No Content eller parse JSON-payload
+    // Trin 3: Returner `undefined` ved HTTP 204 No Content eller tom 2xx body; ellers parse JSON-payload
     if (response.status === 204) {
       return undefined as ResponseType;
     }
 
-    return (await response.json()) as ResponseType;
+    if (typeof response.text === 'function') {
+      const rawText = await response.text();
+      if (!rawText || !rawText.trim()) {
+        return undefined as ResponseType;
+      }
+      return JSON.parse(rawText) as ResponseType;
+    }
+
+    try {
+      return (await response.json()) as ResponseType;
+    } catch {
+      return undefined as ResponseType;
+    }
   }
 
   /** #getAll() — Henter alle ressourcer (`GET`). */

@@ -193,5 +193,23 @@ describe("ManagementFeature Vertical Slice (RoleGuard + BaseApiService)", () => 
       expect(screen.getByTestId("forbidden-notice")).toBeDefined();
     });
     expect(fetchMock).not.toHaveBeenCalled();
+
+    // Empty KPI list shows summary placeholder (noMetricsShort)
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => [] });
+    rerender(
+      <AuthProvider
+        user={{
+          id: "m-empty",
+          name: "Leder",
+          email: "leder@dk.dk",
+          roles: ["MANAGEMENT"],
+        }}
+      >
+        <ManagementFeatureView />
+      </AuthProvider>
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("management-summary-cards").textContent).toContain("Ingen endnu");
+    });
   });
 });

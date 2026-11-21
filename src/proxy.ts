@@ -95,7 +95,12 @@ export default async function proxy(request: NextRequest) {
   const locale = urlLocale || preferredLocale;
 
   if (!token && requiresAuthentication) {
-    return NextResponse.redirect(new URL(`/${locale}`, landingOrigin));
+    const loginRedirect = new URL(`/${locale}`, landingOrigin);
+    loginRedirect.searchParams.set('authRequired', '1');
+    if (url.searchParams.get('emailVerified') === '1') {
+      loginRedirect.searchParams.set('emailVerified', '1');
+    }
+    return NextResponse.redirect(loginRedirect);
   }
 
   // If an authenticated user accesses a dashboard route on the bare domain (e.g. 157.180.43.151.nip.io),
@@ -143,21 +148,23 @@ export default async function proxy(request: NextRequest) {
     }
 
     if (pathWithoutLocale === '/dashboard') {
-      return NextResponse.redirect(
-        new URL(
-          `/${locale}/dashboard/${hasTherapistRole ? 'therapist' : 'personal'}`,
-          platformOrigin,
-        ),
-      );
+      const targetPath = hasAdminRole
+        ? `/${locale}/dashboard/admin?tab=management`
+        : `/${locale}/dashboard/${hasTherapistRole ? 'therapist' : 'personal'}`;
+      return NextResponse.redirect(new URL(targetPath, platformOrigin));
     }
   }
 
   // Redirect authenticated users on root /{locale} directly to their dashboard on platform.<domain>
   if (token && pathWithoutLocale === '/') {
-    const dashboard = hasTherapistRole ? 'therapist' : 'personal';
-    return NextResponse.redirect(
-      new URL(`/${locale}/dashboard/${dashboard}`, platformOrigin),
-    );
+    const dashboardPath = hasAdminRole
+      ? `/${locale}/dashboard/admin?tab=management`
+      : `/${locale}/dashboard/${hasTherapistRole ? 'therapist' : 'personal'}`;
+    const dashboardUrl = new URL(dashboardPath, platformOrigin);
+    if (url.searchParams.get('emailVerified') === '1') {
+      dashboardUrl.searchParams.set('emailVerified', '1');
+    }
+    return NextResponse.redirect(dashboardUrl);
   }
 
   // If an unauthenticated user visits the root landing page via platform.<domain>, redirect to the bare domain
