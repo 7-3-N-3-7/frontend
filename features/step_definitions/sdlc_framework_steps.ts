@@ -176,7 +176,6 @@ When(
         hasImplementationCommits: true,
         isPreviouslyDone: false,
         isMerged: false,
-        secretScanPassed: true,
         subIssues: [{ issueId: childIssueId, title: "Child Sub-Issue", status: childStatus }],
         backend: {
           cucumber: fullBdd,
@@ -213,7 +212,6 @@ When(
         hasImplementationCommits: true,
         isPreviouslyDone: true,
         isMerged: true,
-        secretScanPassed: true,
         subIssues: [],
         backend: {
           cucumber: cucumberReport,
