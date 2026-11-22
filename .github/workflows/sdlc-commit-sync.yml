@@ -1,0 +1,37 @@
+name: SDLC Commit Tag Dispatch
+
+on:
+  push:
+
+jobs:
+  dispatch-commit-sync:
+    name: Dispatch Commit Tags to 7-3-N-3-7/api
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch sdlc-commit-sync event to control-plane
+        env:
+          SDLC_PROJECT_TOKEN: ${{ secrets.SDLC_PROJECT_TOKEN }}
+          SOURCE_REPO: ${{ github.repository }}
+          BRANCH_NAME: ${{ github.ref_name }}
+        run: |
+          if [ -z "$SDLC_PROJECT_TOKEN" ]; then
+            echo "::notice::Secret SDLC_PROJECT_TOKEN is not configured in $SOURCE_REPO yet; skipping commit tag dispatch to 7-3-N-3-7/api."
+            exit 0
+          fi
+
+          MATCH_COUNT=$(jq -r '[(.commits // [])[-20:][]? | select((.message // "") | test("#[A-Za-z]"))] | length' "$GITHUB_EVENT_PATH")
+          if [ "$MATCH_COUNT" -eq 0 ]; then
+            echo "No commit status tags found in push event; skipping dispatch."
+            exit 0
+          fi
+
+          PAYLOAD=$(jq -c --arg branch "$BRANCH_NAME" --arg repo "$SOURCE_REPO" '{
+            event_type: "sdlc-commit-sync",
+            client_payload: {
+              branch: $branch,
+              source_repo: $repo,
+              commits: [(.commits // [])[-20:][]? | {id: (.id // ""), message: ((.message // "")[0:2000])}]
+            }
+          }' "$GITHUB_EVENT_PATH")
+
+          printf '%s' "$PAYLOAD" | GH_TOKEN="$SDLC_PROJECT_TOKEN" gh api repos/7-3-N-3-7/api/dispatches --input -
