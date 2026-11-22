@@ -14,20 +14,32 @@
             "hidden": true,
             "result": {
               "status": "passed",
+<<<<<<< HEAD
               "duration": 33265128
+=======
+              "duration": 44556731
+>>>>>>> 14f27710450201a678fcb1c58e86870d9b97eecc
             }
           },
           {
             "arguments": [],
             "keyword": "Given ",
+<<<<<<< HEAD
             "line": 9,
+=======
+            "line": 8,
+>>>>>>> 14f27710450201a678fcb1c58e86870d9b97eecc
             "name": "SDLC configuration loaded from \"sdlc.config.json\" with strict 100% thresholds on JaCoCo and Istanbul",
             "match": {
               "location": "features/step_definitions/sdlc_framework_steps.ts:58"
             },
             "result": {
               "status": "passed",
+<<<<<<< HEAD
               "duration": 912483
+=======
+              "duration": 963293
+>>>>>>> 14f27710450201a678fcb1c58e86870d9b97eecc
             }
           },
           {
@@ -40,7 +52,11 @@
             },
             "result": {
               "status": "passed",
+<<<<<<< HEAD
               "duration": 4316334
+=======
+              "duration": 4443456
+>>>>>>> 14f27710450201a678fcb1c58e86870d9b97eecc
             }
           },
           {
@@ -53,7 +69,11 @@
             },
             "result": {
               "status": "passed",
+<<<<<<< HEAD
               "duration": 326317
+=======
+              "duration": 260076
+>>>>>>> 14f27710450201a678fcb1c58e86870d9b97eecc
             }
           },
           {
@@ -66,7 +86,11 @@
             },
             "result": {
               "status": "passed",
+<<<<<<< HEAD
               "duration": 309815
+=======
+              "duration": 306919
+>>>>>>> 14f27710450201a678fcb1c58e86870d9b97eecc
             }
           },
           {
@@ -74,7 +98,11 @@
             "hidden": true,
             "result": {
               "status": "passed",
+<<<<<<< HEAD
               "duration": 595101
+=======
+              "duration": 578218
+>>>>>>> 14f27710450201a678fcb1c58e86870d9b97eecc
             }
           },
           {
@@ -82,7 +110,11 @@
             "hidden": true,
             "result": {
               "status": "passed",
+<<<<<<< HEAD
               "duration": 321317
+=======
+              "duration": 338222
+>>>>>>> 14f27710450201a678fcb1c58e86870d9b97eecc
             }
           }
         ],
@@ -118,7 +150,11 @@
         "description": "",
         "id": "generic-github-sdlc-framework-(dual-layer-spec-&-gate-contract);hierarchical-sub-issue-blocks-parent-issue-in-inner-tdd-until-child-reaches-done-and-all-100%-gates-pass",
         "keyword": "Scenario",
+<<<<<<< HEAD
         "line": 15,
+=======
+        "line": 13,
+>>>>>>> 14f27710450201a678fcb1c58e86870d9b97eecc
         "name": "Hierarchical Sub-Issue blocks Parent Issue in Inner TDD until child reaches Done and all 100% gates pass",
         "steps": [
           {
@@ -126,26 +162,65 @@
             "hidden": true,
             "result": {
               "status": "passed",
+<<<<<<< HEAD
               "duration": 8942013
+=======
+              "duration": 8663500
+>>>>>>> 14f27710450201a678fcb1c58e86870d9b97eecc
             }
           },
           {
             "arguments": [],
             "keyword": "Given ",
+<<<<<<< HEAD
             "line": 16,
+=======
+            "line": 14,
+>>>>>>> 14f27710450201a678fcb1c58e86870d9b97eecc
             "name": "SDLC configuration loaded from \"sdlc.config.json\" with strict 100% thresholds on JaCoCo and Istanbul",
             "match": {
               "location": "features/step_definitions/sdlc_framework_steps.ts:58"
             },
             "result": {
               "status": "passed",
+<<<<<<< HEAD
               "duration": 661213
+=======
+              "duration": 529250
+            }
+          },
+          {
+            "arguments": [],
+            "keyword": "When ",
+            "line": 15,
+            "name": "SDLC resolves child branch for Sub-Issue 102 titled \"GraphQL Field Mapping\" under parent branch \"feature/101-automated-board-sync\"",
+            "match": {
+              "location": "features/step_definitions/sdlc_framework_steps.ts:136"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 491606
+            }
+          },
+          {
+            "arguments": [],
+            "keyword": "Then ",
+            "line": 16,
+            "name": "SDLC resolves child branch \"feature/102-graphql-field-mapping\" from base branch \"feature/101-automated-board-sync\"",
+            "match": {
+              "location": "features/step_definitions/sdlc_framework_steps.ts:148"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 292490
+>>>>>>> 14f27710450201a678fcb1c58e86870d9b97eecc
             }
           },
           {
             "arguments": [],
             "keyword": "When ",
             "line": 17,
+<<<<<<< HEAD
             "name": "SDLC resolves child branch for Sub-Issue 102 titled \"GraphQL Field Mapping\" under parent branch \"feature/101-automated-board-sync\"",
             "match": {
               "location": "features/step_definitions/sdlc_framework_steps.ts:136"
@@ -153,6 +228,15 @@
             "result": {
               "status": "passed",
               "duration": 515624
+=======
+            "name": "SDLC evaluates Issue 101 with passing Backend and Frontend 100% gates while Sub-Issue 102 has status \"Inner TDD\"",
+            "match": {
+              "location": "features/step_definitions/sdlc_framework_steps.ts:158"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 843195
+>>>>>>> 14f27710450201a678fcb1c58e86870d9b97eecc
             }
           },
           {
@@ -161,24 +245,40 @@
             "line": 18,
             "name": "SDLC resolves child branch \"feature/102-graphql-field-mapping\" from base branch \"feature/101-automated-board-sync\"",
             "match": {
+<<<<<<< HEAD
               "location": "features/step_definitions/sdlc_framework_steps.ts:148"
             },
             "result": {
               "status": "passed",
               "duration": 289875
+=======
+              "location": "features/step_definitions/sdlc_framework_steps.ts:232"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 173595
+>>>>>>> 14f27710450201a678fcb1c58e86870d9b97eecc
             }
           },
           {
             "arguments": [],
             "keyword": "When ",
             "line": 19,
+<<<<<<< HEAD
             "name": "SDLC evaluates Issue 101 with passing Backend and Frontend 100% gates while Sub-Issue 102 has status \"Inner TDD\"",
+=======
+            "name": "SDLC evaluates Issue 101 with passing Backend and Frontend 100% gates while Sub-Issue 102 has status \"Done\"",
+>>>>>>> 14f27710450201a678fcb1c58e86870d9b97eecc
             "match": {
               "location": "features/step_definitions/sdlc_framework_steps.ts:158"
             },
             "result": {
               "status": "passed",
+<<<<<<< HEAD
               "duration": 963674
+=======
+              "duration": 151630
+>>>>>>> 14f27710450201a678fcb1c58e86870d9b97eecc
             }
           },
           {
@@ -187,6 +287,7 @@
             "line": 20,
             "name": "SDLC state machine status is \"Inner TDD\" with merge allowed \"false\"",
             "match": {
+<<<<<<< HEAD
               "location": "features/step_definitions/sdlc_framework_steps.ts:230"
             },
             "result": {
@@ -218,6 +319,13 @@
             "result": {
               "status": "passed",
               "duration": 231258
+=======
+              "location": "features/step_definitions/sdlc_framework_steps.ts:232"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 362499
+>>>>>>> 14f27710450201a678fcb1c58e86870d9b97eecc
             }
           },
           {
@@ -225,7 +333,11 @@
             "hidden": true,
             "result": {
               "status": "passed",
+<<<<<<< HEAD
               "duration": 54658
+=======
+              "duration": 57845
+>>>>>>> 14f27710450201a678fcb1c58e86870d9b97eecc
             }
           },
           {
@@ -233,7 +345,11 @@
             "hidden": true,
             "result": {
               "status": "passed",
+<<<<<<< HEAD
               "duration": 179125
+=======
+              "duration": 192893
+>>>>>>> 14f27710450201a678fcb1c58e86870d9b97eecc
             }
           }
         ],
@@ -277,20 +393,32 @@
             "hidden": true,
             "result": {
               "status": "passed",
+<<<<<<< HEAD
               "duration": 5545505
+=======
+              "duration": 4765797
+>>>>>>> 14f27710450201a678fcb1c58e86870d9b97eecc
             }
           },
           {
             "arguments": [],
             "keyword": "Given ",
+<<<<<<< HEAD
             "line": 26,
+=======
+            "line": 23,
+>>>>>>> 14f27710450201a678fcb1c58e86870d9b97eecc
             "name": "SDLC configuration loaded from \"sdlc.config.json\" with strict 100% thresholds on JaCoCo and Istanbul",
             "match": {
               "location": "features/step_definitions/sdlc_framework_steps.ts:58"
             },
             "result": {
               "status": "passed",
+<<<<<<< HEAD
               "duration": 416798
+=======
+              "duration": 380094
+>>>>>>> 14f27710450201a678fcb1c58e86870d9b97eecc
             }
           },
           {
@@ -299,11 +427,19 @@
             "line": 27,
             "name": "SDLC evaluates previously Done Issue 101 against a failing \"@issue-101\" scenario report",
             "match": {
+<<<<<<< HEAD
               "location": "features/step_definitions/sdlc_framework_steps.ts:194"
             },
             "result": {
               "status": "passed",
               "duration": 633438
+=======
+              "location": "features/step_definitions/sdlc_framework_steps.ts:195"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 636603
+>>>>>>> 14f27710450201a678fcb1c58e86870d9b97eecc
             }
           },
           {
@@ -312,11 +448,19 @@
             "line": 28,
             "name": "SDLC state machine status is \"Regression\" with merge allowed \"false\"",
             "match": {
+<<<<<<< HEAD
               "location": "features/step_definitions/sdlc_framework_steps.ts:230"
             },
             "result": {
               "status": "passed",
               "duration": 107583
+=======
+              "location": "features/step_definitions/sdlc_framework_steps.ts:232"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 104346
+>>>>>>> 14f27710450201a678fcb1c58e86870d9b97eecc
             }
           },
           {
@@ -324,7 +468,11 @@
             "hidden": true,
             "result": {
               "status": "passed",
+<<<<<<< HEAD
               "duration": 52023
+=======
+              "duration": 52894
+>>>>>>> 14f27710450201a678fcb1c58e86870d9b97eecc
             }
           },
           {
@@ -332,7 +480,11 @@
             "hidden": true,
             "result": {
               "status": "passed",
+<<<<<<< HEAD
               "duration": 210297
+=======
+              "duration": 307820
+>>>>>>> 14f27710450201a678fcb1c58e86870d9b97eecc
             }
           }
         ],
